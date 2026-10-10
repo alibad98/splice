@@ -1,6 +1,7 @@
 ---
 name: Slips
-status: draft
+status: final
+updated: 2026-10-10
 sources:
   - docs/prd.md (v0.4: FR1-FR30, NFR6, NFR9, §1.5, §1.6, Epics 3-7)
   - _bmad-output/planning-artifacts/architecture/architecture-splice-2026-10-10/ARCHITECTURE-SPINE.md (AD-8, AD-12, AD-19, AD-20, AD-23)
@@ -18,11 +19,13 @@ updated: 2026-10-10
 | Surfaces | (1) Merchant dashboard: responsive web, embedded in the Salla dashboard iframe, also reachable by direct link (AD-12). (2) Storefront player: mobile-first overlay/inline in Salla themes, loaded by the injector. (3) `/admin`: internal support view, never framed. |
 | Form factors | Dashboard desktop/tablet first, usable on mobile. Player phone first, works on desktop (NFR9). |
 | Language | Arabic first (RTL default), English available. Dashboard language set in Settings. Player follows the storefront language (FR10). |
-| Theme | Light first, full dark theme (dashboard). Player follows the shopper's `prefers-color-scheme` [ASSUMPTION]. |
+| Theme | Light first, full dark theme (dashboard). Player is light-only in MVP: black scrim + white surfaces, independent of `prefers-color-scheme`. |
 | UI system | shadcn/ui on Radix + Tailwind 4. Visual direction "Studio". |
 | Visual reference | `DESIGN.md` owns color, type, radius, components. This file owns behavior. On conflict about looks, DESIGN.md wins; about behavior, this file wins. |
 
 ## Information Architecture
+
+Visual references (spines win on conflict): [content editor](mockups/key-content-editor.html), [Settings](mockups/key-settings-injector.html), [Story viewer and story ring](mockups/key-story-viewer.html), [Overview dashboard](mockups/identity-studio-coral.html).
 
 ### Dashboard
 
@@ -53,7 +56,7 @@ Nav collapses to icons on `md`, becomes a `Sheet` on `sm`. Dialogs stack one lev
 | Product strip / carousel | Product page / home-category per placement layout (FR29), same AD-8 rule | Inline entry points |
 | Floating bubble | Fallback when inline insertion is not allowed (anchor already in view) | Overlay entry, mounted on `body`, no layout shift |
 | Full-screen viewer | Tap on any entry | Stories (segmented progress) or Reels (vertical swipe feed); muted autoplay |
-| Product card | Bottom of viewer | Image, name, the price the cart will charge, CTA; secondary: open product / open cart |
+| Player product card | Bottom of viewer | Image, name, the price the cart will charge, CTA; secondary: open product / open cart |
 | "View options" fallback | Products with required options (FR23) | CTA opens the product page instead of adding |
 | Out of stock | Unavailable product | Disabled CTA "Out of stock" (FR16) |
 
@@ -74,7 +77,7 @@ Friendly coach: warm, short, encouraging. Celebrate wins in one line. Errors say
 | Situation | Arabic | English |
 |---|---|---|
 | Publish success | قصتك صارت مباشرة على متجرك. | Your Story is live on your store. |
-| First attributed sale | أول طلب من سليبس! 340 ر.س من هذا الريل. | First order from Slips. SAR 340 from this Reel. |
+| First attributed sale | أول طلب من سليبس. 340 ر.س من هذا الريل. | First order from Slips. SAR 340 from this Reel. |
 | Settings saved | تم حفظ التغييرات. | Changes saved. |
 | Empty content list | ما عندك محتوى بعد. ابدأ بقصة قصيرة لأكثر منتج مبيعاً. | Nothing here yet. Start with a short Story for your best seller. |
 | Empty analytics | الأرقام تظهر بعد أول مشاهدة. انشر محتوى وتابع هنا. | Numbers appear after your first view. Publish something and check back. |
@@ -99,14 +102,18 @@ Behavioral only. Visuals per `DESIGN.md` tokens.
 | Onboarding checklist | Overview | Steps auto-tick from live state (injector detection polls) [ASSUMPTION: poll every 10 s while visible]. Collapses to a "Setup complete" line after all done; dismissible thereafter. |
 | Content table | Content list, Overview | Row click opens editor. Status chip per AD-19. Row menu: Edit, Duplicate, Archive, Delete (confirm dialog). Tabs and filters in URL. |
 | Content editor | New/Edit | Two columns: form (start side) and preview (end side); stacked with preview toggle on `sm`. Drafts autosave (indicator "Saved"); Published items save explicitly with "Save changes" (AD-19). Publish blocked without a placement, with inline reason. |
-| Media uploader | Editor | Drag/drop or pick, multi-file; client-side pre-check against FR5 limits before upload; per-file progress, then "Processing" with poster when ready; Failed shows reason + Retry. Reorderable slides. |
+| Media uploader | Editor | Drag/drop or pick, multi-file; client-side pre-check against FR5 limits before upload; per-file progress, then "Processing" with poster when ready; Failed shows reason + Retry. Reorderable slides: drag, or keyboard/AT via each slide's "Move earlier" / "Move later" buttons (logical order, not left/right, so RTL-safe); new position announced ("Slide 2 of 3"), focus stays on the moved slide. |
 | Product picker | Editor | Searchable combobox of synced products with availability; required-options products show a "View options" note on the CTA preview. |
 | Live preview | Editor, Store Preview | Iframe of the real player with mock storefront (AD-23). Cart actions show simulated success; a "Preview: no real cart or analytics" note is always visible. |
-| Story ring | Storefront | {components.story-ring}: unseen items show the gradient ring, seen items a muted ring (per viewer, local) [ASSUMPTION]. Horizontal scroll follows text direction. |
+| Story ring | Storefront | {components.story-ring}: unseen items show the gradient ring, seen items a thinner muted ring (per viewer, local) [ASSUMPTION]. Each item is a `button` named "{title}, story, new" / "..., seen". Focus uses {components.focus-ring}. Horizontal scroll follows text direction. |
 | Floating bubble | Storefront fallback | Fixed at bottom start corner [ASSUMPTION], dismissible per session, never covers the theme's cart/checkout button. |
-| Viewer | Storefront | Focus-trapped dialog. Muted autoplay; visible mute and pause buttons; close button. Respects reduced motion: no auto-advance (tap to advance only) and no transitions. |
-| Product card + CTA | Viewer | {components.player-cta} pill. Tap: pending (spinner, CTA disabled, playback paused) → success toast "Added to cart" + cart count, playback resumes → or error message inline, CTA re-enabled. Price updates to Salla's price if it differs (FR24). |
+| Viewer | Storefront | `role=dialog`, `aria-modal`, named "{merchant} stories"; host siblings `inert`; initial focus on Pause. Progress via {components.player-progress-bar} (hidden "Slide 2 of 5", announced on manual navigation only). Muted autoplay; visible mute and pause buttons in every mode; close button. Respects reduced motion: no auto-advance (tap to advance only) and no transitions. |
+| Player product card + CTA | Viewer | {components.player-product-card} + {components.player-cta} pill. Tap: pending (spinner, `aria-disabled="true"` + `aria-busy="true"`, never native `disabled`; focus stays on the CTA; playback paused) → result written into a live region mounted empty at viewer open (`polite` "Added to cart. Cart: 3 items"; failure `assertive`), playback resumes → or error message inline, CTA re-enabled. Out of stock stays focusable, `aria-disabled`, named "Out of stock". Price updates to Salla's price if it differs (FR24). |
 | Plan usage meter | Settings, publish dialog | Neutral under 80%, warning at 80%, blocking at 100% with upgrade action. |
+| Button | Everywhere | One {components.button-accent} "make something" action per screen. Pending: spinner inside, `aria-busy`, double submit prevented. Unavailable actions use `aria-disabled` with a reason, focus kept. |
+| Toast | Dashboard | {components.toast}. Mounted empty `aria-live=polite` region at app load. Toasts with an action never auto-dismiss; reachable with `F8`. Plain toasts dismiss after 5 s, pausing on hover/focus. |
+| Banner | Dashboard | {components.banner}: offline (warning) and disconnected (danger); persistent, in-flow, one action. |
+| Skeleton | Dashboard | Matches final layout; shimmer off under reduced motion. |
 | Support sheet | Every page | Opens a side sheet; channels open externally (`mailto:`, WhatsApp) in a new tab, since the iframe cannot host them. |
 
 ## State Patterns
@@ -126,20 +133,22 @@ Behavioral only. Visuals per `DESIGN.md` tokens.
 | Disconnected store (AD-20) | Dashboard global | Persistent warning banner on every page with "Reconnect"; sync paused; last sync time shown; storefront keeps serving cached content. |
 | Uninstall grace (AD-20) | Dashboard on reinstall | If reinstalled within 30 days: "Welcome back. Your content and settings are restored." After purge: fresh onboarding. During grace the dashboard is not reachable (app uninstalled) [ASSUMPTION]. |
 | Plan limit | Publish, Settings, Content list | 80%: inline warning. 100%: Publish disabled with reason + upgrade. Downgrade: notice listing Deactivated items and grace period. |
+| Error | Store Preview | Preview iframe shows a skeleton phone frame while loading; failure: "Preview didn't load. Try again." with Retry. |
+| Error | Settings > Injector | "Not detected yet" with the steps to enable the App Snippet in Salla and a "Check again" button. |
 | Linked product deleted | Content row, editor | Flag "Linked product deleted" + action to relink (FR25). |
 
 Content statuses (AD-19 = FR22 + Ended):
 
-| Status | Meaning | Chip [ASSUMPTION colors from DESIGN.md] | Tab | Primary action |
+| Status | Meaning | Chip (DESIGN.md component) | Tab | Primary action |
 |---|---|---|---|---|
-| Draft | Not live; includes passed processing without auto-publish | neutral | Drafts | Publish |
-| Processing | Media transcoding | info, animated dot (static under reduced motion) | Drafts | — (wait) |
-| Failed | Processing failed after retries | danger + reason | Drafts | Retry |
-| Scheduled | Waits for start time (store time zone) | info + date | Scheduled | Edit schedule |
-| Published | Live within schedule | success | Published | View on store |
-| Ended | Schedule end passed | neutral muted | All | Duplicate / reschedule |
-| Archived | Merchant archived | neutral muted | All | Restore |
-| Deactivated | Switched off by plan limit | warning | All | Upgrade / free a slot |
+| Draft | Not live; includes passed processing without auto-publish | {components.status-draft} | Drafts | Publish |
+| Processing | Media transcoding | {components.status-processing} (text "Processing"; dot static under reduced motion) | Drafts | — (wait) |
+| Failed | Processing failed after retries | {components.status-failed} + reason | Drafts | Retry |
+| Scheduled | Waits for start time (store time zone) | {components.status-scheduled} + date | Scheduled | Edit schedule |
+| Published | Live within schedule | {components.status-published} | Published | View on store |
+| Ended | Schedule end passed | {components.status-ended} | All | Duplicate / reschedule |
+| Archived | Merchant archived | {components.status-archived} | All | Restore |
+| Deactivated | Switched off by plan limit | {components.status-deactivated} | All | Upgrade / free a slot |
 
 ## Interaction Primitives
 
@@ -150,13 +159,13 @@ Content statuses (AD-19 = FR22 + Ended):
 | Next slide/Story | Tap left third | Tap right third | `→` in LTR, `←` in RTL; `Space` does not advance | Next button (visible on focus/desktop) |
 | Previous slide | Tap right third | Tap left third | Opposite arrow | Previous button |
 | Next/previous Reel | Swipe up / down | Swipe up / down | `↓` / `↑` | Next/Prev buttons |
-| Next/previous Story group | Swipe toward start edge (right-to-left drag goes forward in LTR, reversed in RTL) [ASSUMPTION] | Swipe left | `PageDown` / `PageUp` [ASSUMPTION] | — |
+| Next/previous Story group | Forward = swipe toward the inline-start edge (rightward in RTL) | Forward = swipe toward the inline-start edge (leftward in LTR) | `PageDown` / `PageUp` [ASSUMPTION] | Next/Prev group buttons |
 | Pause / resume | Long-press (release resumes) | Long-press | `Space` / `K` | Pause button |
 | Mute toggle | Tap mute icon | Tap mute icon | `M` | Mute button |
 | Close | Swipe down | Swipe down | `Esc` | Close button |
 | Add to cart | Tap CTA | Tap CTA | `Enter` on focused CTA | — |
 
-Tapping the product card or CTA area never triggers navigation taps. Opening the card pauses Story auto-advance.
+Tap zones are real named buttons ("Next slide", "Previous slide"). Arrow keys follow the viewer's `dir`. Single-key shortcuts (`M`, `K`, `Space`) work only while focus is inside the viewer. Tapping the product card or CTA area never triggers navigation taps. Opening the card pauses Story auto-advance.
 
 ### Dashboard
 
@@ -166,8 +175,8 @@ Tapping the product card or CTA area never triggers navigation taps. Opening the
 | Saving | Drafts autosave (debounced) [ASSUMPTION: 1 s]; Settings and Published content save explicitly with "Changes saved" toast. Leaving with unsaved changes asks to confirm. |
 | URL state | nuqs for tabs (`?tab=`), content status filter, search, date range, sort, pagination. Shareable and back-button safe; shallow updates for filters. |
 | Tables | Sort by header click; search debounced; keyboard row focus with `Enter` to open. |
-| Destructive actions | Confirm dialog naming the item; Archive is undoable via toast, Delete is not. |
-| Toasts | Bottom start corner [ASSUMPTION], auto-dismiss 5 s, pause on hover/focus, announced via `aria-live=polite`. |
+| Destructive actions | Confirm dialog naming the item; Archive is undoable via the toast's Undo (announced "Archived. Undo available") and always via Restore on the Archived row; Delete is not undoable. |
+| Toasts | Bottom start corner [ASSUMPTION]. Toasts with an action (Undo, Retry) do not auto-dismiss; others auto-dismiss after 5 s, pausing on hover/focus. `F8` moves focus to the toast region. Announced via a pre-mounted `aria-live=polite` region. |
 
 ## Accessibility Floor
 
@@ -175,7 +184,7 @@ Tapping the product card or CTA area never triggers navigation taps. Opening the
 |---|---|---|
 | Keyboard | All actions reachable; visible focus ring; skip-to-content link | Full keyboard operation per table above; focus moves into viewer on open, returns to entry on close |
 | Focus trap | Dialogs/sheets via Radix | Viewer is a modal dialog with trap and `Esc` |
-| Motion | Respect `prefers-reduced-motion`: no count-up numbers, no slide animations | Stories do not auto-advance under reduced motion: tap to advance only, no transitions (owner decision). |
+| Motion | Respect `prefers-reduced-motion`: no count-up numbers, no slide animations | Stories do not auto-advance under reduced motion: tap to advance only, no transitions (owner decision). A video slide that ends stops on its last frame with focus-reachable Next. |
 | Pause | — | Pause control for auto-advancing Stories and playing video (WCAG 2.2.2) |
 | Gestures | — | Every swipe has a button alternative |
 | Contrast | Text 4.5:1, UI 3:1 in light and dark | Overlay text on video uses scrim per DESIGN.md |
@@ -186,22 +195,26 @@ Tapping the product card or CTA area never triggers navigation taps. Opening the
 
 ## Key Flows
 
-### UJ1. Noura onboards and publishes her first Reel
+### UJ1. Noura onboards and publishes her first Story
+
+Illustrated by [mockups/key-content-editor.html](mockups/key-content-editor.html) (steps 5-7).
 
 1. Noura installs Slips from the Salla App Store; Salla opens the dashboard in its iframe, already signed in (AD-12).
 2. Top bar reads "Connected to Salla: Noura Abayas". Overview shows the checklist: store connected (done), products synced (done automatically), injector detected (pending, flips to done when the App Snippet is seen), first content (pending).
-3. She taps "Create your first story", picks format Reel.
+3. She taps "Create your first story", picks format Story.
 4. She uploads three clips from her phone; each shows progress, then Processing with a poster.
 5. She links her best-selling abaya in the product picker; the CTA stays "Add to cart".
-6. She chooses placement Home with the carousel layout default; schedule "Now".
-7. The live preview on the side plays the Reel exactly as shoppers will see it; tapping the CTA shows a simulated "Added to cart".
+6. She chooses placement Home with the story ring layout; schedule "Now".
+7. The live preview on the side plays the Story exactly as shoppers will see it; tapping the CTA shows a simulated "Added to cart".
 8. She turns on auto-publish and leaves. Status: Processing.
-9. **Climax:** minutes later processing passes; status flips to Published, the last checklist step ticks, and a one-line celebration reads "Your Reel is live on your store." with "View on store".
-10. She opens Store Preview, then her real storefront, and sees the entry on her home page.
+9. **Climax:** minutes later processing passes; status flips to Published, the last checklist step ticks, and a one-line celebration reads "Your Story is live on your store." with "View on store".
+10. She opens Store Preview, then her real storefront, and sees the story ring on her home page.
 
 Failure branches: no placement → stays Draft with reason. Processing fails → Failed with reason and Retry. Plan at 100% → Publish disabled with upgrade path.
 
 ### UJ2. Faisal buys from a Reel on his phone
+
+Illustrated by [mockups/key-story-viewer.html](mockups/key-story-viewer.html).
 
 1. Faisal browses Noura's store (Arabic, RTL) on Android Chrome. The ring/carousel inserts below the hero without moving the page; if its anchor was already in view, a floating bubble appears instead (AD-8).
 2. He taps a Reel; the viewer opens full screen, muted autoplay, focus inside.
@@ -215,12 +228,16 @@ Failure branches: no placement → stays Draft with reason. Processing fails →
 
 ### UJ3. Noura checks her ROI
 
+Illustrated by [mockups/identity-studio-coral.html](mockups/identity-studio-coral.html) (Overview).
+
 1. Two weeks later Noura opens Analytics (skeletons, then data within 2 s).
 2. Date range "Last 30 days" is in the URL; KPIs show 3,000 views, unique viewers, product clicks, attributed orders, each with % change.
 3. The funnel shows views → product clicks → adds to cart → attributed orders with step-to-step rates.
 4. **Climax:** the attributed revenue figure, captioned "7-day window, add-to-cart only", with per-content rows summing exactly to the total. Tooltip: only products added from Slips count; refunds are subtracted.
 5. She opens "How we count", then her Salla orders; the line items match.
-6. She sorts the table by attributed revenue, archives a low performer (undo toast), and duplicates the best Reel, landing in the editor with a Draft copy to relink to a new product.
+6. She sorts the table by attributed revenue, archives a low-performing Story (Undo toast that stays until dismissed; Restore also on the row), and duplicates the best Reel, landing in the editor with a Draft copy to relink to a new product.
+
+Failure branches: data fails to load → inline error with Retry per block; no data in range → zeros with "Numbers appear after your first view"; totals that do not reconcile → "How we count" link explains refunds and the 7-day window.
 
 ## Responsive & Platform
 

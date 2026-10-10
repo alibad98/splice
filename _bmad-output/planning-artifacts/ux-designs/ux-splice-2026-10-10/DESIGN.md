@@ -1,6 +1,8 @@
 ---
 name: Slips
-description: Visual identity for Slips (سليبس), a Salla app for shoppable Stories/Reels — merchant dashboard (shadcn/ui + Tailwind 4) and neutral storefront player. Direction "Studio".
+status: final
+updated: 2026-10-10
+description: Visual identity for Slips (سليبس), a Salla app for shoppable Stories/Reels — merchant dashboard (shadcn/ui + Tailwind 4) and neutral storefront player. Direction "Studio · Coral".
 colors:
   background: '#FFFFFF'
   page: '#FAF8F6'

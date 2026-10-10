@@ -13,6 +13,16 @@ colors:
   muted: '#F5F3F1'
   muted-foreground: '#615954'
   border: '#ECE8E4'
+  input-border: '#8F8681'
+  info-text: '#B8291A'
+  delta-up: '#0E6E39'
+  delta-down: '#C0123C'
+  story-ring-seen: '{colors.story-ring-seen}', seenRingWidth: 1.5px
+  success-tint: '#1BAA5A1F'
+  primary-tint: '#FF4A3D14'
+  destructive-tint: '#C0123C14'
+  warning-tint: '#FFB54726'
+  focus-ring-inner: '#15110F'
   ring: '#FF4A3D'
   destructive: '#C0123C'
   destructive-foreground: '#FFFFFF'
@@ -45,6 +55,16 @@ colors:
   muted-dark: '#241F1D'
   muted-foreground-dark: '#A89F99'
   border-dark: '#2E2826'
+  input-border-dark: '#7A716C'
+  info-text-dark: '#FFB3A8'
+  delta-up-dark: '#3FD27F'
+  delta-down-dark: '#FF7A95'
+  story-ring-seen-dark: '#4A423E'
+  success-tint-dark: '#3FD27F26'
+  primary-tint-dark: '#FF6A5C26'
+  destructive-tint-dark: '#FF5C8026'
+  warning-tint-dark: '#FFC46B26'
+  focus-ring-inner-dark: '#FFFFFF'
   ring-dark: '#FF8A7E'
   destructive-dark: '#FF5C80'
   destructive-foreground-dark: '#1A0306'
@@ -66,7 +86,7 @@ typography:
   display: { fontSize: 2.25rem, fontWeight: 800, lineHeight: 1.1, letterSpacing: -0.035em }
   h1: { fontSize: 1.75rem, fontWeight: 800, lineHeight: 1.2, letterSpacing: -0.03em }
   h2: { fontSize: 1.125rem, fontWeight: 700, lineHeight: 1.3, letterSpacing: -0.01em }
-  h3: { fontSize: 0.875rem, fontWeight: 650, lineHeight: 1.4 }
+  h3: { fontSize: 0.875rem, fontWeight: 650, lineHeight: 1.4, note: 'Arabic falls back to 600 (Plex has no 650)' }
   body: { fontSize: 0.875rem, fontWeight: 400, lineHeight: 1.55 }
   body-lg: { fontSize: 1rem, fontWeight: 400, lineHeight: 1.6 }
   small: { fontSize: 0.75rem, fontWeight: 500, lineHeight: 1.45 }
@@ -93,21 +113,27 @@ spacing:
   page-mobile: 16px
 components:
   button-primary: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', rounded: '{rounded.pill}', height: 36px, paddingInline: 14px, fontWeight: 600 }
-  button-secondary: { background: transparent, foreground: '{colors.foreground}', border: '{colors.border}', rounded: '{rounded.pill}', height: 36px }
+  button-secondary: { background: transparent, foreground: '{colors.foreground}', border: '{colors.input-border}', rounded: '{rounded.pill}', height: 36px }
   button-accent: { background: '{colors.accent}', foreground: '{colors.accent-foreground}', rounded: '{rounded.pill}' }
   badge: { rounded: '{rounded.pill}', fontSize: 11.5px, fontWeight: 600, paddingBlock: 3px, paddingInline: 8px }
-  card: { background: '{colors.card}', rounded: '{rounded.base}', padding: 22px, shadow: '0 8px 24px -14px rgba(40,24,16,.16)' }
-  kpi-tile: { background: '{colors.card}', foreground: '{colors.foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
-  kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '#15110FCC', delta: '{colors.primary-foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
-  input: { background: '{colors.background}', border: '{colors.border}', rounded: '{rounded.md}', height: 36px, focusRing: '{colors.ring}' }
-  status-published: { background: '#1BAA5A1F', foreground: '{colors.success-text}', dot: '{colors.success}' }
-  status-scheduled: { background: '#FF4A3D14', foreground: '#B8291A', dot: '{colors.primary}' }
+  card: { background: '{colors.card}', rounded: '{rounded.base}', padding: 22px, shadow: '0 8px 24px -14px rgba(40,24,16,.16)', shadowDark: '0 8px 24px -14px rgba(0,0,0,.6)' }
+  kpi-tile: { background: '{colors.card}', foreground: '{colors.foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}', label: '{colors.muted-foreground}', deltaUp: '{colors.delta-up}', deltaDown: '{colors.delta-down}' }
+  kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '{colors.primary-foreground}', delta: '{colors.primary-foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
+  input: { background: '{colors.background}', border: '{colors.input-border}', rounded: '{rounded.md}', height: 36px, focusRing: '{components.focus-ring}' }
+  focus-ring: { inner: '{colors.focus-ring-inner}', outer: '{colors.ring}', width: 2px, offset: 0, opacity: 1, note: 'two-tone: 2px ink ring + 2px coral halo (dark: white inner + ring-dark); visible on coral fills' }
+  status-published: { background: '{colors.success-tint}', foreground: '{colors.success-text}', dot: '{colors.success}' }
+  status-scheduled: { background: '{colors.primary-tint}', foreground: '{colors.info-text}', dot: '{colors.primary}' }
   status-draft: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: '{colors.muted-foreground}' }
-  status-failed: { background: '#C0123C14', foreground: '{colors.destructive-text}', dot: '{colors.destructive}' }
+  status-failed: { background: '{colors.destructive-tint}', foreground: '{colors.destructive-text}', dot: '{colors.destructive}' }
   status-ended: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: none, style: 'outline border {colors.border}' }
-  status-deactivated: { background: '#FFB54726', foreground: '{colors.warning-text}', dot: '{colors.warning}' }
+  status-deactivated: { background: '{colors.warning-tint}', foreground: '{colors.warning-text}', dot: '{colors.warning}' }
+  status-processing: { background: '{colors.primary-tint}', foreground: '{colors.info-text}', dot: '{colors.primary}', dotAnimation: 'pulse; static under reduced motion' }
+  status-archived: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: none, style: 'outline border {colors.input-border}, archive icon' }
   story-ring: { size: 68px, ringWidth: 2.5px, gap: 2.5px, gradient: 'conic {colors.primary} -> {colors.accent}', seen: '#D3CDC8', avatarRounded: '{rounded.pill}' }
   player-product-card: { background: '{colors.player-surface}', foreground: '{colors.player-surface-foreground}', rounded: '{rounded.lg}', padding: 12px, thumb: 56px }
+  player-progress-bar: { fill: '{colors.player-progress}', track: '{colors.player-progress-track}', height: 2px, gap: 4px, scrim: 'top gradient {colors.player-scrim} 50% -> transparent, 64px' }
+  toast: { background: '{colors.foreground}', foreground: '{colors.background}', rounded: '{rounded.md}', action: '{colors.primary}' }
+  banner: { warning: '{colors.warning-tint}', danger: '{colors.destructive-tint}', foreground: '{colors.foreground}', border: '{colors.input-border}' }
   player-cta: { background: '{colors.player-cta}', foreground: '{colors.player-cta-foreground}', rounded: '{rounded.pill}', height: 48px, fontWeight: 700 }
 ---
 
@@ -134,7 +160,7 @@ Energetic and social, built with precision. Slips sells creator-tool energy (Sto
 
 | Role | Light | Dark | Use |
 |---|---|---|---|
-| primary | #FF4A3D | #FF6A5C | Primary buttons (ink text), active nav, chart-1, celebration tile; links use info-text #B8291A |
+| primary | #FF4A3D | #FF6A5C | Primary buttons (ink text), active nav, chart-1, celebration tile; links use `{colors.info-text}` |
 | accent | #FFC23D | #FFC23D | Highlights, player CTA text, ring end. Fill only — never text on light surfaces |
 | success | #1BAA5A (text #0E6E39) | #3FD27F (text #8AF0B5) | Published, positive state |
 | warning | #FFB547 (text #8A5300) | #FFC46B (text #FFD699) | Deactivated, plan limits |
@@ -145,7 +171,10 @@ Charts: series in order chart-1..5; never encode meaning by color alone (legend 
 
 **WCAG AA (verified):**
 - **Button text rule: ink on coral, always.** #15110F on #FF4A3D = 5.63:1; #15110F on #FF6A5C (dark primary) = 6.67:1 — pass. White on #FF4A3D = 3.33:1 — forbidden for text (applies to buttons, active nav pills, celebration tile, avatars).
-- Coral #FF4A3D as a graphic/focus ring on white = 3.33:1 (passes 3:1 non-text); never body text on white — use `info-text` #B8291A (6.23:1) for coral-toned text. Dark info-text #FFB3A8 on card = 10.5:1.
+- Coral as a graphic on white = 3.33:1 (passes 3:1 non-text); never body text on white — use `{colors.info-text}` (6.23:1) for links and coral-toned text; `{colors.info-text-dark}` on card-dark = 10.5:1.
+- Control boundaries (inputs, outline buttons, checkboxes) use `{colors.input-border}` (3.56:1 on white) / `{colors.input-border-dark}` (3.77:1 on card-dark). `{colors.border}` is for decorative dividers only.
+- KPI delta: up `{colors.delta-up}` 6.35:1, down `{colors.delta-down}` 6.19:1; dark 9.18 / 7.24. Celebration tile label is solid ink (5.63:1).
+- Seen story ring is not a sole state cue: it is also thinner and the accessible name says "seen".
 - #3A2600 on amber #FFC23D = 8.95:1; amber on #15110F (player CTA) = 11.65:1 — pass. White on amber is forbidden.
 - Muted-foreground on muted: #615954 on #F5F3F1 = 6.19:1 light; #A89F99 on #1A1615 = 6.91:1 dark.
 - **Fixes:** destructive is a deeper crimson **#C0123C** (white on it 6.19:1; text #9C0E31 = 8.33:1) so it never reads as coral. Dark destructive #FF5C80 takes **#1A0306** text (6.7:1). Success #1BAA5A is 3.0:1 on white → never text; status text uses **#0E6E39** (6.35:1). Charts: coral, charcoal, teal, amber, sky (light #FF4A3D/#2B2523/#0F9D8A/#F5A300/#2E8FE0; dark #FF6A5C/#D9D2CD/#2DD4BF/#FFC23D/#60B4FF), no purple; graphics-only, never text. Status badges and destructive states always carry a label/icon, never colour alone, so coral/red/amber are never confused.
@@ -168,7 +197,7 @@ Charts: series in order chart-1..5; never encode meaning by color alone (legend 
 
 ## Elevation & Depth
 
-Flat by default. Cards and tiles use one soft warm-neutral shadow (`0 8px 24px -14px rgba(40,24,16,.16)`; dark `rgba(0,0,0,.6)`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows, no glows except the focus ring (2px `{colors.ring}`, 2px offset). The player uses a black scrim (60–80%) and white surfaces only.
+Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.card.shadow}` / `shadowDark`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows, no glows except the focus ring `{components.focus-ring}`: full opacity, two-tone (2px `{colors.focus-ring-inner}` ink ring inside a 2px `{colors.ring}` halo; dark: white inner + `{colors.ring-dark}`), so it stays visible on coral fills (primary button, active nav, celebration tile). The player uses the same two-tone ring (white inner, ink outer) on entry points. The player uses a black scrim (60–80%) and white surfaces only.
 
 ## Shapes
 
@@ -177,13 +206,27 @@ Flat by default. Cards and tiles use one soft warm-neutral shadow (`0 8px 24px -
 ## Components
 
 - **Button:** pill, 36px (32 sm, 44 lg / touch). Primary coral with ink text; secondary = outline border; accent (amber + dark text) reserved for one "make something" action per screen. Hover: brightness 1.08; disabled 50% opacity.
-- **Badge / status:** pill, 11.5px 600, leading 6px dot. Published (green), Scheduled (coral tint, #B8291A text), Draft (muted), Failed (crimson tint + row tint 6%), Ended (outline, no dot), Deactivated (amber). Always a text label, never dot alone.
-- **KPI tile:** label 13px muted, value `{typography.kpi}` tabular, delta 12px 600 (up #178A4A / down #C0123C; dark up = #3FD27F). **`{components.kpi-tile-celebration}`**: the Revenue tile is solid coral with ink value, 80% ink label, ink delta — one per dashboard, never more.
+- **Badge / status:** pill, 11.5px 600, leading 6px dot. One chip per status name in EXPERIENCE.md: `status-draft` (muted), `status-processing` (coral tint, `info-text`, pulsing dot), `status-failed` (crimson tint + row tint 6%), `status-scheduled` (coral tint, `info-text`), `status-published` (green tint, `success-text`), `status-ended` (outline, no dot), `status-archived` (outline + archive icon), `status-deactivated` (amber). Role words map: neutral = draft/ended/archived, info = scheduled/processing, danger = failed, success = published, warning = deactivated. Always a text label, never dot alone. Arabic chips use 12px minimum.
+- **KPI tile:** label 13px muted, value `{typography.kpi}` tabular, delta 12px 600 (`{colors.delta-up}` / `{colors.delta-down}`, dark `-dark` variants, always with an arrow icon + sign). **`{components.kpi-tile-celebration}`**: the Revenue tile is solid coral with ink value, solid ink label, ink delta — one per dashboard, never more.
 - **Card:** shadcn Card composition; title `{typography.h3}`, 22px padding.
-- **Input:** 36px, 12px radius, border → ring on focus; error = destructive border + text-destructive-text message below.
-- **Story ring (`{components.story-ring}`):** conic gradient coral→amber ring, 2.5px with 2.5px background gap; seen = flat #D3CDC8. Label under, 12px, 1 line truncate.
-- **Player product card:** white surface, 22px radius, 56px product thumb, name (2 lines), price tabular, inside bottom sheet over the scrim.
+- **Input:** 36px, 12px radius, `{colors.input-border}` → `{components.focus-ring}` on focus; error = destructive border + text-destructive-text message below.
+- **Story ring (`{components.story-ring}`):** conic gradient coral→amber ring, 2.5px with 2.5px background gap; seen = flat `{colors.story-ring-seen}`, 1.5px (shape cue as well as colour). Label under, 12px, 1 line truncate.
+- **Player product card** (EXPERIENCE: "Player product card + CTA"): white surface, 22px radius, 56px product thumb, name (2 lines), price tabular, inside bottom sheet over the scrim.
 - **Player CTA (`{components.player-cta}`):** near-black pill (#15110F) with amber text, 48px, full width — reads on any video frame and any merchant theme.
+- **Player progress (`{components.player-progress-bar}`):** segmented white bars on `player-progress-track`, always over a top scrim so they hold 3:1 on bright frames.
+- **Viewer controls:** mute / pause / close / next / previous are 44px round buttons, white icon on 40% `player-scrim` disc; arrows visible on desktop, tap zones are named buttons.
+- **App shell:** side nav (start side) on `{colors.card}`, active item = coral pill with ink text; top bar in-flow, `{colors.border}` bottom divider; connection chip uses `status-published` / `status-failed` styling.
+- **Attribution caption:** `{typography.small}` `{colors.muted-foreground}` + "How we count" link in `{colors.info-text}`.
+- **Onboarding checklist:** Card; steps with 20px check circle (`{colors.success}` done, `{colors.input-border}` outline pending).
+- **Content table:** shadcn Table in Card; 56px rows with 9:16 thumb; compact 40px; status chip column; row hover `{colors.muted}`.
+- **Content editor / Media uploader / Product picker:** shadcn Form + Inputs; uploader is a dashed `{colors.input-border}` drop zone `{rounded.base}`; slide thumbs `{rounded.sm}` with Move earlier/later menu; picker = Combobox with thumb + availability chip.
+- **Live preview:** 9:16 phone frame, `{rounded.lg}`, `{colors.foreground}` bezel, persistent `status-scheduled`-style "Preview" note above.
+- **Floating bubble:** 56px circle with story-ring gradient, 24px dismiss button (44px hit area) at its top-end.
+- **Plan usage meter:** 6px pill bar; fill `{colors.foreground}` <80%, `{colors.warning}` at 80%, `{colors.destructive}` at 100%, always with "8 of 10" text.
+- **Support sheet:** shadcn Sheet from the end side; channel rows as secondary buttons.
+- **Toast (`{components.toast}`):** ink surface, white text, coral-outlined action button; close button 24px.
+- **Banner (`{components.banner}`):** full-width in-flow strip, tint + icon + text + action (offline = warning, disconnected = danger).
+- **Skeleton:** `{colors.muted}` blocks with `{rounded.sm}`; shimmer stops under reduced motion.
 - **Player rule:** the storefront player uses **neutral Slips styling** (no theme matching in MVP), rendered inside **Shadow DOM** so merchant CSS cannot leak in or out, and uses the **system font stack** (`{typography.family-player}`) — **no web fonts load in the player**.
 
 ## Do's and Don'ts

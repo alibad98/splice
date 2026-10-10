@@ -7,6 +7,12 @@
       "skillPath": ".claude/skills/boneyard/SKILL.md",
       "computedHash": "fc1d23e863407312d64b0db2ad0003c2b13a2e2ffb642cc0c878ca77736ba0c8"
     },
+    "drizzle-orm": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/drizzle-orm/SKILL.md",
+      "computedHash": "74887d7aeac98532ddc0e9fa9d83dcff2feccfeed599483822ccf781f8b12611"
+    },
     "impeccable": {
       "source": "pbakaus/impeccable",
       "sourceType": "github",

@@ -1,0 +1,110 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Content Editor</title><style>
+/* Governs: EXPERIENCE.md Component Patterns — Content editor, Media uploader, Product picker, Live preview (AD-23), App shell; State Patterns — Error/Form, Content statuses (Draft); Dashboard Saving (autosave); Flow UJ1 steps 5-7. DESIGN.md Components — Button, Badge, Input, Card. */
+.edhead{display:flex;align-items:center;gap:10px;padding:20px 24px 12px}.edhead h1{font-size:24px;font-weight:800;display:flex;align-items:center;gap:10px}
+.saved{font-size:12.5px;color:var(--success-text);font-weight:600}
+.summary{margin:0 24px 16px;padding:12px 16px;border-radius:12px;background:color-mix(in oklab,var(--destructive) 8%,transparent);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--destructive) 25%,transparent);font-size:13px;color:var(--destructive-text)}.summary a{color:var(--destructive-text);font-weight:700}
+.cols{display:grid;grid-template-columns:1fr 300px;gap:20px;padding:0 24px 24px;align-items:start}
+.form{display:grid;gap:14px;min-width:0}.g2{display:grid;grid-template-columns:auto 1fr;gap:14px;margin-top:10px}.card .g2{grid-template-columns:1fr 1fr}.card:first-child .g2{grid-template-columns:auto 1fr}
+.slides{display:flex;gap:10px;margin-top:12px}.sl{width:64px;height:96px;border-radius:10px;position:relative;color:#fff;font-size:11px;padding:6px}.sl em{font-style:normal;font-weight:700}.sl small{position:absolute;bottom:5px;inset-inline-start:6px;font-size:10px}
+.s1{background:linear-gradient(160deg,#5a2d0c,#c58b3a)}.s2{background:linear-gradient(160deg,#2a1f1a,#9a6b5b)}.s3{background:linear-gradient(160deg,#3a3026,#a69580);opacity:.7}.sl.on{box-shadow:0 0 0 2.5px var(--primary)}
+.addsl{background:var(--muted);color:var(--muted-foreground);display:grid;place-items:center;text-align:center;box-shadow:inset 0 0 0 1.5px var(--border)}
+.prod{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px;border-radius:12px;background:var(--muted);font-size:13px}.prod .pimg{width:40px;height:40px;border-radius:10px;background:linear-gradient(150deg,#e6c27a,#7a4a14);flex:none}.prod .pimg.g2{background:linear-gradient(150deg,#d9cbbb,#4a3b33);display:block;margin:0}.prod b{display:block}
+.checks{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 8px}.ck{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:7px 12px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--border)}.ck i{width:16px;height:16px;border-radius:5px;box-shadow:inset 0 0 0 1.5px var(--border)}
+.checks.err .ck{box-shadow:inset 0 0 0 1.5px var(--destructive)}
+.tg{display:inline-flex;align-items:center;gap:6px;margin-inline-start:10px;color:var(--foreground)}.tg i{width:28px;height:16px;border-radius:99px;background:var(--primary);position:relative}.tg i::after{content:"";position:absolute;top:2px;inset-inline-end:2px;width:12px;height:12px;border-radius:50%;background:#fff}
+.prev{position:sticky;top:0;display:grid;justify-items:center;gap:10px}.ph{display:flex;justify-content:space-between;align-items:center;width:100%;font-size:13px}
+.pnote{font-size:12px;color:var(--warning-text);background:color-mix(in oklab,var(--warning) 18%,transparent);padding:5px 12px;border-radius:999px;font-weight:600}
+.mini{max-width:760px}
+:root{--background:#FFFFFF;--page:#FAF8F6;--foreground:#15110F;--card:#FFFFFF;--primary:#FF4A3D;--primary-foreground:#15110F;--accent:#FFC23D;--accent-foreground:#3A2600;--muted:#F5F3F1;--muted-foreground:#615954;--border:#ECE8E4;--ring:#FF4A3D;--destructive:#C0123C;--destructive-text:#9C0E31;--success:#1BAA5A;--success-text:#0E6E39;--warning:#FFB547;--warning-text:#8A5300;--info-text:#B8291A;--elev:0 8px 24px -14px rgba(40,24,16,.16);--radius:16px;
+--font:"Plus Jakarta Sans","IBM Plex Sans Arabic","Noto Sans Arabic","Segoe UI",Tahoma,system-ui,sans-serif;--player:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Arabic",Tahoma,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--page);color:var(--foreground);font-family:var(--font);line-height:1.5;-webkit-font-smoothing:antialiased;padding:32px 24px 64px}
+.num{font-variant-numeric:tabular-nums;unicode-bidi:isolate;direction:ltr;display:inline-block}
+.wrap{max-width:1232px;margin:0 auto;display:grid;gap:28px}
+.lbl{font-size:13px;font-weight:600;color:var(--muted-foreground)}
+.browser{background:var(--card);border-radius:22px;overflow:hidden;box-shadow:0 30px 60px -30px rgba(0,0,0,.35),0 0 0 1px var(--border)}
+.chrome{display:flex;align-items:center;gap:16px;padding:10px 14px;background:var(--muted);direction:ltr}
+.dots{display:flex;gap:6px}.dots i{width:10px;height:10px;border-radius:50%;background:var(--border)}
+.url{font-size:12px;color:var(--muted-foreground);background:var(--background);padding:4px 12px;border-radius:6px;flex:1;max-width:380px}
+.shell{display:grid;grid-template-columns:200px 1fr;min-height:640px}
+.nav{border-inline-end:1px solid var(--border);padding:18px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;padding:0 8px 16px}
+.nav a{font-size:13px;padding:8px 10px;border-radius:10px;color:var(--muted-foreground);text-decoration:none}.nav a.on{background:var(--muted);color:var(--foreground);font-weight:600}.nav .bot{margin-top:auto}
+.main{min-width:0}
+.top{display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--border);font-size:13px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:var(--muted);font-size:12.5px;font-weight:600}
+.live{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px color-mix(in oklab,var(--success) 25%,transparent)}
+.dead{width:8px;height:8px;border-radius:50%;background:var(--destructive)}
+.sp{margin-inline-start:auto}
+.btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:600;padding:8px 16px;border-radius:999px;border:0;white-space:nowrap}
+.btn.primary{background:var(--primary);color:var(--primary-foreground);box-shadow:0 6px 16px -8px var(--primary)}
+.btn.ghost{background:transparent;color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border)}
+.btn.accent{background:var(--accent);color:var(--accent-foreground)}
+.btn.dis{opacity:.5}.btn.sm{padding:5px 11px;font-size:12px}
+.card{background:var(--card);border-radius:var(--radius);padding:22px;box-shadow:var(--elev),0 0 0 1px var(--border)}
+.card h2{font-size:15px;font-weight:700;margin-bottom:4px}.muted{color:var(--muted-foreground);font-size:12.5px}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px}.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.b-draft{background:var(--muted);color:var(--muted-foreground)}.b-pub{background:color-mix(in oklab,var(--success) 15%,transparent);color:var(--success-text)}.b-sch{background:color-mix(in oklab,var(--primary) 15%,transparent);color:var(--info-text)}
+.field{display:grid;gap:6px}.field>label{font-size:13px;font-weight:600}
+.input{height:36px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--border);padding:0 12px;display:flex;align-items:center;font-size:13px;gap:8px;background:var(--background)}
+.input.err{box-shadow:inset 0 0 0 1.5px var(--destructive)}.errmsg{color:var(--destructive-text);font-size:12px;font-weight:500}
+.seg{display:inline-flex;background:var(--muted);padding:3px;border-radius:12px;font-size:12.5px}.seg span{padding:5px 12px;border-radius:9px;color:var(--muted-foreground)}.seg .on{background:var(--card);color:var(--foreground);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.en{direction:ltr}
+.phone{width:270px;height:560px;border-radius:44px;padding:10px;background:#0b0b0d;box-shadow:0 30px 60px -25px rgba(0,0,0,.5);flex:none}
+.screen{position:relative;height:100%;border-radius:34px;overflow:hidden;color:#fff;font-family:var(--player)}
+.reel{position:absolute;inset:0;background:radial-gradient(120% 70% at 70% 30%,#c98d3e 0%,#6b3412 40%,#1d0d06 80%)}
+.reel.r2{background:radial-gradient(120% 70% at 30% 30%,#b9a48c 0%,#3d3029 45%,#110c0a 85%)}
+.reel::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45),transparent 22%,transparent 50%,rgba(0,0,0,.75))}
+.bars{position:absolute;top:14px;inset-inline:14px;display:flex;gap:4px;z-index:2}.bars i{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.35);position:relative;overflow:hidden}.bars .f{background:#fff}.bars .p::after{content:"";position:absolute;inset:0;inset-inline-end:45%;background:#fff}
+.ptop{position:absolute;top:26px;inset-inline:14px;display:flex;align-items:center;gap:8px;font-size:13px;z-index:2}
+.av{width:28px;height:28px;border-radius:50%;background:#2b2523;color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.ctl{margin-inline-start:auto;display:flex;gap:6px}.ctl span{width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.35);display:grid;place-items:center;font-size:13px}
+.pcard{position:absolute;inset-inline:10px;bottom:10px;background:#fff;color:#15110F;border-radius:22px;padding:10px;display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center;z-index:2}
+.pimg{width:56px;height:56px;border-radius:14px;background:linear-gradient(150deg,#e6c27a,#7a4a14)}.pimg.g2{background:linear-gradient(150deg,#d9cbbb,#4a3b33)}
+.pinfo b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.35}.pinfo span{font-size:13px;color:#615954}
+.pinfo small{display:block;font-size:11px;color:#615954}
+.add{grid-column:1/-1;display:flex;justify-content:center;align-items:center;height:48px;border-radius:999px;background:#15110F;color:#FFC23D;font-weight:700;font-size:14.5px}
+.sub{grid-column:1/-1;display:flex;justify-content:space-between;font-size:12px;color:#615954;padding:0 6px}
+.toast{position:absolute;inset-inline:24px;bottom:170px;text-align:center;background:rgba(15,15,18,.82);padding:8px 12px;border-radius:999px;font-size:12px;font-weight:600;z-index:3}
+.notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:90px;height:20px;background:#0b0b0d;border-radius:0 0 14px 14px;z-index:5}
+</style></head><body>
+<div class="wrap">
+<p class="lbl">محرر المحتوى · مسودة مع خطأ تحقق (لا يوجد موضع عرض) — Content editor, Draft, publish blocked</p>
+<div class="browser"><div class="chrome"><div class="dots"><i></i><i></i><i></i></div><div class="url">s.salla.sa/apps/slips/content/new</div></div>
+<div class="shell">
+<nav class="nav"><div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="26" height="26" role="img" aria-label="Slips"><defs><linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF4A3D"/><stop offset=".55" stop-color="#FF7A2E"/><stop offset="1" stop-color="#FFC23D"/></linearGradient></defs><circle cx="24" cy="24" r="20" fill="none" stroke="url(#ring)" stroke-width="4.5"/><path d="M30.6 17.6c-1.3-2.3-3.8-3.6-6.8-3.6-3.9 0-6.8 2.2-6.8 5.3 0 7 13.9 3.6 13.9 10.6 0 3.3-3.1 5.7-7.2 5.7-3.2 0-5.9-1.4-7.4-3.7" fill="none" stroke="#15110F" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/></svg> سلِبس</div><a>نظرة عامة</a><a class="on">الفيديوهات والقصص</a><a>المنتجات</a><a>التحليلات</a><a class="bot">الإعدادات</a></nav>
+<div class="main">
+<div class="top"><span class="chip"><i class="live"></i>متصل بسلة · دار العود</span><span class="sp"></span><span class="muted">تحتاج مساعدة؟ تواصل معنا</span><span class="btn primary sm">معاينة المتجر</span></div>
+<div class="edhead"><div><div class="crumb muted">الفيديوهات والقصص ‹ قصة جديدة</div><h1>عطور الخريف الجديدة <span class="badge b-draft">مسودة</span></h1></div>
+<span class="sp"></span><span class="saved">✓ تم الحفظ تلقائيًا · قبل ثوانٍ</span><span class="btn ghost">حفظ كمسودة</span><span class="btn primary dis">نشر</span></div>
+<div class="summary"><b>باقي خطوة واحدة قبل النشر</b> — اختر مكانًا واحدًا على الأقل لعرض القصة. <a href="#pl">اذهب إلى أماكن العرض</a></div>
+<div class="cols">
+<div class="form">
+<div class="card"><h2>النوع والعنوان</h2><div class="g2"><div class="field"><label>النوع</label><div class="seg"><span class="on">قصة</span><span>ريل</span></div></div>
+<div class="field"><label>العنوان</label><div class="input">عطور الخريف الجديدة</div></div></div></div>
+<div class="card"><h2>الشرائح <span class="muted">3 من 10</span></h2><p class="muted">اسحب لإعادة الترتيب. فيديو حتى 60 ثانية أو صورة.</p>
+<div class="slides"><div class="sl s1 on"><em>1</em><small class="num">0:12</small></div><div class="sl s2"><em>2</em><small class="num">0:08</small></div><div class="sl s3"><em>3</em><small>جارٍ المعالجة</small></div><div class="sl addsl">+ أضف شريحة</div></div></div>
+<div class="card"><h2>المنتج المرتبط</h2><p class="muted">الشريحة 1 · يظهر في بطاقة المنتج أسفل القصة</p>
+<div class="input" style="margin-top:10px">⌕ ابحث في منتجات متجرك…</div>
+<div class="prod"><div class="pimg"></div><div><b>دهن عود كمبودي فاخر · 12 مل</b><span class="muted"><span class="num">349</span> ر.س · متوفر</span></div><span class="sp"></span><span class="btn ghost sm">تغيير</span></div>
+<div class="prod"><div class="pimg g2"></div><div><b>مبخرة نحاسية مزخرفة</b><span class="muted"><span class="num">189</span> ر.س · لها خيارات إلزامية — سيظهر زر «اختر الخيارات»</span></div><span class="sp"></span><span class="muted">الشريحة 2</span></div>
+<div class="field" style="margin-top:12px"><label>نص الزر</label><div class="seg"><span class="on">أضف إلى السلة</span><span>تسوّق الآن</span></div></div></div>
+<div class="card" id="pl"><h2>أماكن العرض</h2><p class="muted">أين ستظهر القصة في متجرك؟</p>
+<div class="checks err"><span class="ck"><i></i>الصفحة الرئيسية · حلقات القصص</span><span class="ck"><i></i>صفحة التصنيف</span><span class="ck"><i></i>صفحة المنتج · شريط</span></div>
+<p class="errmsg">اختر مكانًا واحدًا على الأقل حتى نتمكن من نشر القصة.</p></div>
+<div class="card"><h2>الجدولة</h2><div class="g2"><div class="field"><label>يبدأ</label><div class="input"><span class="num">2026-10-15</span> · <span class="num">09:00</span></div></div><div class="field"><label>ينتهي (اختياري)</label><div class="input muted">بلا تاريخ انتهاء</div></div></div>
+<p class="muted" style="margin-top:8px">بتوقيت متجرك (الرياض). <label class="tg"><i></i> نشر تلقائي بعد انتهاء المعالجة</label></p></div>
+</div>
+<aside class="prev"><div class="ph"><b>معاينة مباشرة</b><div class="seg"><span class="on">عربي</span><span>EN</span></div></div>
+<div class="phone"><div class="screen"><div class="reel"></div><div class="notch"></div>
+<div class="bars"><i class="p"></i><i></i><i></i></div>
+<div class="ptop"><span class="av">دع</span><b>دار العود</b><div class="ctl"><span>🔇︎</span><span>✕</span></div></div>
+<div class="toast">تمت الإضافة إلى السلة (معاينة)</div>
+<div class="pcard"><div class="pimg"></div><div class="pinfo"><b>دهن عود كمبودي فاخر · 12 مل</b><span><span class="num">349</span> ر.س</span></div><div class="add">أضف إلى السلة</div></div>
+</div></div>
+<p class="pnote">معاينة: لا سلة حقيقية ولا تحليلات</p></aside>
+</div></div></div></div>
+<p class="lbl">English (LTR) thumbnail — header &amp; validation</p>
+<div class="card en mini"><div style="display:flex;align-items:center;gap:10px"><b>New autumn perfumes</b><span class="badge b-draft">Draft</span><span class="sp"></span><span class="saved">✓ Saved</span><span class="btn ghost sm">Save draft</span><span class="btn primary sm dis">Publish</span></div>
+<div class="summary" style="margin:12px 0 0"><b>One step left before publishing</b> — choose at least one placement. <a href="#">Go to placements</a></div></div>
+</div>
+</body></html>

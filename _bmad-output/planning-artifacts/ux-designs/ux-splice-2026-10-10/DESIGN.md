@@ -111,7 +111,9 @@ components:
   player-cta: { background: '{colors.player-cta}', foreground: '{colors.player-cta-foreground}', rounded: '{rounded.pill}', height: 48px, fontWeight: 700 }
 ---
 
-# Slips — Visual Identity ("Studio")
+# Slips — Visual Identity ("Studio · Coral")
+
+Reference mockup: [mockups/identity-studio-coral.html](mockups/identity-studio-coral.html) (dashboard Overview, player, Arabic KPI row, states). Logo assets: [brand/](brand/) ([logo sheet](brand/logo-sheet.html)). This spine and EXPERIENCE.md win over any mockup on conflict; e.g. the Arabic UI uses Western digits 0-9 even where the mockup shows Arabic-Indic digits.
 
 ## Brand & Style
 

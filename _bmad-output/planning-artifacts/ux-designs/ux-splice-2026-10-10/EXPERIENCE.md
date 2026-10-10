@@ -74,14 +74,14 @@ Friendly coach: warm, short, encouraging. Celebrate wins in one line. Errors say
 | Situation | Arabic | English |
 |---|---|---|
 | Publish success | قصتك صارت مباشرة على متجرك. | Your Story is live on your store. |
-| First attributed sale | أول طلب من سليبس! ٣٤٠ ر.س من هذا الريل. | First order from Slips. SAR 340 from this Reel. |
+| First attributed sale | أول طلب من سليبس! 340 ر.س من هذا الريل. | First order from Slips. SAR 340 from this Reel. |
 | Settings saved | تم حفظ التغييرات. | Changes saved. |
 | Empty content list | ما عندك محتوى بعد. ابدأ بقصة قصيرة لأكثر منتج مبيعاً. | Nothing here yet. Start with a short Story for your best seller. |
 | Empty analytics | الأرقام تظهر بعد أول مشاهدة. انشر محتوى وتابع هنا. | Numbers appear after your first view. Publish something and check back. |
 | Generic error | ما قدرنا نحمّل البيانات. حاول مرة ثانية. | We couldn't load this. Try again. |
 | Disconnected | انقطع الاتصال بسلة، فتوقفت المزامنة. أعد الربط لتكمل. | Your Salla connection dropped, so syncing paused. Reconnect to continue. |
 | Failed upload | ما اكتمل تجهيز الفيديو: الدقة أقل من 720p. ارفع نسخة أوضح أو أعد المحاولة. | This video didn't finish processing: resolution is below 720p. Upload a sharper version or retry. |
-| Plan limit 80% | استخدمت ٨ من ١٠ محتويات نشطة في باقتك. | You're using 8 of 10 active items on your plan. |
+| Plan limit 80% | استخدمت 8 من 10 محتويات نشطة في باقتك. | You're using 8 of 10 active items on your plan. |
 | Plan limit 100% | وصلت حد باقتك. أوقف محتوى أو رقِّ باقتك لتنشر المزيد. | You've reached your plan limit. Pause an item or upgrade to publish more. |
 | Shopper add success | أُضيف للسلة | Added to cart |
 | Shopper add failure | ما قدرنا نضيفه الآن. حاول مرة ثانية. | Couldn't add it right now. Try again. |
@@ -104,7 +104,7 @@ Behavioral only. Visuals per `DESIGN.md` tokens.
 | Live preview | Editor, Store Preview | Iframe of the real player with mock storefront (AD-23). Cart actions show simulated success; a "Preview: no real cart or analytics" note is always visible. |
 | Story ring | Storefront | {components.story-ring}: unseen items show the gradient ring, seen items a muted ring (per viewer, local) [ASSUMPTION]. Horizontal scroll follows text direction. |
 | Floating bubble | Storefront fallback | Fixed at bottom start corner [ASSUMPTION], dismissible per session, never covers the theme's cart/checkout button. |
-| Viewer | Storefront | Focus-trapped dialog. Muted autoplay; visible mute and pause buttons; close button. Respects reduced motion (no auto-advance animation, crossfade only). |
+| Viewer | Storefront | Focus-trapped dialog. Muted autoplay; visible mute and pause buttons; close button. Respects reduced motion: no auto-advance (tap to advance only) and no transitions. |
 | Product card + CTA | Viewer | {components.player-cta} pill. Tap: pending (spinner, CTA disabled, playback paused) → success toast "Added to cart" + cart count, playback resumes → or error message inline, CTA re-enabled. Price updates to Salla's price if it differs (FR24). |
 | Plan usage meter | Settings, publish dialog | Neutral under 80%, warning at 80%, blocking at 100% with upgrade action. |
 | Support sheet | Every page | Opens a side sheet; channels open externally (`mailto:`, WhatsApp) in a new tab, since the iframe cannot host them. |
@@ -175,7 +175,7 @@ Tapping the product card or CTA area never triggers navigation taps. Opening the
 |---|---|---|
 | Keyboard | All actions reachable; visible focus ring; skip-to-content link | Full keyboard operation per table above; focus moves into viewer on open, returns to entry on close |
 | Focus trap | Dialogs/sheets via Radix | Viewer is a modal dialog with trap and `Esc` |
-| Motion | Respect `prefers-reduced-motion`: no count-up numbers, no slide animations | No auto-advance transitions; Stories still advance on timer but pausable [ASSUMPTION: auto-advance off under reduced motion] |
+| Motion | Respect `prefers-reduced-motion`: no count-up numbers, no slide animations | Stories do not auto-advance under reduced motion: tap to advance only, no transitions (owner decision). |
 | Pause | — | Pause control for auto-advancing Stories and playing video (WCAG 2.2.2) |
 | Gestures | — | Every swipe has a button alternative |
 | Contrast | Text 4.5:1, UI 3:1 in light and dark | Overlay text on video uses scrim per DESIGN.md |
@@ -231,9 +231,9 @@ Failure branches: no placement → stays Draft with reason. Processing fails →
 | `/admin` | Desktop only, never framed, English-first acceptable [ASSUMPTION]. |
 | Breakpoints | `sm` phone: nav in Sheet, editor preview behind toggle, tables become card lists. `md` tablet: icon nav, single column editor with sticky preview button. `lg+` desktop: full nav, two-column editor. |
 | Player | Phone: full-screen viewer, safe-area insets respected. Desktop: centered 9:16 viewer with backdrop, arrow buttons visible. |
-| Numerals | Arabic UI uses Western digits (0-9) for KPIs and prices [ASSUMPTION: matches Salla convention; open question]. Dates in Arabic month names, Gregorian. |
-| Currency | Store base currency via `Intl.NumberFormat`. AR: "٣٤٠ ر.س" or "340 ر.س" per numeral decision, symbol after; EN: "SAR 340". Two decimals only when non-zero [ASSUMPTION]. |
-| Bidi | Wrap product names, URLs, store key and numbers in `<bdi>`/`dir="auto"`; mirror directional icons (arrows, chevrons), never mirror media, play icons, or charts' time axis [ASSUMPTION: time axis runs right-to-left in RTL? see open questions]. Use logical CSS properties throughout. |
+| Numerals | Arabic UI uses Western digits (0-9) for KPIs, prices and dates (owner decision; any mockup showing Arabic-Indic digits is superseded). Dates in Arabic month names, Gregorian. |
+| Currency | Store base currency via `Intl.NumberFormat`. AR: "340 ر.س", symbol after; EN: "SAR 340". Two decimals only when non-zero [ASSUMPTION]. |
+| Bidi | Wrap product names, URLs, store key and numbers in `<bdi>`/`dir="auto"`; mirror directional icons (arrows, chevrons), never mirror media or play icons. Chart time axes run right to left in RTL (oldest on the right, newest on the left; owner decision). Use logical CSS properties throughout. |
 | Time zone | Schedules shown in the store's time zone with its label. |
 
 ## Inspiration & Anti-patterns

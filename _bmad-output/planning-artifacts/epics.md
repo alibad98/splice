@@ -184,11 +184,73 @@ This document provides the complete epic and story breakdown for Slips, decompos
 
 ### FR Coverage Map
 
-{{requirements_coverage_map}}
+FR1: Epic 1 - Install and Salla OAuth
+FR2: Epic 1 - Install/uninstall events and lifecycle
+FR3: Epic 2 - Product sync
+FR4: Epic 3 - Create Stories and Reels
+FR5: Epic 3 - Upload validation and media processing
+FR6: Epic 3 - Content list and management
+FR7: Epic 3 - Live preview with the real player
+FR8: Epic 4 - Placements and scheduling
+FR9: Epic 5 - Injector via App Snippet
+FR10: Epic 5 - Player modes and playback
+FR11: Epic 5 - Product card and add to cart
+FR12: Epic 6 - Event capture
+FR13: Epic 6 - Attribution rules
+FR14: Epic 6 - Analytics page
+FR15: Epic 6 - Overview dashboard
+FR16: Epic 2 - Products page
+FR17: Epic 7 - Settings
+FR18: Epic 7 - Store preview page
+FR19: Epic 7 - Salla app billing and plan limits
+FR20: Epic 7 - Support entry point
+FR21: Epic 7 - Onboarding checklist
+FR22: Epic 3 - Content status model
+FR23: Epic 5 - Products with required options (View options)
+FR24: Epic 4 - Freshness bounds
+FR25: Epic 2 - Integration lifecycle and reconciliation
+FR26: Epic 6 - Event integrity
+FR27: Epic 7 - Slips Admin view
+FR28: Epic 1 - Dashboard access and sessions
+FR29: Epic 4 - Layouts per placement
+FR30: Epic 4 - Ordering and cap per placement
 
 ## Epic List
 
-{{epics_list}}
+### Epic 1: Install, Sign-in & Salla Go/No-Go
+A merchant can install Slips from the Salla App Store, open the Slips dashboard from Salla already signed in, and see the branded app shell in Arabic or English. The team has a working monorepo, CI with the player budget and CLS checks, observability, the design-system foundation (tokens, focus ring, app shell), and a written go/no-go decision on Salla capabilities G1-G8.
+**FRs covered:** FR1, FR2, FR28
+**Also carries:** NFR3, NFR7, NFR8 (budget gate); AD-1, AD-3, AD-4, AD-11, AD-12, AD-16, AD-17, AD-20, AD-21, AD-22; UX-DR tokens/app shell/brand assets; gate G1-G8
+
+### Epic 2: Product Catalog Sync
+The merchant's Salla products, prices and stock appear in Slips and stay in sync (webhooks, manual sync, daily reconciliation, disconnection handling); the Products page lists them with linked content and availability.
+**FRs covered:** FR3, FR16, FR25
+**Also carries:** AD-2, AD-13, AD-14 (catalog side); UX-DR content table, status chips
+
+### Epic 3: Content Creation & Media
+The merchant creates, uploads, previews (real player in preview mode), and manages Stories and Reels through their full status lifecycle.
+**FRs covered:** FR4, FR5, FR6, FR7, FR22
+**Also carries:** NFR11, NFR12, NFR13; AD-15, AD-19, AD-23; UX-DR editor, uploader (keyboard reorder), product picker, live preview, toasts
+
+### Epic 4: Visibility, Scheduling & Publishing
+Published content appears on the right storefront pages, in the right layout and order, at the right time, and stays fresh within the FR24 bounds.
+**FRs covered:** FR8, FR24, FR29, FR30
+**Also carries:** AD-6, AD-18, AD-19 (schedule boundaries)
+
+### Epic 5: Storefront Player & In-Content Purchase
+Shoppers see the story ring (or floating bubble), watch Stories and Reels, and add products to their Salla cart without leaving the content, on every supported browser and theme, in Arabic and English.
+**FRs covered:** FR9, FR10, FR11, FR23
+**Also carries:** NFR1, NFR6 (player), NFR9; AD-7, AD-8, AD-21; UX-DR story ring, viewer, progress bar, player product card + CTA states, View options, reduced motion, player a11y
+
+### Epic 6: Analytics, Attribution & Dashboard
+The merchant sees trustworthy views, funnel, attributed orders and attributed revenue on the Overview and Analytics pages, computed with the FR13 rules.
+**FRs covered:** FR12, FR13, FR14, FR15, FR26
+**Also carries:** NFR2, NFR4 (shopper PII), NFR10, NFR14; AD-5, AD-9, AD-10; UX-DR KPI tiles (celebration tile), charts (RTL axis), attribution caption
+
+### Epic 7: Settings, Billing, Support, Admin & Launch Readiness
+The merchant manages settings, plan and billing, previews the storefront, gets help, and finishes onboarding; Slips staff can look up a store; data rights, security and exit criteria are verified for launch.
+**FRs covered:** FR17, FR18, FR19, FR20, FR21, FR27
+**Also carries:** NFR4 (export/deletion), NFR5, NFR6 (dashboard audit); AD-14, AD-20, AD-22; UX-DR onboarding checklist, plan usage meter, support sheet, banners; launch tasks L-1 to L-7 (non-dev)
 
 <!-- Repeat for each epic in epics_list (N = 1, 2, 3...) -->
 

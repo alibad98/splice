@@ -27,6 +27,7 @@ These are the owner's stack preferences. The architecture step (`bmad-architectu
 
 ## Open decisions for the Architect
 - How the player is loaded into Salla storefronts (script injection mechanism): depends on the Salla spike.
+- Multi-platform later (Zid, Shopify): keep Salla-specific code behind a platform-adapter interface; build only the Salla adapter in the MVP.
 - Auth, background jobs/queues (webhooks, analytics events), media storage and transcoding, hosting.
 
 ## Agent skills installed for this stack (`.claude/skills/`)

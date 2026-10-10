@@ -1,6 +1,6 @@
 # Slips (سليبس) Product Requirements Document (PRD)
 
-**Version:** 0.2 | **Date:** 10 Oct 2026 | **Scope:** MVP (Phase 1) in detail; Phases 2-3 as epic outlines
+**Version:** 0.3 | **Date:** 10 Oct 2026 | **Scope:** MVP (Phase 1) in detail; Phases 2-3 as epic outlines
 **Companion documents:** `docs/prd-addendum.md` (technical detail, architect notes, rejected alternatives), `docs/tech-stack.md` (chosen stack), `docs/Slips_SRS_v0.1.md` (detailed reference)
 
 > **Precedence.** For the MVP, this PRD is the single source of truth; where it differs from the SRS, the PRD wins. The SRS remains the detailed reference for later phases. SRS requirement IDs are cited in brackets (for example [FR-CON-05]) so readers can trace each requirement back.
@@ -15,6 +15,7 @@
 |---|---|---|---|
 | 0.1 | 10 Oct 2026 | Initial BMAD PRD derived from SRS v0.1 | Product owner |
 | 0.2 | 10 Oct 2026 | Applied validation findings and owner decisions C1, C4, C6, C8 | Product owner (with PM agent) |
+| 0.3 | 10 Oct 2026 | Q-07 resolved (multi-platform later, adapter boundary); interim answers for Q-10, Q-12 to Q-17; journeys and uninstall target kept | Product owner (with PM agent) |
 
 ---
 
@@ -58,7 +59,7 @@ The MVP is "done" and Phase 2 full development may start only when **all** exit 
 - No configurable out-of-stock behaviour; the basic form applies (FR16).
 - No multiple products per content item; one linked product per item [FR-BUY-03 deferred].
 - No view-through or click-through attribution credit (FR13).
-- No platforms other than Salla (pending Q-07).
+- No platforms other than Salla. Zid, Shopify and others are planned later (Q-07), so the architecture keeps Salla-specific code behind a platform-adapter boundary; only the Salla adapter is built in the MVP.
 - Reporting currency is the store's base currency; no currency conversion.
 
 ### 1.5 Glossary and Metric Definitions
@@ -114,9 +115,9 @@ These definitions apply to every screen, story and test. Screens that show a met
 
 - **FR1** Install from the Salla App Store and authenticate via Salla OAuth; tokens are stored encrypted and refreshed automatically. The dashboard shows "Connected to Salla" with the store name. [FR-AUTH-01, 02, 04]
 - **FR2** Handle app install and uninstall events. On uninstall: the storefront stops showing Slips content (the content API returns an empty result for that store key), billing-related processing stops, and the retention policy applies (30-day grace period during which a reinstall restores content and settings, then permanent deletion; NFR10). [FR-AUTH-05, NFR-DATA-01]
-- **FR3** Sync products (name, image, category, price including sale price, availability, and whether the product has required options/variants) from Salla via webhooks plus a manual sync; show the last sync time. Availability has three states: Available, Low, Out of stock (Low threshold [TBD: product owner, Q-15]). [FR-PRD-01, 02, 03, 06]
+- **FR3** Sync products (name, image, category, price including sale price, availability, and whether the product has required options/variants) from Salla via webhooks plus a manual sync; show the last sync time. Availability has three states: Available, Low, Out of stock (Low = 5 or fewer in stock [ASSUMPTION, Q-15]). [FR-PRD-01, 02, 03, 06]
 - **FR4** Create Stories and Reels with title, format, linked product, CTA, and multiple images/videos by upload or external link. The CTA has a label (for example "Order now"), an action (add to cart / open product / open link) and an optional style from a preset list. "Open link" accepts only URLs on the store's own domain [ASSUMPTION; protects against phishing and open redirects]. [FR-CON-04 to 07, 13]
-- **FR5** Validate uploads (type, size, duration, resolution), transcode videos into multiple renditions (for example 1080p/720p/480p), generate posters, and run a quality check; optional auto-publish after a pass. MVP upload limits are global, not per plan; the exact thresholds and quality-check criteria are [TBD: Architect with product owner, Q-13]. External links are always fetched and processed like uploads; Slips never hotlinks third-party media [ASSUMPTION]. [FR-CON-08 to 10; changed: per-plan limits deferred]
+- **FR5** Validate uploads (type, size, duration, resolution), transcode videos into multiple renditions (for example 1080p/720p/480p), generate posters, and run a quality check; optional auto-publish after a pass. MVP upload limits are global, not per plan; interim limits [ASSUMPTION, Q-13]: video MP4/MOV/WebM, ≤ 200 MB, ≤ 90 seconds, minimum 720p shorter side; images JPG/PNG/WebP, ≤ 10 MB, minimum 1080 px shorter side. Quality check flags: below minimum resolution, no video track, corrupt file, duration over limit. External links are always fetched and processed like uploads; Slips never hotlinks third-party media [ASSUMPTION]. [FR-CON-08 to 10; changed: per-plan limits deferred]
 - **FR6** List content with status filters (All, Published, Scheduled, Drafts) and counts; edit, duplicate, archive, delete. Status rules follow FR22. [FR-CON-01, 02, 11]
 - **FR7** Live vertical preview while editing content, rendered by the same player that runs on the storefront (preview mode, cart actions simulated). [FR-CON-12]
 - **FR8** Define placements (home, category, product page; optional target ID), layout per placement (FR29), and scheduled start and optional end. Content without a placement cannot be published. Schedules use the store's time zone (from Salla if available, otherwise Asia/Riyadh with a merchant setting; confirmed at the Epic 1 gate). [FR-VIS-01 to 04, FR-CON-17]
@@ -126,7 +127,7 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **FR12** Capture events: impression, view, quartile progress, completion, slide advance, product click, add to cart. (Share is not in the MVP.) [FR-ANA-01]
 - **FR13** Attribute Salla orders to Slips content using these rules. **This replaces the SRS FR-ANA-03 assumption** (last-touch with click credit, whole order). [FR-ANA-02; FR-ANA-03 replaced]
   1. **What earns credit:** only a product the shopper added to the cart from inside Slips content (a Slips add to cart, confirmed by Salla and tagged). Views and clicks alone never earn credit; they stay funnel metrics.
-  2. **What is credited:** only the cart-tagged line items of the order, never the whole order. Shipping is excluded. Treatment of VAT and order-level discounts is [TBD: product owner, Q-14].
+  2. **What is credited:** only the cart-tagged line items of the order, never the whole order. Shipping is excluded. Revenue is reported **excluding VAT**, and order-level discounts are apportioned to line items in proportion to their pre-discount value [ASSUMPTION, Q-14].
   3. **Window:** the order must be placed within the attribution window after the Slips add to cart. Default 7 days; the merchant can set 1-14 days. A changed window applies to orders placed after the change [ASSUMPTION]. The window in force is shown next to every attributed figure.
   4. **One credit per line item:** if the same product was added more than once (from Slips, or from Slips and elsewhere), the order line item is credited once, for its full ordered quantity [ASSUMPTION].
   5. **Several content items:** if several content items added the same product, the most recent Slips add to cart before the order gets the credit.
@@ -142,7 +143,7 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **FR19** Salla app billing: react to subscription events (start, renew, upgrade, downgrade, cancel, expire); enforce plan limits on active content items and placements at publish time and in the storefront API; show plan and usage with warnings at 80% and 100%; on downgrade or expiry, deactivate (never delete) content above the limit with a notice and a grace period; support a free trial if configured in Salla. Plan names, prices, limits, grace length and deactivation order are [TBD: product owner, Q-04]. [FR-BIL-01 to 05]
 
 **Added in v0.2** (new IDs; existing FR1-FR19 keep their numbers)
-- **FR20** A "Need help? Contact support" entry point is available on every dashboard page. Channel, hours and languages per Q-10. [FR-NOT-03]
+- **FR20** A "Need help? Contact support" entry point is available on every dashboard page. Interim support model [ASSUMPTION, Q-10]: email and WhatsApp, Arabic and English, Sunday-Thursday business hours (Asia/Riyadh), first response within 1 business day. [FR-NOT-03]
 - **FR21** Onboarding checklist on first install: connect store, sync products, install the injector, create the first content; each step shows done/not done. [FR-AUTH-03]
 - **FR22** Content status model [FR-CON-03; statuses ASSUMPTION]:
   - Statuses: **Draft, Processing, Failed, Scheduled, Published, Archived, Deactivated** (Deactivated = switched off by a plan limit, FR19). There is no separate "Ready" status: content that passes processing without auto-publish returns to Draft.
@@ -163,7 +164,7 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **FR27** Slips Admin view (internal): support staff can look up a store and see its connection status, sync state and last sync, processing jobs and failures, plan and usage, and pilot status (published content, attributed orders). Access is restricted to Slips staff with separate internal sign-in. [NFR-OBS-02, SRS §2.3 "Slips Admin"]
 - **FR28** Dashboard access: the merchant opens the dashboard from Salla (or a direct link) and is signed in through their Salla account; MVP has **one merchant account per store** and no team members. Sessions expire after inactivity [TBD: Architect] and the merchant can sign out. The exact re-entry mechanism (embedded in Salla or separate tab) is confirmed at the Epic 1 gate. [ASSUMPTION]
 - **FR29** Layouts and display options: the merchant chooses a layout for each placement: product-page strip (below images or a custom position), home/category carousel (boxed or full width), or full-screen Reels viewer (opened from a strip or carousel). Stories show as a ring or bar; Reels show as a carousel or strip of covers that opens the full-screen viewer [ASSUMPTION: format × layout matrix]. Default display options are set in Settings (FR17). [FR-INJ-10, FR-SET-02]
-- **FR30** When several published items match the same placement, show them most recently published first, up to a per-placement cap [TBD: product owner, Q-15]. [replaces FR-VIS-06 for MVP; priority ordering is Phase 2]
+- **FR30** When several published items match the same placement, show them most recently published first, up to a per-placement cap of 10 items [ASSUMPTION, Q-15]. [replaces FR-VIS-06 for MVP; priority ordering is Phase 2]
 
 ### 2.2 Non-Functional
 - **NFR1** Storefront performance budget [NFR-PERF-01 to 03; PERF-02 changed]:
@@ -191,7 +192,7 @@ These definitions apply to every screen, story and test. Screens that show a met
   - **g.** A Privacy Policy and Data Processing terms are published and linked in the app listing [NFR-PRIV-04].
   - **h.** Storage location follows the data residency decision (Q-05).
 - **NFR5** All user-facing strings externalized in Arabic and English; correct RTL/LTR and mixed-direction text; dates, numbers and currency formatted per locale using the store's base currency [NFR-LOC-01 to 03]. The player's RTL gesture and layout rules come from the UX spec (§10).
-- **NFR6** Accessibility: dashboard meets WCAG 2.1 AA. Player: keyboard operation, visible focus, pause control for auto-advancing Stories and playing video, button alternatives to swipe gestures, and reduced-motion support. Whether the player can claim AA without captions (FR-CON-16 is Phase 2) is open (Q-12). [NFR-A11Y-01]
+- **NFR6** Accessibility: dashboard meets WCAG 2.1 AA. Player: keyboard operation, visible focus, pause control for auto-advancing Stories and playing video, button alternatives to swipe gestures, and reduced-motion support. The player targets AA with one documented exception: captions arrive in Phase 2 (FR-CON-16). Until then, Slips claims WCAG 2.1 AA for the dashboard and "AA except captions" for the player [ASSUMPTION, Q-12]. [NFR-A11Y-01]
 - **NFR7** Availability: storefront-facing services 99.9% monthly, dashboard 99.5% monthly; measured as the share of successful content-API responses at the edge, successful event submissions, and successful dashboard requests, excluding announced maintenance [ASSUMPTION: SLI definitions]. Event submission tolerates temporary backend outages through client-side retry and queuing. Storefront content API is CDN-cached with invalidation within one minute (FR24). [NFR-AVAIL-01, 02, NFR-SCAL-02]
 - **NFR8** Operations: logging, metrics, tracing and alerting for API errors, queue depth, processing failures, Salla API failures and injector error rates; the injector is versioned with gradual rollout and rollback; databases backed up daily with point-in-time recovery and a restore test at least quarterly. [NFR-OBS-01, NFR-MNT-01, NFR-BKP-01; NFR-OBS-02 is FR27]
 
@@ -202,7 +203,7 @@ These definitions apply to every screen, story and test. Screens that show a met
   - The injector does not pollute the global namespace or conflict with theme CSS/JS (style isolation).
 - **NFR10** Data retention [NFR-DATA-01 to 03]:
   - After uninstall, merchant content and settings are kept for **30 days** [ASSUMPTION, from SRS] so a reinstall restores them, then permanently deleted.
-  - Raw analytics events are kept for [TBD: product owner with legal, Q-16; SRS example 13 months], then aggregated or deleted.
+  - Interim retention periods [ASSUMPTION, NEEDS LEGAL, Q-16]: raw analytics events 13 months, then aggregated or deleted; daily aggregates kept while installed (plus the 30-day grace); order and attribution records kept while installed (plus the 30-day grace); application logs 30 days; backups 35 days. Shopper PII is never stored (NFR4.b).
   - Merchants can request export and deletion of their data (NFR4.e).
 - **NFR11** Cost and abuse control [NFR-COST-01, 02]:
   - Storage and video delivery (bandwidth/minutes) are metered per store.
@@ -210,7 +211,7 @@ These definitions apply to every screen, story and test. Screens that show a met
   - Per-plan cost caps and what happens when a store hits one are part of Q-04.
 - **NFR12** Failed media processing jobs are retried automatically [TBD: Architect, retry count and backoff], then shown to the merchant as Failed with a reason and a retry action. [NFR-REL-01]
 - **NFR13** Media processing for a 60-second video completes within **5 minutes at P95** (excluding queue spikes). The injector does not make the store's Core Web Vitals worse, measured against the same store without Slips (counter-metric, §1.3). [NFR-PERF-06, 07]
-- **NFR14** Scale: the platform supports [TBD: product owner, Q-17; SRS example 5,000] concurrently active stores and absorbs **seasonal peaks of 10× normal traffic** (Ramadan, White Friday, National Day sales), verified by a load test before launch. [NFR-SCAL-01]
+- **NFR14** Scale: the architecture is designed for **5,000** concurrently active stores, and the pre-launch load test covers **1,000** active stores [ASSUMPTION, Q-17; revisit after the pilot], and absorbs **seasonal peaks of 10× normal traffic** (Ramadan, White Friday, National Day sales), verified by a load test before launch. [NFR-SCAL-01]
 
 ---
 
@@ -663,17 +664,17 @@ As the business, I want proof the storefront survives seasonal peaks, so that a 
 | Q-04 | Plans and pricing: names, prices, limits, definition of a placement for limits, grace length, deactivation order on downgrade, trial, per-plan cost caps and behaviour at the cap | Product owner | Before Stories 7.2b/7.2c are sharded; before listing (L-1) | FR19, NFR11, Stories 7.2b-c, L-1 |
 | Q-05 | Data residency: must data be stored in KSA or the region? | Product owner | Before architecture | Hosting, database region, video-service choice; pilot use of real data |
 | Q-06 | Social import timing | — | **Resolved:** Phase 3 (SRS §10.3, Epic 9) | — |
-| Q-07 | Will Slips support Zid, Shopify or other platforms? | Product owner | Before architecture | Whether the architecture includes a platform-adapter layer |
+| Q-07 | Will Slips support Zid, Shopify or other platforms? | — | **Resolved:** yes, after the MVP. The architecture keeps Salla-specific code behind a platform-adapter boundary; only the Salla adapter is built now. | — |
 | Q-08 | Non-video story slides (text cards, polls, coupons) in v1? | — | **Resolved:** MVP supports image and video slides; text cards, polls and coupons are Phase 3 (FR-INT-01 to 03) | — |
 | Q-09 | Who moderates content and handles abuse reports; takedown process and time; terms of use for merchant content (copyright, prohibited content) | Product owner with legal counsel | Before Salla submission (L-1) | L-3 terms; possible admin takedown in Story 7.8; CTA link policy (FR4) |
-| Q-10 | Support model: channel, languages, hours, response targets | Product owner | Before Story 7.7 is built | FR20, Story 7.7, L-5 |
+| Q-10 | Support model: channel, languages, hours, response targets | Product owner | **Interim [ASSUMPTION]:** email + WhatsApp, Arabic and English, Sun-Thu business hours, first response within 1 business day (FR20). Confirm before Story 7.7. | FR20, Story 7.7, L-5 |
 | Q-11 | Can required product options be selected and added via Salla? If not, confirm the FR23 "View options" behaviour | Spike lead with product owner | Epic 1 gate | FR23, Story 5.4 |
-| Q-12 | Player accessibility: bring captions (FR-CON-16) into the MVP, or claim AA for the dashboard only and list player exceptions? | Product owner | Before Epic 5 stories are sharded | NFR6, Stories 5.2b, 5.3a, 3.3 |
-| Q-13 | Upload limits (formats, max size, duration, resolution) and quality-check criteria | Architect with product owner | Before Story 3.3 | FR5, Stories 3.3, 3.4b |
-| Q-14 | Attributed revenue: include or exclude VAT; how to apportion order-level discounts to credited line items | Product owner | Before Story 6.2b | FR13, Stories 6.2b, 6.3, E3 |
-| Q-15 | Display defaults: per-placement item cap; Low-stock threshold | Product owner | Before Stories 4.3 and 2.3 | FR3, FR30 |
-| Q-16 | Retention periods per data class (raw events, aggregates, order records, logs, backups) [NEEDS LEGAL] | Product owner with legal counsel | Before architecture | NFR4.d, NFR10, Story 7.9 |
-| Q-17 | Scale target: number of concurrently active stores | Product owner | Before architecture | NFR14, Story 7.11 |
+| Q-12 | Player accessibility: captions in the MVP, or claim AA for the dashboard only? | Product owner | **Interim [ASSUMPTION]:** dashboard AA; player "AA except captions" until FR-CON-16 in Phase 2 (NFR6). | NFR6, Stories 5.2b, 5.3a, 3.3 |
+| Q-13 | Upload limits and quality-check criteria | Architect with product owner | **Interim [ASSUMPTION]:** limits in FR5; architect confirms against the video service before Story 3.3. | FR5, Stories 3.3, 3.4b |
+| Q-14 | Attributed revenue: VAT and order-level discounts | Product owner | **Interim [ASSUMPTION]:** exclude VAT; apportion order discounts by line-item value (FR13). Confirm before Story 6.2b. | FR13, Stories 6.2b, 6.3, E3 |
+| Q-15 | Display defaults: per-placement item cap; Low-stock threshold | Product owner | **Interim [ASSUMPTION]:** cap 10 items (FR30); Low = 5 or fewer (FR3). | FR3, FR30 |
+| Q-16 | Retention periods per data class [NEEDS LEGAL] | Product owner with legal counsel | **Interim [ASSUMPTION]:** periods in NFR10; legal confirms before launch (L-3). Architecture proceeds on the interim values. | NFR4.d, NFR10, Story 7.9 |
+| Q-17 | Scale target: number of concurrently active stores | Product owner | **Interim [ASSUMPTION]:** design for 5,000, load-test 1,000 (NFR14); revisit after the pilot. | NFR14, Story 7.11 |
 | Q-18 | Consent: what Salla exposes, and default tracking behaviour when no consent signal exists [NEEDS LEGAL] | Product owner with legal counsel | Epic 1 gate (G8) and before Story 6.1a | NFR4.c, Story 6.1a |
 | Q-19 | MVP launch date and pilot revenue goal (Goal 6) | Product owner | Before sprint planning | Goal 6, release plan |
 
@@ -685,7 +686,7 @@ Items listed in SRS §10.1 (MVP) that are not in this PRD.
 | SRS item | Reason deferred |
 |---|---|
 | NFR-SEC-04 role-based access control | MVP has one merchant account per store; roles arrive with team features in Phase 2. |
-| NFR-A11Y-01 "captions option" (player) | Captions are FR-CON-16 (Phase 2); whether to bring them forward is Q-12. |
+| NFR-A11Y-01 "captions option" (player) | Captions are FR-CON-16 (Phase 2); the player claims "AA except captions" until then (NFR6, Q-12). |
 | FR-BIL-02 limits on AI generations, features and team seats | Those features are not in the MVP; only content and placement limits apply (SRS §10.1 plan rule). |
 | FR-CON-08 per-plan upload limits | MVP uses global upload limits; per-plan limits add pricing dependencies before Q-04 closes. |
 | NFR-COST-01 AI usage metering, NFR-REL-01 AI job retries | No AI in the MVP; storage, bandwidth and media-job parts are kept (NFR11, NFR12). |
@@ -715,12 +716,13 @@ Items listed in SRS §10.1 (MVP) that are not in this PRD.
 - IP addresses not stored with events (NFR4.a); SLI definitions (NFR7); NFR2 test profile.
 - 30-day post-uninstall grace (NFR10, from SRS); 30-day uninstall rate target < 20% (§1.3).
 - User journeys and protagonists (§1.6).
+- Interim answers (v0.3): support model (FR20, Q-10); player AA except captions (NFR6, Q-12); upload limits (FR5, Q-13); VAT excluded and discounts apportioned (FR13, Q-14); cap 10 and Low ≤ 5 (FR30, FR3, Q-15); retention periods (NFR10, Q-16); 5,000 / 1,000 stores (NFR14, Q-17).
 
 **Key risks** (from SRS §9.2, still open): Salla injection/cart/order limits (R-01, handled by the Epic 1 gate); attribution disputes (R-02, handled by FR13 strict rules and the methodology page); player weight regressions (R-04, NFR1 in CI); PDPL non-compliance (R-05, NFR4 and legal review); seasonal spikes (R-08, NFR14 and Story 7.11). New: products with required options limit in-content purchase for fashion and cosmetics stores (FR23, Q-11).
 
 ## 10. Next Steps
 
-- **Product owner:** close Q-05, Q-07, Q-16 and Q-17 before architecture; Q-04 before Epic 7 billing stories; review §1.6 journeys and §9 assumptions.
+- **Product owner:** close Q-05 (data residency, legal) before hosting is chosen; confirm the interim answers to Q-10 and Q-12 to Q-17 when convenient; Q-04 before Epic 7 billing stories; review §1.6 journeys and §9 assumptions.
 - **Architect agent:** produce the architecture document now, in parallel with the Epic 1 spike, using `docs/tech-stack.md` and `docs/prd-addendum.md` (notes §B); update it after the Story 1.6b gate. Scaffolding stories 1.1, 1.2 and 1.7 may run before the document is finished.
 - **UX agent:** produce the front-end spec from the demo snapshot, including the player RTL/LTR gesture table, numeral and currency rules, bidi handling, onboarding and empty states, and the Disconnected and Failed states.
 - **PO agent:** after the gate and the architecture, check this PRD against both and confirm stories are ready for sprint planning (the stories here are already the epic breakdown; no separate sharding is needed beyond adding technical notes).

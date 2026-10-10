@@ -108,7 +108,7 @@ The content editor preview (FR7, Story 3.5) and the Store Preview page (FR18, St
 
 ### B.12 Other notes
 
-- **Platform adapter (Q-07):** if other platforms are likely, put Salla-specific code behind an adapter interface from the start.
+- **Platform adapter (Q-07, decided):** Zid, Shopify and others will follow the MVP, so Salla-specific code (OAuth, webhooks, product/order mapping, billing events, storefront injection and cart calls) sits behind a platform-adapter interface from the start. Only the Salla adapter is built now.
 - **Admin view (FR27):** decide between `apps/admin` and a protected route group in the dashboard with separate internal sign-in.
 - **Spike output:** `docs/spike-findings.md` is the single record of G1-G8 results and the go/no-go decision (Story 1.6b).
 

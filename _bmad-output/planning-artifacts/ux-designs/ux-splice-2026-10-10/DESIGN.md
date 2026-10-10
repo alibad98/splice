@@ -3,62 +3,62 @@ name: Slips
 description: Visual identity for Slips (سليبس), a Salla app for shoppable Stories/Reels — merchant dashboard (shadcn/ui + Tailwind 4) and neutral storefront player. Direction "Studio".
 colors:
   background: '#FFFFFF'
-  page: '#F6F3FC'
-  foreground: '#17112B'
+  page: '#FAF8F6'
+  foreground: '#15110F'
   card: '#FFFFFF'
-  primary: '#6A2BFF'
-  primary-foreground: '#FFFFFF'
-  accent: '#C8F25A'
-  accent-foreground: '#1C2A00'
-  muted: '#F4F1FB'
-  muted-foreground: '#5E5873'
-  border: '#E9E4F5'
-  ring: '#6A2BFF'
-  destructive: '#D1242A'
+  primary: '#FF4A3D'
+  primary-foreground: '#15110F'
+  accent: '#FFC23D'
+  accent-foreground: '#3A2600'
+  muted: '#F5F3F1'
+  muted-foreground: '#615954'
+  border: '#ECE8E4'
+  ring: '#FF4A3D'
+  destructive: '#C0123C'
   destructive-foreground: '#FFFFFF'
-  destructive-text: '#B3171B'
+  destructive-text: '#9C0E31'
   success: '#1BAA5A'
   success-text: '#0E6E39'
   warning: '#FFB547'
   warning-foreground: '#3D2500'
   warning-text: '#8A5300'
-  chart-1: '#6A2BFF'
-  chart-2: '#7FB800'
-  chart-3: '#FF6FB5'
-  chart-4: '#B69CFF'
-  chart-5: '#FFB547'
+  chart-1: '#FF4A3D'
+  chart-2: '#2B2523'
+  chart-3: '#0F9D8A'
+  chart-4: '#F5A300'
+  chart-5: '#2E8FE0'
   player-scrim: '#000000'
   player-surface: '#FFFFFF'
-  player-surface-foreground: '#17112B'
-  player-cta: '#17112B'
-  player-cta-foreground: '#C8F25A'
+  player-surface-foreground: '#15110F'
+  player-cta: '#15110F'
+  player-cta-foreground: '#FFC23D'
   player-progress: '#FFFFFF'
   player-progress-track: '#FFFFFF59'
-  background-dark: '#0F0B1C'
-  page-dark: '#0A0714'
-  foreground-dark: '#F2EEFF'
-  card-dark: '#181329'
-  primary-dark: '#7A45FF'
-  primary-foreground-dark: '#FFFFFF'
-  accent-dark: '#C8F25A'
-  accent-foreground-dark: '#1C2A00'
-  muted-dark: '#211A38'
-  muted-foreground-dark: '#A49CC0'
-  border-dark: '#2D2547'
-  ring-dark: '#A784FF'
-  destructive-dark: '#FF6166'
+  background-dark: '#100D0C'
+  page-dark: '#0B0908'
+  foreground-dark: '#F5F1EE'
+  card-dark: '#1A1615'
+  primary-dark: '#FF6A5C'
+  primary-foreground-dark: '#15110F'
+  accent-dark: '#FFC23D'
+  accent-foreground-dark: '#3A2600'
+  muted-dark: '#241F1D'
+  muted-foreground-dark: '#A89F99'
+  border-dark: '#2E2826'
+  ring-dark: '#FF8A7E'
+  destructive-dark: '#FF5C80'
   destructive-foreground-dark: '#1A0306'
-  destructive-text-dark: '#FFA3A6'
+  destructive-text-dark: '#FFA3B5'
   success-dark: '#3FD27F'
   success-text-dark: '#8AF0B5'
   warning-dark: '#FFC46B'
   warning-foreground-dark: '#3D2500'
   warning-text-dark: '#FFD699'
-  chart-1-dark: '#A784FF'
-  chart-2-dark: '#C8F25A'
-  chart-3-dark: '#FF8CC6'
-  chart-4-dark: '#6A54B8'
-  chart-5-dark: '#FFC46B'
+  chart-1-dark: '#FF6A5C'
+  chart-2-dark: '#D9D2CD'
+  chart-3-dark: '#2DD4BF'
+  chart-4-dark: '#FFC23D'
+  chart-5-dark: '#60B4FF'
 typography:
   family-latin: { fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }
   family-arabic: { fontFamily: '"IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif' }
@@ -96,17 +96,17 @@ components:
   button-secondary: { background: transparent, foreground: '{colors.foreground}', border: '{colors.border}', rounded: '{rounded.pill}', height: 36px }
   button-accent: { background: '{colors.accent}', foreground: '{colors.accent-foreground}', rounded: '{rounded.pill}' }
   badge: { rounded: '{rounded.pill}', fontSize: 11.5px, fontWeight: 600, paddingBlock: 3px, paddingInline: 8px }
-  card: { background: '{colors.card}', rounded: '{rounded.base}', padding: 22px, shadow: '0 8px 24px -14px rgba(60,20,140,.25)' }
+  card: { background: '{colors.card}', rounded: '{rounded.base}', padding: 22px, shadow: '0 8px 24px -14px rgba(40,24,16,.16)' }
   kpi-tile: { background: '{colors.card}', foreground: '{colors.foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
-  kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '#FFFFFFCC', delta: '{colors.accent}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
+  kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '#15110FCC', delta: '{colors.primary-foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
   input: { background: '{colors.background}', border: '{colors.border}', rounded: '{rounded.md}', height: 36px, focusRing: '{colors.ring}' }
   status-published: { background: '#1BAA5A1F', foreground: '{colors.success-text}', dot: '{colors.success}' }
-  status-scheduled: { background: '#6A2BFF14', foreground: '#4B17C9', dot: '{colors.primary}' }
+  status-scheduled: { background: '#FF4A3D14', foreground: '#B8291A', dot: '{colors.primary}' }
   status-draft: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: '{colors.muted-foreground}' }
-  status-failed: { background: '#D1242A14', foreground: '{colors.destructive-text}', dot: '{colors.destructive}' }
+  status-failed: { background: '#C0123C14', foreground: '{colors.destructive-text}', dot: '{colors.destructive}' }
   status-ended: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: none, style: 'outline border {colors.border}' }
   status-deactivated: { background: '#FFB54726', foreground: '{colors.warning-text}', dot: '{colors.warning}' }
-  story-ring: { size: 68px, ringWidth: 2.5px, gap: 2.5px, gradient: 'conic {colors.primary} -> {colors.accent}', seen: '#C9C3D9', avatarRounded: '{rounded.pill}' }
+  story-ring: { size: 68px, ringWidth: 2.5px, gap: 2.5px, gradient: 'conic {colors.primary} -> {colors.accent}', seen: '#D3CDC8', avatarRounded: '{rounded.pill}' }
   player-product-card: { background: '{colors.player-surface}', foreground: '{colors.player-surface-foreground}', rounded: '{rounded.lg}', padding: 12px, thumb: 56px }
   player-cta: { background: '{colors.player-cta}', foreground: '{colors.player-cta-foreground}', rounded: '{rounded.pill}', height: 48px, fontWeight: 700 }
 ---
@@ -115,7 +115,7 @@ components:
 
 ## Brand & Style
 
-Energetic and social, built with precision. Slips sells creator-tool energy (Stories, Reels, a ring that begs to be tapped) to merchants who need a dashboard that reads like Linear or Stripe: crisp edges, quiet chrome, data that tells the truth. The energy lives in two places only: electric violet `{colors.primary}` and lime `{colors.accent}`. Everything else is calm.
+Energetic and social, built with precision. Slips sells creator-tool energy (Stories, Reels, a ring that begs to be tapped) to merchants who need a dashboard that reads like Linear or Stripe: crisp edges, quiet chrome, data that tells the truth. The energy lives in two places only: hot coral `{colors.primary}` and sunny amber `{colors.accent}`. Everything else is calm.
 
 **Voice: friendly coach.** Warm, short, encouraging. Celebrate wins in one line ("أول مبيعة من قصة! 🎉" is wrong — no emoji; "أول مبيعة من قصة. أحسنت." is right). Errors say what happened and the next step. Never blame the merchant.
 
@@ -123,29 +123,30 @@ Energetic and social, built with precision. Slips sells creator-tool energy (Sto
 
 ### Logo & Wordmark
 
-- **Mark** (`brand/logo-mark.svg`): a story ring (violet→lime gradient arc, open at the top-end like a "new story" indicator) around a geometric bold "S" built from two stacked arcs. Outlined paths, legible at 16px.
+- **Mark** (`brand/logo-mark.svg`): a story ring (coral→amber gradient arc, open at the top-end like a "new story" indicator) around a geometric bold "S" built from two stacked arcs. Outlined paths, legible at 16px.
 - **Wordmarks**: `brand/logo-wordmark-en.svg` ("Slips", Plus Jakarta Sans 800, −0.03em) and `brand/logo-wordmark-ar.svg` ("سليبس", IBM Plex Sans Arabic 700). Use the mark at the inline-start of the wordmark (right side in RTL).
-- On violet backgrounds the mark goes white with a lime arc. Minimum clear space = the S stroke width × 2. Never recolor the ring to a single flat color except mono (all `{colors.foreground}` or all white).
+- On coral backgrounds the mark uses an ink `{colors.foreground}` S with a white→amber arc (`brand/logo-mark-on-coral.svg`, filename kept). The app icon is a coral tile with an ink S and amber ring. Minimum clear space = the S stroke width × 2. Never recolor the ring to a single flat color except mono (all `{colors.foreground}` or all white).
 - Sheet: `brand/logo-sheet.html`.
 
 ## Colors
 
 | Role | Light | Dark | Use |
 |---|---|---|---|
-| primary | #6A2BFF | #7A45FF | Primary buttons, links, active nav, chart-1, celebration tile |
-| accent | #C8F25A | #C8F25A | Highlights, positive deltas on violet, player CTA text, ring end. Fill only — never text on light surfaces |
+| primary | #FF4A3D | #FF6A5C | Primary buttons (ink text), active nav, chart-1, celebration tile; links use info-text #B8291A |
+| accent | #FFC23D | #FFC23D | Highlights, player CTA text, ring end. Fill only — never text on light surfaces |
 | success | #1BAA5A (text #0E6E39) | #3FD27F (text #8AF0B5) | Published, positive state |
 | warning | #FFB547 (text #8A5300) | #FFC46B (text #FFD699) | Deactivated, plan limits |
-| destructive | #D1242A (text #B3171B) | #FF6166 (text #FFA3A6) | Failed, delete |
-| muted / muted-foreground | #F4F1FB / #5E5873 | #211A38 / #A49CC0 | Secondary surfaces and copy |
+| destructive | #C0123C (text #9C0E31) | #FF5C80 (text #FFA3B5) | Failed, delete |
+| muted / muted-foreground | #F5F3F1 / #615954 | #241F1D / #A89F99 | Secondary surfaces and copy |
 
 Charts: series in order chart-1..5; never encode meaning by color alone (legend + label).
 
 **WCAG AA (verified):**
-- White on #6A2BFF = 6.17:1; white on #7A45FF (dark primary) = 5.09:1 — pass.
-- #1C2A00 on lime #C8F25A = 11.8:1; lime on #17112B (player CTA) = 14.2:1 — pass. White on lime = 1.3:1 — forbidden.
-- Muted-foreground on muted: 6.0:1 light, 6.95:1 dark (on card).
-- **Fixes:** light destructive #E5383B → **#D1242A** (white on it was 4.23:1, now ≈5.2:1). Dark destructive #FF6166 with white text was 2.94:1 → dark destructive-foreground is **#1A0306** (≈6.6:1). Success #1BAA5A is 3.0:1 on white → never text; status text uses **#0E6E39** (6.35:1). Chart-2 #7FB800 is graphics-only (3:1 non-text rule), never text.
+- **Button text rule: ink on coral, always.** #15110F on #FF4A3D = 5.63:1; #15110F on #FF6A5C (dark primary) = 6.67:1 — pass. White on #FF4A3D = 3.33:1 — forbidden for text (applies to buttons, active nav pills, celebration tile, avatars).
+- Coral #FF4A3D as a graphic/focus ring on white = 3.33:1 (passes 3:1 non-text); never body text on white — use `info-text` #B8291A (6.23:1) for coral-toned text. Dark info-text #FFB3A8 on card = 10.5:1.
+- #3A2600 on amber #FFC23D = 8.95:1; amber on #15110F (player CTA) = 11.65:1 — pass. White on amber is forbidden.
+- Muted-foreground on muted: #615954 on #F5F3F1 = 6.19:1 light; #A89F99 on #1A1615 = 6.91:1 dark.
+- **Fixes:** destructive is a deeper crimson **#C0123C** (white on it 6.19:1; text #9C0E31 = 8.33:1) so it never reads as coral. Dark destructive #FF5C80 takes **#1A0306** text (6.7:1). Success #1BAA5A is 3.0:1 on white → never text; status text uses **#0E6E39** (6.35:1). Charts: coral, charcoal, teal, amber, sky (light #FF4A3D/#2B2523/#0F9D8A/#F5A300/#2E8FE0; dark #FF6A5C/#D9D2CD/#2DD4BF/#FFC23D/#60B4FF), no purple; graphics-only, never text. Status badges and destructive states always carry a label/icon, never colour alone, so coral/red/amber are never confused.
 
 ## Typography
 
@@ -165,7 +166,7 @@ Charts: series in order chart-1..5; never encode meaning by color alone (legend 
 
 ## Elevation & Depth
 
-Flat by default. Cards and tiles use one soft violet-tinted shadow (`0 8px 24px -14px rgba(60,20,140,.25)`; dark `rgba(0,0,0,.6)`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows, no glows except the focus ring (2px `{colors.ring}`, 2px offset). The player uses a black scrim (60–80%) and white surfaces only.
+Flat by default. Cards and tiles use one soft warm-neutral shadow (`0 8px 24px -14px rgba(40,24,16,.16)`; dark `rgba(0,0,0,.6)`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows, no glows except the focus ring (2px `{colors.ring}`, 2px offset). The player uses a black scrim (60–80%) and white surfaces only.
 
 ## Shapes
 
@@ -173,21 +174,21 @@ Flat by default. Cards and tiles use one soft violet-tinted shadow (`0 8px 24px 
 
 ## Components
 
-- **Button:** pill, 36px (32 sm, 44 lg / touch). Primary violet; secondary = outline border; accent (lime + dark text) reserved for one "make something" action per screen. Hover: brightness 1.08; disabled 50% opacity.
-- **Badge / status:** pill, 11.5px 600, leading 6px dot. Published (green), Scheduled (violet), Draft (muted), Failed (red tint + row tint 6%), Ended (outline, no dot), Deactivated (amber). Always a text label, never dot alone.
-- **KPI tile:** label 13px muted, value `{typography.kpi}` tabular, delta 12px 600 (up #178A4A / down #D1242A; dark up = lime). **`{components.kpi-tile-celebration}`**: the Revenue tile is solid violet with white value, 80% white label, lime delta — one per dashboard, never more.
+- **Button:** pill, 36px (32 sm, 44 lg / touch). Primary coral with ink text; secondary = outline border; accent (amber + dark text) reserved for one "make something" action per screen. Hover: brightness 1.08; disabled 50% opacity.
+- **Badge / status:** pill, 11.5px 600, leading 6px dot. Published (green), Scheduled (coral tint, #B8291A text), Draft (muted), Failed (crimson tint + row tint 6%), Ended (outline, no dot), Deactivated (amber). Always a text label, never dot alone.
+- **KPI tile:** label 13px muted, value `{typography.kpi}` tabular, delta 12px 600 (up #178A4A / down #C0123C; dark up = #3FD27F). **`{components.kpi-tile-celebration}`**: the Revenue tile is solid coral with ink value, 80% ink label, ink delta — one per dashboard, never more.
 - **Card:** shadcn Card composition; title `{typography.h3}`, 22px padding.
 - **Input:** 36px, 12px radius, border → ring on focus; error = destructive border + text-destructive-text message below.
-- **Story ring (`{components.story-ring}`):** conic gradient violet→lime ring, 2.5px with 2.5px background gap; seen = flat #C9C3D9. Label under, 12px, 1 line truncate.
+- **Story ring (`{components.story-ring}`):** conic gradient coral→amber ring, 2.5px with 2.5px background gap; seen = flat #D3CDC8. Label under, 12px, 1 line truncate.
 - **Player product card:** white surface, 22px radius, 56px product thumb, name (2 lines), price tabular, inside bottom sheet over the scrim.
-- **Player CTA (`{components.player-cta}`):** near-black pill (#17112B) with lime text, 48px, full width — reads on any video frame and any merchant theme.
+- **Player CTA (`{components.player-cta}`):** near-black pill (#15110F) with amber text, 48px, full width — reads on any video frame and any merchant theme.
 - **Player rule:** the storefront player uses **neutral Slips styling** (no theme matching in MVP), rendered inside **Shadow DOM** so merchant CSS cannot leak in or out, and uses the **system font stack** (`{typography.family-player}`) — **no web fonts load in the player**.
 
 ## Do's and Don'ts
 
-- Do keep violet + lime as the only loud colors; Don't add gradients outside the logo and story ring.
-- Do use the celebration tile once (revenue); Don't make every KPI violet.
-- Do use `-text` color variants for status text; Don't put success/warning/lime fills as text on white.
+- Do keep coral + amber as the only loud colors; never introduce purple/violet; Don't add gradients outside the logo and story ring.
+- Do use the celebration tile once (revenue); Don't make every KPI coral.
+- Do use `-text` color variants for status text; Don't put success/warning/amber fills as text on white.
 - Do use logical properties and test RTL first; Don't use `left`/`right`/`ml-`/`mr-`.
 - Do use tabular Western numerals with bidi isolates; Don't letter-space Arabic.
 - Do keep the player neutral, Shadow-DOM-scoped, system-font; Don't load Jakarta/Plex in the storefront.

@@ -1,6 +1,6 @@
 ---
 status: draft
-stepsCompleted: [1]
+stepsCompleted: [1, 2]
 inputDocuments:
   - docs/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-splice-2026-10-10/ARCHITECTURE-SPINE.md

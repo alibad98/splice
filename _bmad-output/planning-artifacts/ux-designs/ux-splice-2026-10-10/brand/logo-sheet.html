@@ -1,28 +1,18 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Slips Logo Sheet</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Slips Logo Sheet</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@700&family=Plus+Jakarta+Sans:wght@800&display=swap" rel="stylesheet">
 <style>
-body{margin:0;padding:32px 16px;background:#F6F3FC;color:#17112B;font:14px/1.5 "IBM Plex Sans Arabic",system-ui,sans-serif}
-h1{font:800 24px "Plus Jakarta Sans",sans-serif;margin:0 0 20px}
-.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;max-width:1100px}
-.p{border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:20px;align-items:flex-start}
-.light{background:#fff;color:#17112B;--s:#6A2BFF;--a:#6A2BFF}.dark{background:#0F0B1C;color:#F2EEFF;--s:#A784FF;--a:#7A45FF}.violet{background:#6A2BFF;color:#fff;--s:#fff;--a:#fff}
-.p small{opacity:.7}.fav{display:flex;gap:14px;align-items:end}
-svg .s{stroke:var(--s)}svg text{fill:currentColor}
+body{margin:0;padding:40px 24px;background:#F6F3FC;color:#17112B;font:14px/1.5 "Plus Jakarta Sans",Inter,system-ui,sans-serif}
+h1{font-weight:800;font-size:28px;letter-spacing:-.02em;margin:0 0 6px}p{margin:0 0 24px;color:#5E5873;max-width:70ch}
+.row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;max-width:1200px}
+.p{border-radius:20px;padding:28px;display:grid;gap:28px;justify-items:start}
+.light{background:#fff}.dark{background:#0F0B1C;color:#F2EEFF}.violet{background:#6A2BFF;color:#fff}
+small{font-size:12px;font-weight:600;opacity:.7}.fav{display:flex;gap:16px;align-items:end}
+@media (max-width:800px){.row{grid-template-columns:1fr}}
 </style></head><body>
 <h1>Slips · سليبس</h1>
-<template id="mark"><path d="M16 2.5a13.5 13.5 0 1 1-11.7 6.75" fill="none" stroke="url(#g)" stroke-width="3" stroke-linecap="round"/><path class="s" d="M20.5 11.2c-.9-1.4-2.6-2.2-4.5-2.2-2.6 0-4.5 1.5-4.5 3.6 0 4.6 9.4 2.4 9.4 7.1 0 2.2-2.1 3.8-4.9 3.8-2.1 0-3.9-.9-4.9-2.4" fill="none" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></template>
-<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--a,#6A2BFF)" style="stop-color:var(--a,#6A2BFF)"/><stop offset="1" stop-color="#C8F25A"/></linearGradient></defs></svg>
+<p>Mark: a story ring (violet → lime, the "unseen story" ring shoppers tap) wrapped around a bold S. Use the app icon where Salla shows app tiles; use the mark + wordmark in the dashboard header. Wordmarks use live text; outline to paths before final export.</p>
 <div class="row">
- <div class="p light"><small>فاتح / Light</small></div>
- <div class="p dark"><small>داكن / Dark</small></div>
- <div class="p violet"><small>بنفسجي / Violet</small></div>
-</div>
-<script>
-const m=document.getElementById('mark').innerHTML;
-const mark=(s)=>`<svg viewBox="0 0 32 32" width="${s}" height="${s}">${m}</svg>`;
-document.querySelectorAll('.p').forEach(p=>p.insertAdjacentHTML('beforeend',
- `${mark(72)}
- <svg viewBox="0 0 132 40" width="198" height="60"><g transform="translate(2 4)">${m}</g><text x="42" y="29" font-family="'Plus Jakarta Sans',system-ui,sans-serif" font-weight="800" font-size="25" letter-spacing="-0.8">Slips</text></svg>
- <svg viewBox="0 0 140 40" width="210" height="60"><text x="98" y="28" text-anchor="end" direction="rtl" font-family="'IBM Plex Sans Arabic',Tahoma,sans-serif" font-weight="700" font-size="25">سليبس</text><g transform="translate(106 4)">${m}</g></svg>
- <div class="fav">${mark(16)}${mark(24)}${mark(32)}<small>16 / 24 / 32px</small></div>`));
-</script></body></html>
+ <div class="p light"><small>Light</small><img src="logo-mark.svg" width="88"><img src="logo-wordmark-en.svg" width="252"><img src="logo-wordmark-ar.svg" width="252"><div class="fav"><img src="logo-mark.svg" width="16"><img src="logo-mark.svg" width="24"><img src="logo-mark.svg" width="32"><small>16 / 24 / 32</small></div></div>
+ <div class="p dark"><small>Dark</small><img src="logo-mark-dark.svg" width="88"><img src="logo-wordmark-en-dark.svg" width="252"><img src="logo-wordmark-ar-dark.svg" width="252"><div class="fav"><img src="logo-mark-dark.svg" width="16"><img src="logo-mark-dark.svg" width="24"><img src="logo-mark-dark.svg" width="32"><small>16 / 24 / 32</small></div></div>
+ <div class="p violet"><small>On violet · App icon</small><img src="logo-mark-on-violet.svg" width="88"><div class="fav"><img src="logo-app-icon.svg" width="96"><img src="logo-app-icon.svg" width="48"><img src="logo-app-icon.svg" width="32"><img src="logo-app-icon.svg" width="16"></div></div>
+</div></body></html>

@@ -1,6 +1,6 @@
 # Slips (سليبس) Product Requirements Document (PRD)
 
-**Version:** 0.3 | **Date:** 10 Oct 2026 | **Scope:** MVP (Phase 1) in detail; Phases 2-3 as epic outlines
+**Version:** 0.4 | **Date:** 10 Oct 2026 | **Scope:** MVP (Phase 1) in detail; Phases 2-3 as epic outlines
 **Companion documents:** `docs/prd-addendum.md` (technical detail, architect notes, rejected alternatives), `docs/tech-stack.md` (chosen stack), `docs/Slips_SRS_v0.1.md` (detailed reference)
 
 > **Precedence.** For the MVP, this PRD is the single source of truth; where it differs from the SRS, the PRD wins. The SRS remains the detailed reference for later phases. SRS requirement IDs are cited in brackets (for example [FR-CON-05]) so readers can trace each requirement back.
@@ -16,6 +16,7 @@
 | 0.1 | 10 Oct 2026 | Initial BMAD PRD derived from SRS v0.1 | Product owner |
 | 0.2 | 10 Oct 2026 | Applied validation findings and owner decisions C1, C4, C6, C8 | Product owner (with PM agent) |
 | 0.3 | 10 Oct 2026 | Q-07 resolved (multi-platform later, adapter boundary); interim answers for Q-10, Q-12 to Q-17; journeys and uninstall target kept | Product owner (with PM agent) |
+| 0.4 | 10 Oct 2026 | Aligned with Salla desk research and architecture: App Snippet auto-injection (FR9, FR17, FR21); key regenerate only for manual snippet | Product owner (with architect agent) |
 
 ---
 
@@ -77,7 +78,7 @@ These definitions apply to every screen, story and test. Screens that show a met
 | **Active content item** | A content item in status Published or Scheduled. Counts toward plan limits [ASSUMPTION, pending Q-04]. |
 | **Injector** | The small loader script on the storefront that checks for eligible content and loads the player. |
 | **Player** | The storefront UI that renders Stories and Reels (loaded by the injector). |
-| **Injector key (store key)** | A **public** identifier for a store, embedded in storefront pages. It is not a secret (FR9, NFR3). |
+| **Injector key (store key)** | A **public** identifier used only by the manual-snippet fallback; stores using the Salla App Snippet are identified by their Salla store ID. It is not a secret (FR9, NFR3). |
 | **Viewer ID** | A pseudonymous, random identifier stored in the shopper's browser; never linked to name, phone or email. |
 | **Impression** | The player component (ring, strip or carousel) becomes visible in the viewport. |
 | **View** | A shopper opens a content item and its first slide or video starts showing. Counted at most once per content item per viewer per 30 minutes [ASSUMPTION]. |
@@ -121,7 +122,7 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **FR6** List content with status filters (All, Published, Scheduled, Drafts) and counts; edit, duplicate, archive, delete. Status rules follow FR22. [FR-CON-01, 02, 11]
 - **FR7** Live vertical preview while editing content, rendered by the same player that runs on the storefront (preview mode, cart actions simulated). [FR-CON-12]
 - **FR8** Define placements (home, category, product page; optional target ID), layout per placement (FR29), and scheduled start and optional end. Content without a placement cannot be published. Schedules use the store's time zone (from Salla if available, otherwise Asia/Riyadh with a merchant setting; confirmed at the Epic 1 gate). [FR-VIS-01 to 04, FR-CON-17]
-- **FR9** The injector loads using the store's injector key, a **public store identifier**, and renders only content eligible for the current page (page type, target ID, schedule, status). [FR-INJ-01]
+- **FR9** The injector loads automatically on every storefront page through Salla's App Snippet when the app is installed, with no theme edits by the merchant; it identifies the store from Salla's store ID. A manually pasted snippet using the injector key is a fallback for incompatible themes only. It renders only content eligible for the current page (page type, target ID, schedule, status). [FR-INJ-01]
 - **FR10** The player supports Story mode and Reels mode, muted autoplay, lazy loading, adaptive rendition, RTL/LTR following the storefront language, and respects browser autoplay, data-saver and reduced-motion settings. If Slips is unreachable or the key is invalid, the storefront stays fully functional with nothing visible from Slips. [FR-INJ-02 to 07, 09]
 - **FR11** Product card (image, name, the price the cart will charge, CTA). Tapping "Add to cart" adds the product to the Salla cart without leaving the content, with visual confirmation; errors (out of stock, API failure) show a localized message and keep the shopper in the experience. A secondary action opens the product page or the cart. Every Slips add to cart is tagged for attribution using the mechanism chosen at the Epic 1 gate. [FR-BUY-01, 02, 04, 05, 06]
 - **FR12** Capture events: impression, view, quartile progress, completion, slide advance, product click, add to cart. (Share is not in the MVP.) [FR-ANA-01]
@@ -138,13 +139,13 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **FR14** Analytics page: the four Analytics KPIs (§1.5) with % change; date ranges Last 7 days, Last 30 days, This month, custom; funnel with counts and step-to-step rates; per-content performance (views, completion rate, CTR, attributed revenue); in-app tooltips defining every metric; an attribution methodology page. [FR-ANA-04 to 06, 08, 11]
 - **FR15** Overview dashboard: the four Overview KPIs (§1.5) with % change; 7-day chart; latest content (title, last activity, views, CTR, status) with All/Published/Drafts filter and a link to the full list; empty-state banner "Create your first story". [FR-DASH-02 to 05]
 - **FR16** Products page with category, price, linked-content count, attributed orders and availability (Available/Low/Out of stock), filtering by category and search by name. Basic out-of-stock handling: the CTA is disabled and shows "Out of stock". When a merchant links an out-of-stock product, the form warns them [resolves SRS Appendix B item 3]. [FR-PRD-03, 04, FR-PRD-05 basic form, FR-VIS-07]
-- **FR17** Settings: Salla connection tab (status, store name and URL, reconnect, disconnect); injector tab (store key shown in full with copy, regenerate, installation guide, default display options); attribution window (1-14 days); dashboard language. Regenerate issues a new key and purges the storefront cache; the old key stops working after an overlap period [TBD: Architect] and the merchant is told whether reinstalling the snippet is needed (depends on the install model chosen at the Epic 1 gate). Changes are saved explicitly with a "Changes saved" confirmation. [FR-SET-01, 02, 04, 06, 07; changed: key not masked]
+- **FR17** Settings: Salla connection tab (status, store name and URL, reconnect, disconnect); injector tab (installation status detected live, default display options; store key with copy and regenerate shown only for the manual-snippet fallback); attribution window (1-14 days); dashboard language. Regenerate issues a new key and purges the storefront cache; the old key keeps working for a 7-day overlap [ASSUMPTION, architecture AD-16] and the merchant is told whether reinstalling the snippet is needed (depends on the install model chosen at the Epic 1 gate). Changes are saved explicitly with a "Changes saved" confirmation. [FR-SET-01, 02, 04, 06, 07; changed: key not masked]
 - **FR18** Store preview page with a Stories/Reels toggle, the in-content product card and "Order now", and installation instructions, using the real player in preview mode. A "Preview store" button is available on every dashboard page. [FR-PRV-01, 03]
 - **FR19** Salla app billing: react to subscription events (start, renew, upgrade, downgrade, cancel, expire); enforce plan limits on active content items and placements at publish time and in the storefront API; show plan and usage with warnings at 80% and 100%; on downgrade or expiry, deactivate (never delete) content above the limit with a notice and a grace period; support a free trial if configured in Salla. Plan names, prices, limits, grace length and deactivation order are [TBD: product owner, Q-04]. [FR-BIL-01 to 05]
 
 **Added in v0.2** (new IDs; existing FR1-FR19 keep their numbers)
 - **FR20** A "Need help? Contact support" entry point is available on every dashboard page. Interim support model [ASSUMPTION, Q-10]: email and WhatsApp, Arabic and English, Sunday-Thursday business hours (Asia/Riyadh), first response within 1 business day. [FR-NOT-03]
-- **FR21** Onboarding checklist on first install: connect store, sync products, install the injector, create the first content; each step shows done/not done. [FR-AUTH-03]
+- **FR21** Onboarding checklist on first install: connect store, sync products, injector detected on the storefront, create the first content; each step shows done/not done. [FR-AUTH-03]
 - **FR22** Content status model [FR-CON-03; statuses ASSUMPTION]:
   - Statuses: **Draft, Processing, Failed, Scheduled, Published, Archived, Deactivated** (Deactivated = switched off by a plan limit, FR19). There is no separate "Ready" status: content that passes processing without auto-publish returns to Draft.
   - Only Published content within its schedule is shown on the storefront.

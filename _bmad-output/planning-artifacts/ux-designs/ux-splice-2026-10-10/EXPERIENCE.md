@@ -1,7 +1,6 @@
 ---
 name: Slips
 status: final
-updated: 2026-10-10
 sources:
   - docs/prd.md (v0.4: FR1-FR30, NFR6, NFR9, §1.5, §1.6, Epics 3-7)
   - _bmad-output/planning-artifacts/architecture/architecture-splice-2026-10-10/ARCHITECTURE-SPINE.md (AD-8, AD-12, AD-19, AD-20, AD-23)

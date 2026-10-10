@@ -293,10 +293,10 @@ Arrows are the only allowed import directions (runtime calls are in the Containe
 
 ### AD-22 — Operations envelope [ADOPTED]
 
-- **Binds:** NFR3, NFR7, NFR8, NFR10, Story 1.7, Story 7.11
+- **Binds:** NFR3, NFR7, NFR8, NFR10, Story 1.3 (epics.md numbering), Story 7.11
 - **Prevents:** each story inventing its own telemetry, unsafe migrations during rolling deploys, and missing partitions or backups.
 - **Rule:**
-  - From Epic 1 Story 1.7: pino logs, error tracking, metrics with SLIs per PRD NFR7, and alerting (error rate, webhook failures, queue depth and age, Salla API failures, compile lag, player errors), all behind a thin telemetry module (vendor deferred). Job payloads carry `trace_id` and `store_id`. Alerts map to owners and runbooks in `docs/runbooks/`.
+  - From Epic 1 Story 1.3 (epics.md numbering): pino logs, error tracking, metrics with SLIs per PRD NFR7, and alerting (error rate, webhook failures, queue depth and age, Salla API failures, compile lag, player errors), all behind a thin telemetry module (vendor deferred). Job payloads carry `trace_id` and `store_id`. Alerts map to owners and runbooks in `docs/runbooks/`.
   - Managed Postgres with PITR, daily encrypted backups, a quarterly restore test, and HA in production.
   - Migrations are expand/contract and compatible with the previous release. Rollback means redeploying the previous image.
   - A job creates `events_raw` partitions 3 months ahead and alerts on failure.

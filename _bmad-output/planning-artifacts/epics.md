@@ -1,6 +1,6 @@
 ---
 status: draft
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - docs/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-splice-2026-10-10/ARCHITECTURE-SPINE.md
@@ -594,7 +594,7 @@ So that my storefront is safe on exit and nothing is lost if I return.
 **Given** an active store
 **When** an uninstall event is processed
 **Then** `lifecycle_state` becomes `uninstalled` with a 30-day grace end date, `integration.store.uninstalled` is emitted in the same transaction, tokens are revoked, and billing-related processing is skipped for that store
-**And** the storefront content endpoint returns an empty result for that store's locator
+**And** `integration` exposes an active-store check that returns false for that store, so any storefront content endpoint (built in Epic 4) returns an empty result for its locator
 
 **Given** an uninstalled store within the 30-day grace
 **When** the merchant reinstalls
@@ -2214,7 +2214,7 @@ So that I can pay, upgrade and trial without extra steps.
 
 **Given** G5 fails or Q-04 is unresolved
 **When** a plan must be set
-**Then** plans, prices and limits load from config, and an admin can set `manual_override` (Story 7.10).
+**Then** plans, prices and limits load from config, and `manual_override` can be set through a `billing` service method (seed/CLI until the admin UI in Story 7.10 extends it).
 
 ### Story 7.4: Enforce plan limits and show usage
 
@@ -2400,7 +2400,7 @@ So that I can trust Slips with my store.
 
 **Given** a deletion request
 **When** confirmed
-**Then** the same orchestrated purge as uninstall runs immediately (Story 7.13).
+**Then** the same orchestrated purge as uninstall (Story 1.10 `StoreDataLifecycle`) runs immediately.
 
 ### Story 7.13: Verify uninstall grace, restore and purge
 

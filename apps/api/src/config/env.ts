@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FLAG_DEFAULTS, type FlagName } from '../ports/feature-flags.js';
 import { QUEUE_GROUPS, type QueueGroup } from '../worker/queues.js';
 
 const queueGroups = z
@@ -17,6 +18,22 @@ const queueGroups = z
     return [...new Set(parts)] as QueueGroup[];
   });
 
+const featureFlags = z
+  .string()
+  .default('')
+  .transform((raw, ctx) => {
+    const out: Partial<Record<FlagName, boolean>> = {};
+    for (const part of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+      const [name, value, ...extra] = part.split('=').map((s) => s.trim());
+      if (!name || !(name in FLAG_DEFAULTS) || extra.length > 0 || (value !== 'true' && value !== 'false')) {
+        ctx.addIssue({ code: 'custom', message: `invalid flag entry "${part}" (expected <known flag>=true|false; known: ${Object.keys(FLAG_DEFAULTS).join(', ')})` });
+        return z.NEVER;
+      }
+      out[name as FlagName] = value === 'true';
+    }
+    return out;
+  });
+
 export const EnvSchema = z.object({
   ROLE: z.enum(['http', 'worker']),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -25,6 +42,12 @@ export const EnvSchema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   WORKER_QUEUES: queueGroups,
   APP_VERSION: z.string().default('0.0.0'),
+  LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).default('info'),
+  FEATURE_FLAGS: featureFlags,
+  /** Bearer token for the metrics endpoints; when unset they are disabled. */
+  METRICS_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(16).optional()),
+  /** Worker role only: port for its liveness and metrics server. */
+  WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
 });
 export type Env = z.infer<typeof EnvSchema>;
 

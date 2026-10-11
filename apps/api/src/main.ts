@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 import { EnvError, parseEnv, type Env } from './config/env.js';
 
 function loadEnvOrExit(): Env {
@@ -19,7 +20,7 @@ async function main() {
     const { createHttpApp } = await import('./http.js');
     const app = await createHttpApp(env);
     await app.listen(env.PORT);
-    console.log(`[http] listening on :${env.PORT}`);
+    app.get<Telemetry>(TELEMETRY).log.info('http listening', { port: env.PORT });
   } else {
     const { startWorker } = await import('./worker/worker.js');
     await startWorker(env);

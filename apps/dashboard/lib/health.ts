@@ -10,9 +10,10 @@ export function apiUrl(): string {
 export async function getHealth(fetchImpl: typeof fetch = fetch, baseUrl: string = apiUrl()): Promise<HealthResult> {
   try {
     const res = await fetchImpl(`${baseUrl.replace(/\/+$/, '')}/v1/health`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    // 503 carries a valid `degraded` body (database down); show it rather than a bare status code.
+    if (!res.ok && res.status !== 503) return { ok: false, error: `HTTP ${res.status}` };
     const parsed = HealthResponse.safeParse(await res.json());
-    return parsed.success ? { ok: true, health: parsed.data } : { ok: false, error: 'invalid health response' };
+    return parsed.success ? { ok: true, health: parsed.data } : { ok: false, error: `HTTP ${res.status}: invalid health response` };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

@@ -13,6 +13,21 @@ jobs:
   checks:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
+    # Database-backed tests use postgres://slips:slips@127.0.0.1:5433/slips (same URL as the local test DB).
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: slips
+          POSTGRES_PASSWORD: slips
+          POSTGRES_DB: slips
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U slips"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

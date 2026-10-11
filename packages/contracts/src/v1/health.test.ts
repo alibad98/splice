@@ -14,3 +14,10 @@ describe('HealthResponse v1', () => {
     expect(HealthResponse.safeParse({ status: 'nope', role: 'http', version: '1', time: new Date().toISOString() }).success).toBe(false);
   });
 });
+
+describe('HealthResponse v1 checks', () => {
+  it('accepts optional dependency checks', () => {
+    const body = { status: 'degraded', role: 'worker', version: '1', time: new Date().toISOString(), checks: { database: 'down' } };
+    expect(HealthResponse.parse(body).checks?.database).toBe('down');
+  });
+});

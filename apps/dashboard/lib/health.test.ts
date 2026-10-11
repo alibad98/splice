@@ -17,7 +17,11 @@ describe('getHealth', () => {
     expect(url).toBe('http://api/v1/health');
   });
   it('reports non-2xx responses', async () => {
-    expect(await getHealth(fakeFetch(503, {}), 'http://api')).toEqual({ ok: false, error: 'HTTP 503' });
+    expect(await getHealth(fakeFetch(500, {}), 'http://api')).toEqual({ ok: false, error: 'HTTP 500' });
+  });
+  it('shows a degraded 503 body instead of a bare status code', async () => {
+    const degraded = { ...okBody, status: 'degraded', checks: { database: 'down' } };
+    expect(await getHealth(fakeFetch(503, degraded), 'http://api')).toEqual({ ok: true, health: degraded });
   });
   it('reports bodies that do not match the contract', async () => {
     expect((await getHealth(fakeFetch(200, { status: 'weird' }), 'http://api')).ok).toBe(false);

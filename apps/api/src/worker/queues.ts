@@ -37,6 +37,11 @@ export interface QueueDefinition {
   group: QueueGroup;
 }
 
+/** Name of the queue that receives a queue's jobs after their last attempt fails. */
+export function deadLetterName(queue: string): string {
+  return `${queue}.dead_letter`;
+}
+
 /** Registered queues. Modules add theirs here as they land (none yet). */
 export const QUEUES: readonly QueueDefinition[] = [];
 

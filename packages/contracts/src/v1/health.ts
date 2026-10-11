@@ -6,5 +6,7 @@ export const HealthResponse = z.object({
   role: z.enum(['http', 'worker']),
   version: z.string(),
   time: z.iso.datetime(),
+  /** Dependency checks; absent on responses from before checks existed. */
+  checks: z.object({ database: z.enum(['ok', 'down']) }).optional(),
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;

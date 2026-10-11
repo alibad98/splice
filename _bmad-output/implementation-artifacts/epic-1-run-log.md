@@ -72,8 +72,20 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
 - Review: 1 high (the language choice wouldn't persist in the iframe; fixed as above), 2 medium and 4 low, all fixed.
 - Deferred: the real support channel, testing inside a real Salla iframe, and per-merchant language (Story 7.1).
 
-### Story 1.6: Tenant isolation with RLS and StoreScoped. **Done**
-- Delivered: app and admin DB roles (migration), withStoreContext helper, StoreScoped base, RLS convention helpers and audit, ownership registry, cross-tenant harness, lint rule, storeScopedJob for workers.
-- Decisions: uuid store ids; set_config(..., true) as SET LOCAL; roles created NOLOGIN.
-- Deferred: audited admin reads (Epic 7), migrations in the Docker image, real-schema checks once tables exist.
-- Review fixes: closed store context guard, destroy client on failed ROLLBACK, uuid-only store_id (text option dropped; DECISION), no default privileges (grants emitted per tenant table by tenantTableStatements; migration 0001 revokes earlier defaults), stricter lint rule, harness refuses privileged pools and checks cross-tenant INSERT and fail-closed error codes.
+### Story 1.6: Tenant isolation with row-level security. **Done** (`3d0ec78`, security fixes `44bb7b7`)
+- Delivered:
+  - Two database roles: `slips_app` (the app) and `slips_admin_ro` (read-only admin). Both are created by migration with no login; deployment grants login and passwords.
+  - One helper, `withStoreContext`, that sets the current store for a transaction only.
+  - A `StoreScoped` repository base, and RLS helpers for future tenant tables.
+  - A registry recording which module owns each table, and a cross-tenant test harness.
+  - A lint rule banning hand-written store-context SQL.
+- Decisions:
+  - **Store IDs are always UUIDs.** If no store is set, the database errors instead of returning data (fail closed). A text option was dropped after review showed it doesn't fail closed.
+  - **No default grants.** The app role gets access only to tables explicitly granted in each table's migration. Tenant tables get this automatically.
+  - **Queue jobs** run through a `storeScopedJob` wrapper; no real job uses it yet.
+- Security review: 3 medium findings were fixed.
+  - A connection could be used after it went back to the pool; it is now blocked once the transaction ends.
+  - A failed rollback returned a dirty connection to the pool; that connection is now destroyed instead.
+  - Default grants exposed every future table; they are now removed.
+  - 3 low findings were fixed too. Lint covers more bypasses, and the harness refuses a superuser pool, checks the exact error codes, and tests cross-tenant inserts.
+- Deferred: audited admin reads (Epic 7); shipping migrations in the Docker image and running them in deploy; real-schema checks once tenant tables exist (from Story 1.8).

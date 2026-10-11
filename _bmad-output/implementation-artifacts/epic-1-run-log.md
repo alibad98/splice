@@ -173,3 +173,30 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - Retention for the inbox, audit and ledger tables.
   - Purging media and CDN copies, which arrives with those modules.
   - A replay procedure in the dead-letter runbook.
+
+### Stories 1.11–1.14: Salla go/no-go gate (G1–G8). **Blocked: needs a Salla Partners app and demo store** (prep `ba3404b`)
+- Prepared:
+  - **Storefront page context:** the player now reads `window.salla.config` into page type, target ID, language and direction, plus the Salla store ID. It's tested with a fake `salla` object.
+  - **Browser-console snippets** in `tools/salla-gate/` for G1 (page context, CSP, layout shift) and G2/G3 (add to cart, including products with options).
+  - **A dev-only webhook recorder.** `WEBHOOK_RECORD_DIR` saves real webhooks as test fixtures with personal data removed. It's refused in production.
+  - **`docs/runbooks/salla-gate-testing.md`:** step-by-step instructions for you.
+  - **`docs/spike-findings.md`:** G1–G8 with the desk-research verdicts, every result marked PENDING, the checklist of items marked "verify in 1.11–1.13", the go/no-go rules and your sign-off line.
+- Still to confirm: Salla's `page.slug` values for home and category pages are guesses (`index`, `product.index`), and so is reading the category ID from the URL. Both are flagged in the findings file.
+
+## Summary for the owner
+
+**Epic 1 status:** Stories 1.1–1.10 are built. Each one went through BMAD build-auto, an independent review, fixes, a full pipeline check under Node 24 against Postgres, and a push to PR #1. Stories 1.11–1.14 wait on a Salla demo store.
+
+**Decisions that need your confirmation:**
+1. **Staff access (Story 1.9).** Any Salla user who can open the app inside a store's Salla dashboard gets that store's session. Each session records which user signed in. The alternative is owner-only access.
+2. **Support contact (Story 1.5).** The support link is a placeholder, `mailto:support@slips.app`, until you decide the support channel (Q-10).
+3. **Placeholder CDN and API addresses (Story 1.2):** `cdn.slips.app` and `api.slips.app`. Hosting is still undecided (Q-05).
+4. **Alert owners (Story 1.3)** are placeholder roles, `platform-oncall` and `integration-owner`.
+
+**What you need to do next:**
+1. Create a Salla Partners app and a demo store, then follow `docs/runbooks/salla-gate-testing.md` to run G1–G8.
+2. Fill in `docs/spike-findings.md` and sign off on go/no-go (Story 1.14). Epics 2–7 depend on it.
+3. Production will need these env vars: `TOKEN_ENCRYPTION_KEY`, `OAUTH_STATE_SECRET` and `METRICS_TOKEN`. The Salla app credentials and webhook secret come from the Partners app.
+4. Deploy order is migrate, then worker, then web server.
+
+**Known open items** (details in `deferred-work.md`): no error-tracking or alerting vendor yet; retention jobs for the logs and ledgers; purging media and CDN copies (later epics); the MinIO image version isn't pinned; and the CI smoke run of the Docker images.

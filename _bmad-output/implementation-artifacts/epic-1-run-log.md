@@ -56,3 +56,18 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - **Jakarta loads as a variable font** so the 650 heading weight renders. Latin text and digits inside Arabic text fall back to Jakarta.
   - **One contrast exception:** in dark mode, the focus ring's inner white ring on coral fills is 2.81:1. It's accepted because the outer halo carries 3:1 against the surface. The approved tokens are unchanged.
 - Review: two high issues are fixed. Dark mode never turned on, and the brand assets were missing. One medium and three low were fixed too.
+
+### Story 1.5: Arabic-first i18n, RTL/LTR and the branded app shell. **Done** (`6412425`, review fixes `171f6ac`)
+- Delivered:
+  - Typed `ar`/`en` text catalogs; Arabic right-to-left by default.
+  - Western digits and Gregorian dates in Arabic, and SAR formatted as "340 ر.س".
+  - The app shell: side nav, top bar with the Salla connection chip, support link and language switch, a skip link, a mobile Sheet nav, and placeholder pages.
+  - Lint rules that fail on physical CSS (left/right instead of start/end) and on `window.top`; a test that fails on hard-coded UI strings.
+- Screenshots: `_bmad-output/implementation-artifacts/screens/shell-*.png` (Arabic desktop, English desktop, Arabic dark, Arabic mobile).
+- Decisions:
+  - **No i18n library.** The catalogs are typed TypeScript files; English defines the shape and Arabic is checked against it.
+  - **Language comes from `?lang=` first, then a first-party cookie, then Arabic.** Inside the Salla iframe the cookie would be third-party, which the architecture forbids (AD-12). So the language is carried in the URL, and saving it per merchant moves to Story 7.1 (Settings > Language).
+  - **`/admin` stays English-only** (internal back-office).
+  - **Placeholders until Story 1.8:** the connection chip shows "not connected", "Preview store" is disabled with a stated reason, and support is a placeholder `mailto:support@slips.app`.
+- Review: 1 high (the language choice wouldn't persist in the iframe; fixed as above), 2 medium and 4 low, all fixed.
+- Deferred: the real support channel, testing inside a real Salla iframe, and per-merchant language (Story 7.1).

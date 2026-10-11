@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
-import { setLocale } from '../../i18n/actions';
 import type { Locale } from '../../i18n/config';
 import type { Messages } from '../../i18n/messages';
 import { SUPPORT_HREF } from '../../lib/shell';
 import type { ShellContext } from '../../lib/shell';
+import { LocaleSwitch } from './LocaleSwitch';
 import { ConnectionChip } from './ConnectionChip';
 import { Icon } from './Icon';
 import { Logo } from './Logo';
@@ -19,7 +19,6 @@ interface Props {
 
 export function AppShell({ locale, messages, context, children }: Props) {
   const m = messages.shell;
-  const other: Locale = locale === 'ar' ? 'en' : 'ar';
   const storeName = context.connection.state === 'connected' ? context.connection.storeName : m.storeFallback;
   return (
     <div className="min-h-dvh bg-page text-foreground">
@@ -51,8 +50,6 @@ export function AppShell({ locale, messages, context, children }: Props) {
             <div className="ms-auto flex flex-wrap items-center gap-2">
               <a
                 href={SUPPORT_HREF}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="inline-flex min-h-9 items-center gap-1.5 rounded-pill px-3 text-small font-medium text-info-text hover:bg-secondary"
               >
                 <Icon name="help" className="size-4" />
@@ -69,26 +66,25 @@ export function AppShell({ locale, messages, context, children }: Props) {
                   <Icon name="external" className="size-4" />
                 </a>
               ) : (
-                <button
-                  type="button"
-                  aria-disabled="true"
-                  title={m.previewUnavailable}
-                  className="inline-flex min-h-9 cursor-not-allowed items-center gap-1.5 rounded-pill bg-secondary px-4 text-small font-semibold text-muted-foreground"
-                >
-                  {m.previewStore}
-                </button>
+                <span className="group relative">
+                  <button
+                    type="button"
+                    aria-disabled="true"
+                    aria-describedby="preview-reason"
+                    className="inline-flex min-h-9 cursor-not-allowed items-center gap-1.5 rounded-pill bg-secondary px-4 text-small font-semibold text-muted-foreground"
+                  >
+                    {m.previewStore}
+                  </button>
+                  <span
+                    id="preview-reason"
+                    role="tooltip"
+                    className="sr-only group-focus-within:not-sr-only group-hover:not-sr-only group-focus-within:absolute group-hover:absolute group-focus-within:top-full group-hover:top-full group-focus-within:z-10 group-hover:z-10 group-focus-within:mt-1 group-hover:mt-1 group-focus-within:whitespace-nowrap group-hover:whitespace-nowrap group-focus-within:rounded-md group-hover:rounded-md group-focus-within:bg-foreground group-hover:bg-foreground group-focus-within:px-2 group-hover:px-2 group-focus-within:py-1 group-hover:py-1 group-focus-within:text-small group-hover:text-small group-focus-within:text-background group-hover:text-background"
+                  >
+                    {m.previewUnavailable}
+                  </span>
+                </span>
               )}
-              <form action={setLocale}>
-                <input type="hidden" name="locale" value={other} />
-                <button
-                  type="submit"
-                  lang={other}
-                  aria-label={m.switchToLabel}
-                  className="inline-flex min-h-9 items-center rounded-pill border border-input-border px-3 text-small font-semibold hover:bg-secondary"
-                >
-                  {m.switchTo}
-                </button>
-              </form>
+              <LocaleSwitch />
             </div>
           </header>
           <main id="main-content" tabIndex={-1} className="grid grid-cols-12 gap-x-(--spacing-gutter) px-(--page-padding) py-6 outline-none">

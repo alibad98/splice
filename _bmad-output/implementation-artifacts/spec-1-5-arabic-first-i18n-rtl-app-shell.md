@@ -20,6 +20,11 @@ deferred:
       apps/dashboard/lib/shell.ts
     severity: low
   - summary: >-
+      Per-merchant language persistence is not implemented; locale lives in the URL param and a first-party cookie only.
+    evidence: |-
+      Moves to Story 7.1 (Settings > Language), which stores the merchant's choice.
+    severity: low
+  - summary: >-
       Iframe behaviors (no nested scroll, modals fit iframe) are verified by static guards only, not in a real Salla iframe.
     evidence: |-
       Needs the Salla iframe harness (Story 1.8+) to confirm auto-resize and modal sizing end to end.
@@ -93,7 +98,8 @@ Catalogs are TS objects: `en` defines the shape, `ar` is typed against it, so a 
 
 ## Implementation Notes
 
-- DECISION: no i18n library; typed TS catalogs (en defines shape, ar typed against it) with a cookie (slips-locale) read in the root layout; switching uses a server action. Avoids a new dependency and keeps root lang/dir server-rendered.
+- DECISION: no i18n library; typed TS catalogs (en defines shape, ar typed against it), read in the root layout so lang/dir are server-rendered.
+- DECISION: locale precedence is `?lang=ar|en` (Salla can pass it in the embedded URL) -> first-party Lax cookie (`secure` in production, for direct-link sessions) -> `ar`. A proxy (apps/dashboard/proxy.ts) exposes a valid param as a request header and mirrors it into the cookie; the language switch is a link that rewrites `?lang`, and nav/chip links carry it, so it survives navigation inside the iframe without third-party cookies (AD-12). The server action was removed.
 - DECISION: formatters force Western digits and Gregorian calendar via the -u-ca-gregory-nu-latn locale extension; the Arabic riyal output strips bidi marks and the trailing full stop so it reads "340 ر.س".
 - DECISION: /admin stays English-only and is excluded from the hard-coded-string guard (internal back-office, Epic 7).
 - DECISION: physical-direction rule is a local ESLint rule (apps/dashboard/eslint-rules) plus a CSS scan in vitest; window.top/top.location/_top targets are lint errors.

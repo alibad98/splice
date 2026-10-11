@@ -15,3 +15,22 @@ export function resolveLocale(value: unknown): Locale {
 export function directionOf(locale: Locale): Direction {
   return locale === 'ar' ? 'rtl' : 'ltr';
 }
+
+export const langParam = 'lang';
+export const langHeader = 'x-slips-lang';
+
+/** Precedence: ?lang param (embedded URL) -> first-party cookie (direct links) -> default ar. */
+export function pickLocale(param: unknown, cookie: unknown): Locale {
+  if (isLocale(param)) return param;
+  return resolveLocale(cookie);
+}
+
+/** Adds/updates ?lang on an href so the choice survives navigation inside the iframe. */
+export function withLang(href: string, locale: Locale | null): string {
+  if (!locale) return href;
+  const [path = '', hash = ''] = href.split('#');
+  const [base = '', query = ''] = path.split('?');
+  const params = new URLSearchParams(query);
+  params.set(langParam, locale);
+  return `${base}?${params.toString()}${hash ? `#${hash}` : ''}`;
+}

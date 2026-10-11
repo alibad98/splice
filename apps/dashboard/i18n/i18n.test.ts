@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultLocale, directionOf, resolveLocale } from './config';
+import { defaultLocale, directionOf, pickLocale, resolveLocale, withLang } from './config';
 import { formatCurrency, formatDate, formatNumber } from './format';
 
 describe('locale config', () => {
@@ -28,5 +28,24 @@ describe('formatters', () => {
     expect(formatDate(new Date('2026-10-11T12:00:00Z'), 'ar')).not.toMatch(/[٠-٩]/);
     expect(formatDate(new Date('2026-10-11T12:00:00Z'), 'ar')).toMatch(/2026/);
     expect(formatDate(new Date('2026-10-11T12:00:00Z'), 'en')).toMatch(/2026/);
+  });
+});
+
+describe('locale precedence', () => {
+  it('?lang=en renders en/ltr without a cookie', () => {
+    expect(pickLocale('en', undefined)).toBe('en');
+    expect(directionOf(pickLocale('en', undefined))).toBe('ltr');
+  });
+  it('param beats cookie; cookie beats default; invalid param falls back', () => {
+    expect(pickLocale('ar', 'en')).toBe('ar');
+    expect(pickLocale(null, 'en')).toBe('en');
+    expect(pickLocale('xx', undefined)).toBe('ar');
+    expect(pickLocale('xx', 'bad')).toBe('ar');
+  });
+  it('withLang sets or replaces the param and keeps other parts', () => {
+    expect(withLang('/products', 'en')).toBe('/products?lang=en');
+    expect(withLang('/settings?tab=connection', 'en')).toBe('/settings?tab=connection&lang=en');
+    expect(withLang('/a?lang=ar#h', 'en')).toBe('/a?lang=en#h');
+    expect(withLang('/a', null)).toBe('/a');
   });
 });

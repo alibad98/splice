@@ -13,5 +13,6 @@ export async function getShellContext(): Promise<ShellContext> {
 }
 
 // TODO(support): replace with the real support channel when one exists.
-export const SUPPORT_HREF = 'mailto:support@slips.app';
+export const SUPPORT_EMAIL = 'support@slips.app';
+export const SUPPORT_HREF = `mailto:${SUPPORT_EMAIL}`;
 export const CONNECTION_HREF = '/settings?tab=connection';

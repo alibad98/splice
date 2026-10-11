@@ -26,9 +26,10 @@ export function MobileNav() {
         onClick={(e) => {
           if (e.target === e.currentTarget) close();
         }}
-        className="m-0 h-dvh max-h-dvh w-72 max-w-[85vw] bg-sidebar p-4 text-sidebar-foreground backdrop:bg-black/40 open:flex open:flex-col"
+        className="m-0 h-dvh max-h-dvh w-72 max-w-[85vw] bg-sidebar p-0 text-sidebar-foreground backdrop:bg-black/40 open:flex open:flex-col"
         style={{ insetInlineStart: 0, insetInlineEnd: 'auto' }}
       >
+        <div className="flex h-full flex-col p-4">
         <div className="mb-4 flex items-center justify-between">
           <span className="text-body-lg font-bold">{messages.shell.menuTitle}</span>
           <button type="button" onClick={close} aria-label={messages.shell.closeMenu} className="inline-flex size-11 items-center justify-center rounded-pill hover:bg-secondary">
@@ -36,6 +37,7 @@ export function MobileNav() {
           </button>
         </div>
         <NavList onNavigate={close} />
+        </div>
       </dialog>
     </div>
   );

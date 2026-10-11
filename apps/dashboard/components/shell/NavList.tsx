@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { LangLink } from './LangLink';
 import { usePathname } from 'next/navigation';
 import { useI18n } from '../../i18n/provider';
 import { Icon } from './Icon';
@@ -20,15 +20,15 @@ export function isActive(pathname: string, href: string): boolean {
 
 type Item = (typeof primaryNav)[number] | typeof settingsNav;
 
-function NavLink({ item, pathname, labelClass, onNavigate }: { item: Item; pathname: string; labelClass: string; onNavigate?: () => void }) {
+function NavLink({ item, pathname, labelClass, collapsed, onNavigate }: { item: Item; pathname: string; labelClass: string; collapsed: boolean; onNavigate?: () => void }) {
   const { messages } = useI18n();
   const active = isActive(pathname, item.href);
   const label = messages.shell.nav[item.key];
   return (
-    <Link
+    <LangLink
       href={item.href}
       aria-current={active ? 'page' : undefined}
-      title={label}
+      title={collapsed ? label : undefined}
       onClick={onNavigate}
       className={`flex items-center gap-3 rounded-pill px-3 py-2.5 text-body font-semibold ${
         active ? 'bg-primary text-primary-foreground' : 'text-sidebar-foreground hover:bg-sidebar-accent'
@@ -36,7 +36,7 @@ function NavLink({ item, pathname, labelClass, onNavigate }: { item: Item; pathn
     >
       <Icon name={item.icon} />
       <span className={labelClass}>{label}</span>
-    </Link>
+    </LangLink>
   );
 }
 
@@ -50,13 +50,13 @@ export function NavList({ collapsed = false, onNavigate }: { collapsed?: boolean
       <ul className="flex flex-col gap-1">
         {primaryNav.map((item) => (
           <li key={item.key}>
-            <NavLink item={item} pathname={pathname} labelClass={labelClass} onNavigate={onNavigate} />
+            <NavLink item={item} pathname={pathname} labelClass={labelClass} collapsed={collapsed} onNavigate={onNavigate} />
           </li>
         ))}
       </ul>
       <ul>
         <li>
-          <NavLink item={settingsNav} pathname={pathname} labelClass={labelClass} onNavigate={onNavigate} />
+          <NavLink item={settingsNav} pathname={pathname} labelClass={labelClass} collapsed={collapsed} onNavigate={onNavigate} />
         </li>
       </ul>
     </nav>

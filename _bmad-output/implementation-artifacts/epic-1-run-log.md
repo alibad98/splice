@@ -76,3 +76,4 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
 - Delivered: app and admin DB roles (migration), withStoreContext helper, StoreScoped base, RLS convention helpers and audit, ownership registry, cross-tenant harness, lint rule, storeScopedJob for workers.
 - Decisions: uuid store ids; set_config(..., true) as SET LOCAL; roles created NOLOGIN.
 - Deferred: audited admin reads (Epic 7), migrations in the Docker image, real-schema checks once tables exist.
+- Review fixes: closed store context guard, destroy client on failed ROLLBACK, uuid-only store_id (text option dropped; DECISION), no default privileges (grants emitted per tenant table by tenantTableStatements; migration 0001 revokes earlier defaults), stricter lint rule, harness refuses privileged pools and checks cross-tenant INSERT and fail-closed error codes.

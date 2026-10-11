@@ -8,15 +8,16 @@ const ident = (name: string): string => {
 /**
  * Migration convention for a tenant table: paste these statements after its CREATE TABLE. The policy reads
  * `current_setting('app.store_id')` WITHOUT `missing_ok`, so a missing context raises an error (fail closed),
- * and FORCE makes the rule apply even to the table owner. Pass `storeIdType` for non-uuid keys.
+ * and FORCE makes the rule apply even to the table owner. store_id is always uuid: an unset or empty setting fails the cast, so the policy fails closed. Also grants the app role DML on the table: grants are per table (no default privileges), and non-tenant tables must grant explicitly.
  */
-export function tenantTableStatements(table: string, opts: { storeIdType?: 'uuid' | 'text' } = {}): string[] {
+export function tenantTableStatements(table: string): string[] {
   const t = ident(table);
-  const type = opts.storeIdType ?? 'uuid';
-  const expr = `store_id = current_setting('app.store_id')::${type}`;
+  const expr = `store_id = current_setting('app.store_id')::uuid`;
   return [
     `ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`,
     `ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ${t} TO slips_app`,
+    `GRANT SELECT ON ${t} TO slips_admin_ro`,
     `CREATE POLICY tenant_isolation ON ${t} USING (${expr}) WITH CHECK (${expr})`,
   ];
 }

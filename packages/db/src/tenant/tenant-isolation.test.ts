@@ -45,6 +45,7 @@ beforeAll(async () => {
   for (const stmt of tenantTableStatements('rls_fixture_items')) await admin.query(stmt);
   // A tenant table that breaks the convention: nullable store_id, no RLS.
   await admin.query('create table rls_bad_items (id uuid primary key default gen_random_uuid(), store_id uuid, label text)');
+  await admin.query('grant select, insert, update, delete on rls_bad_items to slips_app');
   app = new pg.Pool({ connectionString: APP_URL, max: 1 });
 });
 
@@ -71,6 +72,18 @@ describe('database roles', () => {
     expect(rows[0]).toEqual({ rolbypassrls: true, rolcanlogin: false });
     const grants = await admin.query("select privilege_type from information_schema.role_table_grants where grantee = 'slips_admin_ro' and table_name = 'rls_fixture_items'");
     expect(grants.rows.map((r) => r.privilege_type)).toEqual(['SELECT']);
+  });
+});
+
+describe('grants', () => {
+  it('a new table created by the migrator role is NOT accessible to slips_app unless granted', async () => {
+    await admin.query('drop table if exists rls_ungranted');
+    await admin.query('create table rls_ungranted (id int)');
+    try {
+      await expect(app.query('select * from rls_ungranted')).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await admin.query('drop table rls_ungranted');
+    }
   });
 });
 
@@ -137,6 +150,23 @@ describe('StoreScoped and withStoreContext', () => {
     await expect(withStoreContext(app, STORE_A, () => withStoreContext(app, STORE_B, async () => 1))).rejects.toThrow(/different store/);
   });
 
+  it('a query issued after the context resolved rejects instead of running on a recycled client', async () => {
+    const ctx = await withStoreContext(app, STORE_A, async (c) => c);
+    expect(() => ctx.query('select 1')).toThrow(/closed/);
+    expect(() => ctx.db).toThrow(/closed/);
+  });
+
+  it('destroys the client when ROLLBACK fails', async () => {
+    const released: unknown[] = [];
+    const client = {
+      query: (t: string) => (t === 'ROLLBACK' ? Promise.reject(new Error('conn lost')) : Promise.resolve({ rows: [] })),
+      release: (v?: unknown) => released.push(v),
+    };
+    const pool = { connect: () => Promise.resolve(client) } as unknown as pg.Pool;
+    await expect(withStoreContext(pool, STORE_A, async () => Promise.reject(new Error('boom')))).rejects.toThrow('boom');
+    expect(released).toEqual([true]);
+  });
+
   it('rejects a store id that is not a UUID', async () => {
     await expect(withStoreContext(app, "x'; drop table t; --", async () => 1)).rejects.toThrow(/UUID/);
   });
@@ -150,6 +180,10 @@ describe('cross-tenant harness', () => {
     registerTenantTable(reg);
     expect(registeredTenantTables().map((r) => r.table)).toContain('rls_fixture_items');
     await expect(assertCrossTenantIsolation(pools(), reg)).resolves.toBeUndefined();
+  });
+
+  it('refuses to run with a privileged (superuser/owner) app pool', async () => {
+    await expect(assertCrossTenantIsolation({ admin, app: admin, storeA: STORE_A, storeB: STORE_B }, { table: 'rls_fixture_items', seed: seedItem })).rejects.toThrow(/non-superuser/);
   });
 
   it('fails for a table without RLS', async () => {

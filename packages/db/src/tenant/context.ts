@@ -50,10 +50,30 @@ export async function withStoreContext<T>(pool: Pool, storeId: string, fn: (ctx:
     return fn(parent);
   }
   const client = await pool.connect();
+  let closeCtx = (): void => {};
+  let destroy = false;
   try {
     await client.query('BEGIN');
     await client.query("select set_config('app.store_id', $1, true)", [storeId]);
-    const ctx: StoreContext = { storeId, db: drizzle(client), query: (text, values) => client.query(text, values) };
+    let closed = false;
+    const guard = (): void => {
+      if (closed) throw new Error('store context is closed: its transaction has ended');
+    };
+    const db = drizzle(client);
+    const ctx: StoreContext = {
+      storeId,
+      get db() {
+        guard();
+        return db;
+      },
+      query: (text, values) => {
+        guard();
+        return client.query(text, values);
+      },
+    };
+    closeCtx = () => {
+      closed = true;
+    };
     const result = await storage.run(ctx, () => fn(ctx));
     await client.query('COMMIT');
     return result;
@@ -61,10 +81,12 @@ export async function withStoreContext<T>(pool: Pool, storeId: string, fn: (ctx:
     try {
       await client.query('ROLLBACK');
     } catch {
-      // the original error is the one worth surfacing
+      // never return a client with an unknown transaction state to the pool
+      destroy = true;
     }
     throw err;
   } finally {
-    client.release();
+    closeCtx();
+    client.release(destroy);
   }
 }

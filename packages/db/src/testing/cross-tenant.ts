@@ -56,6 +56,14 @@ function expect(cond: boolean, message: string): void {
  */
 export async function assertCrossTenantIsolation(pools: CrossTenantPools, reg: TenantTableRegistration): Promise<void> {
   const t = q(reg.table);
+  const who = await pools.app.query<{ user: string; super: boolean; bypass: boolean; owner: string | null }>(
+    `select current_user as "user", r.rolsuper as super, r.rolbypassrls as bypass,
+            (select tableowner from pg_tables where tablename = $1 and schemaname = current_schema()) as owner
+       from pg_roles r where r.rolname = current_user`,
+    [reg.table],
+  );
+  const me = who.rows[0]!;
+  expect(!me.super && !me.bypass && me.owner !== me.user, `app pool must be a non-superuser, non-bypassrls, non-owner role (is ${me.user})`);
   const id = q(reg.idColumn ?? 'id');
   const { admin, app, storeA, storeB } = pools;
   const seeded = await admin.connect();
@@ -98,13 +106,29 @@ export async function assertCrossTenantIsolation(pools: CrossTenantPools, reg: T
   }
   expect(crossInsertRejected, `${reg.table}: store A moved a row into store B`);
 
+  // INSERT carrying another store's id must be rejected by WITH CHECK (42501); the same insert for store A works.
+  const asClient = (ctx: { query: PoolClient['query'] }) => ({ query: ctx.query }) as unknown as PoolClient;
+  await withStoreContext(app, storeA, async (ctx) => {
+    await ctx.query('savepoint own');
+    await reg.seed(asClient(ctx as never), storeA);
+    await ctx.query('rollback to savepoint own');
+  });
+  let insertCode: string | undefined;
+  try {
+    await withStoreContext(app, storeA, (ctx) => reg.seed(asClient(ctx as never), storeB));
+  } catch (err) {
+    insertCode = (err as { code?: string }).code;
+  }
+  expect(insertCode === '42501', `${reg.table}: store A inserted a row for store B (error ${insertCode ?? 'none'})`);
+
   // Fail closed: no context at all must error, never return rows.
   let failedClosed = false;
   const bare = await app.connect();
   try {
     await bare.query(`select * from ${t}`);
-  } catch {
-    failedClosed = true;
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    failedClosed = code === '22P02' || code === '42704';
   } finally {
     bare.release();
   }

@@ -11,7 +11,7 @@ export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 
 /** SQL that sets or changes a session setting: set_config(...), SET LOCAL/SESSION, SET app.*, RESET app.* */
-const STORE_CONTEXT_SQL = String.raw`/\bset_config\b|\bset\s+(local|session)\b|\b(set|reset)\s+app\./i`;
+const STORE_CONTEXT_SQL = String.raw`/\bset_config\b|\bset\s+(local|session)\b|\b(set|reset)\s+app\.|\b(reset|discard)\s+all\b|\bset\s+(session\s+authorization|role)\b/i`;
 // eslint-disable-next-line no-restricted-syntax -- defines the rule message
 const STORE_CONTEXT_MESSAGE = 'tenant-context-helper-only: set the store context only through withStoreContext() from @slips/db (SET LOCAL app.store_id)';
 
@@ -100,7 +100,7 @@ export function createConfig(options = {}) {
     // AD-3: the tenant context is set only by withStoreContext() in packages/db/src/tenant/context.ts.
     {
       files: ['**/*.{ts,tsx,js,mjs,cjs}'],
-      ignores: ['**/tenant/context.ts'],
+      ignores: scoped(pkgDir, ['packages/db/src/tenant/context.ts']),
       rules: {
         'no-restricted-syntax': [
           'error',

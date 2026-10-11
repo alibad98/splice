@@ -69,7 +69,7 @@ describe('import boundaries', () => {
 });
 
 describe('tenant context helper', () => {
-  const sets = ["await c.query(\"select set_config('app.store_id', $1, false)\", [id]);", 'await c.query(`SET LOCAL app.store_id = ${id}`);', "await c.query('SET app.store_id = 1');"];
+  const sets = ["await c.query(\"select set_config('app.store_id', $1, false)\", [id]);", 'await c.query("RESET ALL");', 'await c.query("DISCARD ALL");', 'await c.query("SET ROLE postgres");', 'await c.query(`SET LOCAL app.store_id = ${id}`);', "await c.query('SET app.store_id = 1');"];
   for (const code of sets) {
     it(`fails on: ${code}`, async () => {
       const msgs = await lint('apps/api/src/breach.ts', `export async function f(c: any, id: string) {\n  ${code}\n}\n`);

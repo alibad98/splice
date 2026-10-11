@@ -1,1 +1,1 @@
-{ "extends": "@slips/config/tsconfig/library.json", "include": ["src"] }
+{ "extends": "@slips/config/tsconfig/library.json", "compilerOptions": { "types": ["node"] }, "include": ["src"] }

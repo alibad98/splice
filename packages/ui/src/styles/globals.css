@@ -1,0 +1,118 @@
+/* Slips — "Studio" tokens. Tailwind v4 + shadcn/ui. Drop into apps/dashboard. Source: DESIGN.md */
+@import "tailwindcss";
+@source "../../../../apps/dashboard";
+@source "..";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 1rem;
+  --background: #FFFFFF; --page: #FAF8F6; --foreground: #15110F;
+  --card: #FFFFFF; --card-foreground: #15110F;
+  --popover: #FFFFFF; --popover-foreground: #15110F;
+  --primary: #FF4A3D; --primary-foreground: #15110F;
+  --secondary: #F5F3F1; --secondary-foreground: #15110F;
+  --muted: #F5F3F1; --muted-foreground: #615954;
+  --accent: #FFC23D; --accent-foreground: #3A2600;
+  --destructive: #C0123C; --destructive-foreground: #FFFFFF; --destructive-text: #9C0E31;
+  --success: #1BAA5A; --success-foreground: #15110F; --success-text: #0E6E39;
+  --warning: #FFB547; --warning-foreground: #3D2500; --warning-text: #8A5300;
+  --info-text: #B8291A;
+  --delta-up: #0E6E39; --delta-down: #C0123C;
+  --border: #ECE8E4; --input: #8F8681; --input-border: #8F8681; --ring: #FF4A3D; --focus-ring-inner: #15110F;
+  --story-ring-seen: #D3CDC8;
+  --success-tint: #1BAA5A1F; --primary-tint: #FF4A3D14; --destructive-tint: #C0123C14; --warning-tint: #FFB54726;
+  --chart-1: #FF4A3D; --chart-2: #2B2523; --chart-3: #0F9D8A; --chart-4: #F5A300; --chart-5: #2E8FE0;
+  --sidebar: #FFFFFF; --sidebar-foreground: #15110F; --sidebar-primary: #FF4A3D; --sidebar-primary-foreground: #15110F;
+  --sidebar-accent: #F5F3F1; --sidebar-accent-foreground: #15110F; --sidebar-border: #ECE8E4; --sidebar-ring: #FF4A3D;
+  --card-shadow: 0 8px 24px -14px rgba(40, 24, 16, .16);
+  --player-scrim: #000000; --player-surface: #FFFFFF; --player-surface-foreground: #15110F;
+  --player-cta: #15110F; --player-cta-foreground: #FFC23D; --player-progress: #FFFFFF; --player-progress-track: #FFFFFF59;
+  /* The only gradients in the system: logo ring and story ring */
+  --story-ring-gradient: conic-gradient(#FF4A3D, #FFC23D, #FF4A3D);
+  --page-padding: 16px; /* 28px from 1024px up */
+}
+@media (min-width: 1024px) { :root { --page-padding: 28px; } }
+
+.dark {
+  --background: #100D0C; --page: #0B0908; --foreground: #F5F1EE;
+  --card: #1A1615; --card-foreground: #F5F1EE;
+  --popover: #1A1615; --popover-foreground: #F5F1EE;
+  --primary: #FF6A5C; --primary-foreground: #15110F;
+  --secondary: #241F1D; --secondary-foreground: #F5F1EE;
+  --muted: #241F1D; --muted-foreground: #A89F99;
+  --accent: #FFC23D; --accent-foreground: #3A2600;
+  --destructive: #FF5C80; --destructive-foreground: #1A0306; --destructive-text: #FFA3B5;
+  --success: #3FD27F; --success-foreground: #04230F; --success-text: #8AF0B5;
+  --warning: #FFC46B; --warning-foreground: #3D2500; --warning-text: #FFD699;
+  --info-text: #FFB3A8;
+  --delta-up: #3FD27F; --delta-down: #FF7A95;
+  --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #FF8A7E; --focus-ring-inner: #FFFFFF;
+  --story-ring-seen: #4A423E;
+  --success-tint: #3FD27F26; --primary-tint: #FF6A5C26; --destructive-tint: #FF5C8026; --warning-tint: #FFC46B26;
+  --chart-1: #FF6A5C; --chart-2: #D9D2CD; --chart-3: #2DD4BF; --chart-4: #FFC23D; --chart-5: #60B4FF;
+  --sidebar: #1A1615; --sidebar-foreground: #F5F1EE; --sidebar-primary: #FF6A5C; --sidebar-primary-foreground: #15110F;
+  --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #FF8A7E;
+  --card-shadow: 0 8px 24px -14px rgba(0, 0, 0, .6);
+  --story-ring-gradient: conic-gradient(#FF6A5C, #FFC23D, #FF6A5C);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 8px);  /* 8px */
+  --radius-md: calc(var(--radius) - 4px);  /* 12px */
+  --radius-lg: var(--radius);              /* 16px (base) */
+  --radius-xl: calc(var(--radius) + 6px);  /* 22px */
+  --radius-pill: 999px;
+  --shadow-card: var(--card-shadow);
+  --font-sans: var(--font-jakarta), "Plus Jakarta Sans", var(--font-plex-arabic), system-ui, sans-serif;
+  --font-arabic: var(--font-plex-arabic), "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --spacing-gutter: 18px;
+  --color-player-scrim: var(--player-scrim); --color-player-surface: var(--player-surface);
+  --color-player-surface-foreground: var(--player-surface-foreground); --color-player-cta: var(--player-cta);
+  --color-player-cta-foreground: var(--player-cta-foreground); --color-player-progress: var(--player-progress);
+  --color-player-progress-track: var(--player-progress-track);
+  --text-display: 2.25rem; --text-display--line-height: 1.1; --text-display--font-weight: 800; --text-display--letter-spacing: -0.035em;
+  --text-h1: 1.75rem; --text-h1--line-height: 1.2; --text-h1--font-weight: 800; --text-h1--letter-spacing: -0.03em;
+  --text-h2: 1.125rem; --text-h2--line-height: 1.3; --text-h2--font-weight: 700; --text-h2--letter-spacing: -0.01em;
+  --text-h3: 0.875rem; --text-h3--line-height: 1.4; --text-h3--font-weight: 650;
+  --text-body: 0.875rem; --text-body--line-height: 1.55;
+  --text-body-lg: 1rem; --text-body-lg--line-height: 1.6;
+  --text-small: 0.75rem; --text-small--line-height: 1.45; --text-small--font-weight: 500;
+  --text-kpi: 2rem; --text-kpi--line-height: 1.1; --text-kpi--font-weight: 800; --text-kpi--letter-spacing: -0.02em;
+  --color-background: var(--background); --color-page: var(--page); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive); --color-destructive-foreground: var(--destructive-foreground); --color-destructive-text: var(--destructive-text);
+  --color-success: var(--success); --color-success-foreground: var(--success-foreground); --color-success-text: var(--success-text);
+  --color-warning: var(--warning); --color-warning-foreground: var(--warning-foreground); --color-warning-text: var(--warning-text);
+  --color-info-text: var(--info-text);
+  --color-delta-up: var(--delta-up); --color-delta-down: var(--delta-down);
+  --color-border: var(--border); --color-input: var(--input); --color-input-border: var(--input-border); --color-ring: var(--ring); --color-focus-ring-inner: var(--focus-ring-inner);
+  --color-story-ring-seen: var(--story-ring-seen);
+  --color-success-tint: var(--success-tint); --color-primary-tint: var(--primary-tint); --color-destructive-tint: var(--destructive-tint); --color-warning-tint: var(--warning-tint);
+  --color-chart-1: var(--chart-1); --color-chart-2: var(--chart-2); --color-chart-3: var(--chart-3); --color-chart-4: var(--chart-4); --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar); --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary); --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent); --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border); --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * { @apply border-border; }
+  /* Two-tone focus ring, full opacity: ink (dark: white) inner + coral outer; visible on coral fills */
+  :focus-visible { outline: 2px solid transparent; /* forced-colors fallback */ box-shadow: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--ring); }
+  input, textarea, select, [role="combobox"], [role="checkbox"] { border-color: var(--input-border); }
+  body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; }
+  :lang(ar) body, body:lang(ar) { font-family: var(--font-arabic); letter-spacing: 0; line-height: 1.6; }
+  :lang(ar) * { letter-spacing: 0 !important; }
+  :lang(ar) .text-display, :lang(ar) .text-kpi { font-weight: 700; }
+  :lang(ar) .text-h3 { font-weight: 600; }
+  .text-kpi { font-family: var(--font-sans); } /* KPI values stay Jakarta even in Arabic UI */
+  /* Popovers and dialogs add a 1px border ring on top of the card shadow */
+  [data-slot="popover-content"], [data-slot="dialog-content"], [role="dialog"], [role="menu"] { box-shadow: var(--card-shadow), 0 0 0 1px var(--border); }
+  .num, [data-num] { font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+}

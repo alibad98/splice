@@ -42,3 +42,17 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
 
 ### CI fix (`961f771`)
 - The player CLS job failed on GitHub because it built only `@slips/player`, so `@slips/contracts` had no `dist` on a fresh runner. It now builds the player's dependencies first (`turbo run build --filter=@slips/player...`). From here on, each story runs its CI job commands against a clean checkout before finishing.
+
+### Story 1.4: Design-system foundation tokens. **Done** (`d1a6770`, review fixes `fe20271`)
+- Delivered:
+  - The approved coral tokens in `packages/ui` (Tailwind 4 with shadcn variables), light and dark.
+  - The two-tone focus ring and the `input-border` token.
+  - Plus Jakarta Sans and IBM Plex Sans Arabic via `next/font`.
+  - The app icon (favicon) and logo SVGs in the dashboard.
+  - 10 token tests: no purple, WCAG AA colour pairs, focus ring, type scale, Arabic rules.
+- Decisions:
+  - **Dark mode follows the OS by default**, with no JavaScript and no flash. The `.dark` and `.light` classes are kept so a manual toggle can be added later.
+  - **Fonts are self-hosted at build time** by `next/font/google`. That means the build needs to reach Google Fonts; this is noted in the staging runbook.
+  - **Jakarta loads as a variable font** so the 650 heading weight renders. Latin text and digits inside Arabic text fall back to Jakarta.
+  - **One contrast exception:** in dark mode, the focus ring's inner white ring on coral fills is 2.81:1. It's accepted because the outer halo carries 3:1 against the surface. The approved tokens are unchanged.
+- Review: two high issues are fixed. Dark mode never turned on, and the brand assets were missing. One medium and three low were fixed too.

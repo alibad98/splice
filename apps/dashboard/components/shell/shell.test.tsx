@@ -35,6 +35,7 @@ describe('app shell', () => {
   it('renders connected state and English copy', () => {
     const en = render('en', { state: 'connected', storeName: 'Demo' });
     expect(en).toContain('Connected to Salla');
+    expect(en).toContain('Demo');
     expect(en).toContain('Need help? Contact support');
   });
   it('keeps ?lang on nav links, the chip and the switch, and does not set title on expanded labels', () => {

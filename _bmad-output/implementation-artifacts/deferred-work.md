@@ -25,3 +25,18 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-7-transactional-domain-event-transport.md`
   summary: event_deliveries is never pruned; slips_app has no DELETE on it.
   evidence: Add a retention job (owner role or a granted function) deleting rows older than the pg-boss archive window (7 days) plus margin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-salla-oauth-install-secure-tokens.md`
+  summary: Salla OAuth/user-info/Admin API shapes, refresh-failure semantics and webhook signature are fixture-only (verify in Story 1.11-1.13).
+  evidence: Desk research only; no Salla credentials or demo store exist.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-salla-oauth-install-secure-tokens.md`
+  summary: Dashboard connection chip still shows the not-connected placeholder.
+  evidence: Needs the merchant session of Story 1.9; connectionFromStatus and IntegrationService.getConnection are ready.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-salla-oauth-install-secure-tokens.md`
+  summary: Reinstall restore of uninstalled stores and install_epoch increments are not implemented (Story 1.10).
+  evidence: installFromTokens throws StoreLifecycleConflictError for uninstalled/purged stores.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-salla-oauth-install-secure-tokens.md`
+  summary: Master key rotation is not wired in env config, and token_access_log has no retention job.
+  evidence: See docs/runbooks/token-encryption-key.md.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-salla-oauth-install-secure-tokens.md`
+  summary: http-role event publishing needs the worker to have booted once (pg-boss schema, queue, app-role grants).
+  evidence: grantEventPublishing runs at worker boot; deploy order must be migrate, worker, http.

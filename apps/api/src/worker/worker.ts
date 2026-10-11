@@ -3,6 +3,7 @@ import pg from 'pg';
 import { PgBoss } from 'pg-boss';
 import { EVENT_QUEUE } from '@slips/contracts';
 import { EventHandlerRegistry, eventDispatcher } from '../events/dispatcher.js';
+import { grantEventPublishing } from '../events/queue-grants.js';
 import { HealthResponse } from '@slips/contracts';
 import { isAuthorizedForMetrics } from '../adapters/telemetry/http.js';
 import { instrumentJob, type JobHandler } from '../adapters/telemetry/jobs.js';
@@ -110,6 +111,7 @@ export async function startWorker(
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
     await registerQueues(boss, telemetry, selected, allHandlers);
+    await grantEventPublishing(pool, telemetry);
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),
@@ -121,6 +123,7 @@ export async function startWorker(
     server.close();
     await boss.stop({ graceful: false }).catch(() => undefined);
     await pool.end().catch(() => undefined);
+    await infra.pool.end().catch(() => undefined);
     throw err;
   }
 
@@ -133,6 +136,7 @@ export async function startWorker(
       await boss.stop({ graceful: true });
       await pool.end();
       await infra.probe.close();
+      await infra.pool.end();
       process.exit(0);
     } catch (err) {
       telemetry.captureError(err, { component: 'shutdown' });

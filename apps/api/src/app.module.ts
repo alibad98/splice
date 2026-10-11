@@ -3,6 +3,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { TelemetryExceptionFilter } from './adapters/telemetry/http.js';
 import { MetricsModule } from './adapters/telemetry/metrics.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { IntegrationModule } from './modules/integration/integration.module.js';
 import { InfraModule, type InfraDeps } from './infra.module.js';
 
 @Module({})
@@ -10,7 +11,7 @@ export class AppModule {
   static register(deps: InfraDeps): DynamicModule {
     return {
       module: AppModule,
-      imports: [InfraModule.register(deps), HealthModule, MetricsModule],
+      imports: [InfraModule.register(deps), HealthModule, IntegrationModule, MetricsModule],
       providers: [{ provide: APP_FILTER, useValue: new TelemetryExceptionFilter(deps.telemetry) }],
     };
   }

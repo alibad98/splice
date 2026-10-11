@@ -34,6 +34,9 @@ const featureFlags = z
     return out;
   });
 
+const emptyToUndefined = (v: unknown): unknown => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+const masterKey = z.string().refine((v) => Buffer.from(v, 'base64').length === 32, { message: 'must be 32 bytes, base64 encoded' });
+
 export const EnvSchema = z
   .object({
   ROLE: z.enum(['http', 'worker']),
@@ -49,7 +52,28 @@ export const EnvSchema = z
   METRICS_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(16).optional()),
   /** Worker role only: port for its liveness and metrics server. */
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
-}).refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' });
+  /** Master key (base64, 32 bytes) that wraps the data keys encrypting platform tokens. Required in production. Never logged. */
+  TOKEN_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, masterKey.optional()),
+  /** Id stored beside each ciphertext so the master key can be rotated. */
+  TOKEN_ENCRYPTION_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/).default('k1'),
+  /** Salla OAuth app credentials (Partners Portal). Required in production. */
+  SALLA_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  SALLA_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().min(8).optional()),
+  SALLA_REDIRECT_URI: z.preprocess(emptyToUndefined, z.url().optional()),
+  /** Space-separated OAuth scopes; the adapter has a minimal default. */
+  SALLA_SCOPES: z.preprocess(emptyToUndefined, z.string().optional()),
+  SALLA_APP_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  SALLA_WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().min(8).optional()),
+  /** Where the merchant lands after install. */
+  DASHBOARD_URL: z.url().default('http://localhost:3000'),
+})
+  .refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' })
+  .superRefine((e, ctx) => {
+    if (e.NODE_ENV !== 'production') return;
+    for (const name of ['TOKEN_ENCRYPTION_KEY', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI'] as const) {
+      if (!e[name]) ctx.addIssue({ code: 'custom', path: [name], message: 'is required in production' });
+    }
+  });
 export type Env = z.infer<typeof EnvSchema>;
 
 export class EnvError extends Error {

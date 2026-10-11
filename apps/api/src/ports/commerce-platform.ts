@@ -1,0 +1,99 @@
+// CommercePlatform port (AD-4): the only way domain code talks to a store platform. Salla lives behind it
+// in adapters/salla; canonical shapes here carry no shopper PII (AD-5).
+
+export type PlatformId = 'salla';
+
+export interface TokenSet {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: Date;
+  scopes: string[];
+}
+
+export interface MerchantProfile {
+  /** The platform's store id: with the platform it is the store locator (AD-16). */
+  platformStoreId: string;
+  storeName: string;
+  /** Platform account id of the store owner. */
+  platformMerchantId: string;
+  ownerName?: string;
+  /** Storefront hostnames, lower case. */
+  domains: string[];
+}
+
+/** A call on behalf of one store. `storeId` keys per-store pacing; the token is never logged. */
+export interface PlatformSession {
+  storeId: string;
+  accessToken: string;
+}
+
+export interface CanonicalProduct {
+  externalId: string;
+  name: string;
+  price: number;
+  currency: string;
+  status: string;
+}
+
+export interface CanonicalOrderLine {
+  productExternalId: string;
+  quantity: number;
+}
+
+/** Order without any shopper identity (AD-5). */
+export interface CanonicalOrder {
+  externalId: string;
+  status: string;
+  total: number;
+  currency: string;
+  lines: CanonicalOrderLine[];
+}
+
+export interface CanonicalSubscription {
+  externalId: string;
+  planName: string;
+  planType: string;
+  status: string;
+}
+
+export interface WebhookRequest {
+  headers: Readonly<Record<string, string | string[] | undefined>>;
+  rawBody: Buffer;
+}
+
+/** The refresh or code was rejected for good (revoked, expired, already used): the store must be disconnected. */
+export class PlatformAuthRejectedError extends Error {
+  constructor(message = 'platform rejected the credentials') {
+    super(message);
+    this.name = 'PlatformAuthRejectedError';
+  }
+}
+
+/** Network failure, timeout, 5xx, or exhausted rate-limit retries: try again later, change nothing. */
+export class PlatformUnavailableError extends Error {
+  constructor(message: string, readonly retryAfterSeconds?: number) {
+    super(message);
+    this.name = 'PlatformUnavailableError';
+  }
+}
+
+export interface CommercePlatform {
+  readonly platform: PlatformId;
+  readonly auth: {
+    /** URL the merchant is sent to in order to authorise the app. */
+    buildAuthorizeUrl(state: string): string;
+    exchangeCode(code: string): Promise<TokenSet>;
+    /** Refresh tokens are single-use: call only from `integration.getAccessToken`, under the store's lock. */
+    refresh(refreshToken: string): Promise<TokenSet>;
+    getMerchantProfile(accessToken: string): Promise<MerchantProfile>;
+  };
+  readonly products: { list(session: PlatformSession, page: number): Promise<{ items: CanonicalProduct[]; hasMore: boolean }> };
+  readonly orders: { get(session: PlatformSession, externalId: string): Promise<CanonicalOrder> };
+  readonly subscriptions: { list(session: PlatformSession): Promise<CanonicalSubscription[]> };
+  readonly webhooks: {
+    /** True only when the signature matches the raw body (timing-safe). */
+    verify(req: WebhookRequest): boolean;
+  };
+}
+
+export const COMMERCE_PLATFORM = Symbol('CommercePlatform');

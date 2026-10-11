@@ -23,6 +23,10 @@ export const EVENT_CATALOG = {
     'integration',
     z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),
   ),
+  'integration.store.disconnected': defineEvent(
+    'integration',
+    z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative(), reason: z.enum(['refresh_rejected']) }),
+  ),
 } as const;
 
 export type EventName = keyof typeof EVENT_CATALOG;

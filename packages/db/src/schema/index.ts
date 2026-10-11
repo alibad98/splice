@@ -1,2 +1,2 @@
-// Drizzle schema. Tables arrive with their owning modules (Stories 1.6+); none yet.
-export {};
+// Drizzle schema. Tables arrive with their owning modules.
+export * from './integration.js';

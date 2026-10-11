@@ -30,3 +30,12 @@ describe('event catalog', () => {
     expect(EventEnvelope.safeParse({ ...base, name: 'nope' }).success).toBe(false);
   });
 });
+
+describe('integration.store.disconnected', () => {
+  it('requires a known reason', () => {
+    const schema = EVENT_CATALOG['integration.store.disconnected'].schema;
+    const ok = { v: 1, store_id: '11111111-1111-4111-8111-111111111111', install_epoch: 1, reason: 'refresh_rejected' };
+    expect(schema.safeParse(ok).success).toBe(true);
+    expect(schema.safeParse({ ...ok, reason: 'because' }).success).toBe(false);
+  });
+});

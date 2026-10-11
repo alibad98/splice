@@ -44,4 +44,33 @@ describe('parseEnv', () => {
   it('rejects PORT equal to WORKER_HEALTH_PORT', () => {
     expect(() => parseEnv({ ROLE: 'http', DATABASE_URL: 'postgres://u:p@localhost:5432/db', PORT: '3002', WORKER_HEALTH_PORT: '3002' })).toThrow(/WORKER_HEALTH_PORT/);
   });
+
+  describe('token encryption and Salla settings', () => {
+    const key = Buffer.alloc(32, 7).toString('base64');
+    it('are optional outside production and empty strings count as unset', () => {
+      const env = parseEnv({ ...base, TOKEN_ENCRYPTION_KEY: '', SALLA_CLIENT_ID: '' });
+      expect(env.TOKEN_ENCRYPTION_KEY).toBeUndefined();
+      expect(env.TOKEN_ENCRYPTION_KEY_ID).toBe('k1');
+      expect(env.DASHBOARD_URL).toBe('http://localhost:3000');
+    });
+    it('rejects a master key that is not 32 bytes without echoing it', () => {
+      expect.assertions(2);
+      try {
+        parseEnv({ ...base, TOKEN_ENCRYPTION_KEY: 'c2hvcnQ=' });
+      } catch (err) {
+        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY']);
+        expect((err as EnvError).message).not.toContain('c2hvcnQ=');
+      }
+    });
+    it('requires the key and Salla credentials in production', () => {
+      expect.assertions(2);
+      try {
+        parseEnv({ ...base, NODE_ENV: 'production' });
+      } catch (err) {
+        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI']);
+      }
+      const ok = parseEnv({ ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: key, SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://api.example.com/cb' });
+      expect(ok.TOKEN_ENCRYPTION_KEY).toBe(key);
+    });
+  });
 });

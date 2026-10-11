@@ -52,4 +52,17 @@ describe('import boundaries', () => {
     const msgs = await lint('packages/player/src/x.ts', "import '@slips/ui';\n");
     expect(msgs.some((m) => m.includes('boundary player-preact-only'))).toBe(true);
   });
+
+  it.each(['zod', 'drizzle-orm', 'drizzle-orm/pg-core', '@salla.sa/twilight', 'lodash'])(
+    'fails when packages/player runtime-imports %s',
+    async (pkg) => {
+      const msgs = await lint('packages/player/src/y.ts', `import '${pkg}';\n`);
+      expect(msgs.some((m) => m.includes('boundary player-preact-only'))).toBe(true);
+    },
+  );
+
+  it('allows preact, preact subpaths and relative imports in packages/player', async () => {
+    const msgs = await lint('packages/player/src/z.ts', "import 'preact';\nimport 'preact/hooks';\nimport './a.js';\nimport '../b.js';\n");
+    expect(msgs.filter((m) => m.includes('boundary'))).toEqual([]);
+  });
 });

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reference page, theme a</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #fafafa; color: #222; }
+  header { padding: 16px; background: #fff; border-bottom: 1px solid #ddd; }
+  .hero { height: 520px; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 16px; }
+  .card { height: 260px; background: #eee; }
+  footer { padding: 16px; height: 1400px; background: #fff; }
+  [data-slips-root] ul { margin: 0; padding: 12px; }
+</style>
+</head>
+<body>
+<header><h1>Theme a</h1></header>
+<div class="hero"><h2>Hero</h2></div>
+<div class="grid"><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div></div>
+<div data-slips-anchor></div>
+<footer><p>Footer content that sits below the Slips anchor.</p></footer>
+<script type="module" src="/boot.js"></script>
+</body>
+</html>

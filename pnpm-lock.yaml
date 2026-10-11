@@ -358,6 +358,9 @@ importers:
         specifier: 11.0.1
         version: 11.0.1
     devDependencies:
+      '@playwright/test':
+        specifier: 1.64.0
+        version: 1.64.0
       '@preact/preset-vite':
         specifier: 2.10.6
         version: 2.10.6(@babel/core@7.29.7(supports-color@8.1.1))(preact@11.0.1)(supports-color@8.1.1)(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(terser@5.51.2)(tsx@4.23.15))
@@ -367,6 +370,9 @@ importers:
       '@slips/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
       eslint:
         specifier: 10.12.0
         version: 10.12.0(supports-color@8.1.1)

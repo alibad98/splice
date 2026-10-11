@@ -106,6 +106,7 @@ export function createConfig(options = {}) {
     }),
     // The player imports @slips/contracts type-only; preact is its only runtime dependency.
     ...inPackage(pkgDir, ['packages/player/src/**/*.{ts,tsx}'], {
+      ignores: ['**/*.test.{ts,tsx}'], // tests may import vitest
       rules: {
         '@typescript-eslint/no-restricted-imports': [
           'error',
@@ -113,6 +114,8 @@ export function createConfig(options = {}) {
             paths: [{ name: '@slips/contracts', allowTypeImports: true, message: 'boundary player-contracts-type-only: packages/player may import @slips/contracts with `import type` only' }],
             patterns: [
               { group: ['@slips/*', '!@slips/contracts'], message: 'boundary player-preact-only: packages/player may only depend on preact at runtime' },
+              // Any other bare specifier (zod, drizzle-orm, @salla.sa/*, ...) is a forbidden runtime dependency.
+              { regex: '^(?!preact(/|$)|\\.{1,2}(/|$)|@slips/contracts$)', message: 'boundary player-preact-only: packages/player may only depend on preact at runtime' },
             ],
           },
         ],

@@ -302,6 +302,52 @@ describe('admin guard', () => {
   });
 });
 
+describe('security review fixes', () => {
+  it('admin routes are not reachable by changing the path case (merchant bearer and cookie)', async () => {
+    const e = await embeddedBearer();
+    const d = await directCookie();
+    for (const path of ['/V1/ADMIN/session', '/v1/Admin/session', '/V1/Admin/session', '/v1/ADMIN/session']) {
+      for (const headers of [{ authorization: `Bearer ${e.bearer}` }, { cookie: d.cookie }]) {
+        const res = await fetch(`${base}${path}`, { headers });
+        expect([403, 404]).toContain(res.status);
+        expect(await res.text()).not.toContain('"admin":true');
+      }
+    }
+  });
+
+  it('records the platform user on the embedded session row', async () => {
+    const e = await embeddedBearer();
+    expect((await admin.query('select platform_user_id from merchant_sessions where store_id = $1', [e.storeId])).rows).toEqual([{ platform_user_id: 'u-1' }]);
+  });
+
+  it('a callback without the state cookie, or with a mismatched state, fails closed and sets no session cookie', async () => {
+    const start = await fetch(`${base}/v1/integrations/salla/install`, { redirect: 'manual' });
+    const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+    const before = Number((await admin.query('select count(*) as n from merchant_sessions')).rows[0].n);
+    for (const headers of [{}, { cookie: 'slips_oauth_state=not-the-nonce' }]) {
+      const res = await fetch(`${base}/v1/integrations/salla/callback?code=ok&state=${encodeURIComponent(state)}`, { redirect: 'manual', headers });
+      expect(res.headers.get('location')).toBe('https://dash.example.com/?install_error=state');
+      expect(res.headers.getSetCookie().some((c) => c.startsWith('slips_session=') && !/Max-Age=0/.test(c))).toBe(false);
+    }
+    const forged = await fetch(`${base}/v1/integrations/salla/callback?code=ok&state=forged.123.abc`, { redirect: 'manual', headers: { cookie: 'slips_oauth_state=forged' } });
+    expect(forged.headers.get('location')).toContain('install_error=state');
+    expect(forged.headers.getSetCookie().some((c) => c.startsWith('slips_session=') && !/Max-Age=0/.test(c))).toBe(false);
+    expect(Number((await admin.query('select count(*) as n from merchant_sessions')).rows[0].n)).toBe(before);
+  });
+
+  it('signing in again revokes the session named by an existing session cookie', async () => {
+    const first = await directCookie();
+    const start = await fetch(`${base}/v1/integrations/salla/install`, { redirect: 'manual' });
+    const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+    const nonce = /slips_oauth_state=([\w-]+)/.exec(start.headers.get('set-cookie')!)![1]!;
+    platform.profile = { ...platform.profile, platformStoreId: first.platformStoreId };
+    const done = await fetch(`${base}/v1/integrations/salla/callback?code=ok&state=${encodeURIComponent(state)}`, { redirect: 'manual', headers: { cookie: `slips_oauth_state=${nonce}; ${first.cookie}` } });
+    const fresh = done.headers.getSetCookie().find((c) => c.startsWith('slips_session=') && !/Max-Age=0/.test(c))!.split(';')[0]!;
+    expect((await fetch(`${base}/v1/session`, { headers: { cookie: first.cookie } })).status).toBe(401);
+    expect((await fetch(`${base}/v1/session`, { headers: { cookie: fresh } })).status).toBe(200);
+  });
+});
+
 describe('secrets', () => {
   it('no session credential or host token reaches the logs', () => {
     const out = lines.join('\n');

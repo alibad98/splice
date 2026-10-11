@@ -38,14 +38,14 @@ export class SessionService {
   /** Clock; tests replace it. */
   now: () => number = Date.now;
 
-  async create(storeId: string, mode: SessionMode): Promise<{ token: string; session: MerchantSession }> {
+  async create(storeId: string, mode: SessionMode, platformUserId?: string): Promise<{ token: string; session: MerchantSession }> {
     const id = randomUUID();
     const secret = randomBytes(32).toString('base64url');
     const ttl = mode === 'embedded' ? this.config.embeddedTtlMs : this.config.directMaxAgeMs;
     const expiresAt = new Date(this.now() + ttl);
     await withStoreContext(this.pool, storeId, async () => {
       await this.repo.deleteExpired(new Date(this.now()));
-      await this.repo.insert({ id, mode, secretHash: sha256(secret).toString('hex'), expiresAt });
+      await this.repo.insert({ id, mode, secretHash: sha256(secret).toString('hex'), expiresAt, ...(platformUserId ? { platformUserId } : {}) });
     });
     return { token: `${storeId}.${id}.${secret}`, session: { id, storeId, mode, expiresAt } };
   }
@@ -56,10 +56,11 @@ export class SessionService {
     if (!storeId || !id || !secret || extra !== undefined || !UUID.test(storeId) || !UUID.test(id)) return { kind: 'none' };
     return withStoreContext(this.pool, storeId, async (): Promise<AuthOutcome> => {
       const row = await this.repo.get(id);
-      if (!row || row.mode !== expectedMode) return { kind: 'none' };
+      if (!row) return { kind: 'none' };
       const given = sha256(secret);
       const stored = Buffer.from(row.secretHash, 'hex');
       if (given.length !== stored.length || !timingSafeEqual(given, stored)) return { kind: 'none' };
+      if (row.mode !== expectedMode) return { kind: 'none' };
       const now = this.now();
       if (row.expiresAt.getTime() <= now || now - row.lastSeenAt.getTime() > this.config.idleMs) {
         await this.repo.delete(id);
@@ -68,6 +69,14 @@ export class SessionService {
       if (now - row.lastSeenAt.getTime() > TOUCH_EVERY_MS) await this.repo.touch(id, new Date(now));
       return { kind: 'ok', session: { id, storeId, mode: row.mode, expiresAt: row.expiresAt } };
     });
+  }
+
+  /** Revoke the session a credential names, if the credential is genuine (used when a cookie is replaced by a new sign-in). Never throws. */
+  async revokeCredential(token: string): Promise<void> {
+    for (const mode of ['direct', 'embedded'] as const) {
+      const outcome = await this.authenticate(token, mode).catch(() => ({ kind: 'none' }) as AuthOutcome);
+      if (outcome.kind === 'ok') return this.revoke(outcome.session);
+    }
   }
 
   /** End a session immediately (sign out). */

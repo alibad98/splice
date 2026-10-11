@@ -52,3 +52,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
   summary: No browser end-to-end test of the iframe flow; Admin sign-in provider is a deny-all stub until Epic 7.
   evidence: Unit, render and live-Postgres composition tests only.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
+  summary: Verify app binding of the embedded token in Story 1.11-1.13 (the documented introspection response has no app id/audience; the adapter checks app_id/aud/client_id only if present, otherwise relies on the S-Source header).
+  evidence: Security review.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
+  summary: Owner to confirm staff access: any Salla user who can open the app in a store's dashboard gets that store's merchant session (one merchant account per store, no team roles in the MVP).
+  evidence: platform_user_id is stored on the session row and logged for audit.

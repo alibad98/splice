@@ -210,6 +210,20 @@ describe('SallaCommercePlatform embedded', () => {
     await expect(noApp.embedded.introspect('t')).rejects.toBeInstanceOf(PlatformUnavailableError);
   });
 
+  it('rejects a token issued for another app (app_id, aud or client_id present and different) and accepts a matching one', async () => {
+    for (const key of ['app_id', 'aud', 'client_id']) {
+      const bad = vi.fn(async () => json({ success: true, data: { ...INTROSPECT_FIXTURE.data, [key]: 'other-app' } }));
+      await expect(platform(bad as unknown as typeof fetch).embedded.introspect('t')).rejects.toBeInstanceOf(PlatformAuthRejectedError);
+      const good = vi.fn(async () => json({ success: true, data: { ...INTROSPECT_FIXTURE.data, [key]: 'app-1' } }));
+      await expect(platform(good as unknown as typeof fetch).embedded.introspect('t')).resolves.toMatchObject({ platformStoreId: '123456' });
+    }
+  });
+
+  it('rejects a response with no exp instead of inventing one', async () => {
+    const f = vi.fn(async () => json({ success: true, data: { merchant_id: 1, user_id: 2 } }));
+    await expect(platform(f as unknown as typeof fetch).embedded.introspect('t')).rejects.toBeInstanceOf(PlatformAuthRejectedError);
+  });
+
   it('builds the Open in Salla URL from the app id and none without one', () => {
     expect(platform(vi.fn()).embedded.openUrl()).toBe('https://s.salla.sa/embedded/app/app-1');
     expect(new SallaCommercePlatform({ ...config, appId: undefined }, telemetry()).embedded.openUrl()).toBeUndefined();

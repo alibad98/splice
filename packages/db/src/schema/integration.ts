@@ -71,6 +71,8 @@ export const merchantSessions = pgTable('merchant_sessions', {
   storeId: uuid('store_id').notNull(),
   mode: text('mode').$type<SessionMode>().notNull(),
   secretHash: text('secret_hash').notNull(),
+  /** Platform user who opened an embedded session (audit); null for direct-link sessions. */
+  platformUserId: text('platform_user_id'),
   createdAt: now(),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().default(sql`now()`),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),

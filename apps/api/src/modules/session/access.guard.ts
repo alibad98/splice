@@ -48,7 +48,8 @@ export class AccessGuard implements CanActivate {
     const req = http.getRequest<AuthenticatedRequest>();
     const isPublic = this.reflector.getAllAndOverride<boolean>(PUBLIC_ROUTE, [context.getHandler(), context.getClass()]);
 
-    if (req.path === ADMIN_PREFIX || req.path.startsWith(`${ADMIN_PREFIX}/`)) {
+    const path = req.path.toLowerCase();
+    if (path === ADMIN_PREFIX || path.startsWith(`${ADMIN_PREFIX}/`)) {
       if (isPublic) return true; // the admin sign-in stub; it denies on its own
       const principal = await this.admin.authenticate({ headers: req.headers });
       if (!principal) throw new ForbiddenException({ message: 'Admin access is required', code: 'admin_forbidden' });

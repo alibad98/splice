@@ -61,7 +61,17 @@ const UserInfo = z.object({
 });
 const IntrospectResponse = z.object({
   success: z.boolean().optional(),
-  data: z.object({ merchant_id: z.union([z.string(), z.number()]), user_id: z.union([z.string(), z.number()]).optional(), exp: z.string().optional() }).nullish(),
+  data: z
+    .object({
+      merchant_id: z.union([z.string(), z.number()]),
+      user_id: z.union([z.string(), z.number()]).optional(),
+      exp: z.string().optional(),
+      // Not in the documented response; checked when present (verify app binding in Story 1.11-1.13).
+      app_id: z.union([z.string(), z.number()]).optional(),
+      aud: z.union([z.string(), z.number()]).optional(),
+      client_id: z.union([z.string(), z.number()]).optional(),
+    })
+    .nullish(),
 });
 // Unknown keys (names, phones, addresses...) are dropped by the schemas: AD-5, only whitelisted fields survive.
 const Money = z.object({ amount: z.coerce.number(), currency: z.string() });
@@ -150,13 +160,18 @@ export class SallaCommercePlatform implements CommercePlatform {
       const parsed = IntrospectResponse.safeParse(await res.json().catch(() => null));
       if (!parsed.success) throw new PlatformUnavailableError('Salla introspection response was not recognised');
       if (parsed.data.success === false || !parsed.data.data) throw new PlatformAuthRejectedError('Salla did not verify the embedded token');
-      const exp = parsed.data.data.exp ? new Date(parsed.data.data.exp) : undefined;
-      if (exp && Number.isNaN(exp.getTime())) throw new PlatformUnavailableError('Salla introspection response was not recognised');
-      if (exp && exp.getTime() <= this.now()) throw new PlatformAuthRejectedError('Salla embedded token has expired');
+      const d = parsed.data.data;
+      for (const bound of [d.app_id, d.aud, d.client_id]) {
+        if (bound !== undefined && String(bound) !== this.config.appId) throw new PlatformAuthRejectedError('Salla embedded token was issued for another app');
+      }
+      if (!d.exp) throw new PlatformAuthRejectedError('Salla embedded token has no expiry');
+      const exp = new Date(d.exp);
+      if (Number.isNaN(exp.getTime())) throw new PlatformUnavailableError('Salla introspection response was not recognised');
+      if (exp.getTime() <= this.now()) throw new PlatformAuthRejectedError('Salla embedded token has expired');
       return {
         platformStoreId: String(parsed.data.data.merchant_id),
         platformUserId: String(parsed.data.data.user_id ?? parsed.data.data.merchant_id),
-        expiresAt: exp ?? new Date(this.now() + 60_000),
+        expiresAt: exp,
       };
     },
     openUrl: (): string | undefined => (this.config.appId ? `${SALLA_EMBEDDED_APP_BASE}/${encodeURIComponent(this.config.appId)}` : undefined),

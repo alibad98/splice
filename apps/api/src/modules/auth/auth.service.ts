@@ -37,7 +37,9 @@ export class AuthService {
     }
     const store = await this.integration.findStoreForSignIn(identity.platformStoreId);
     if (!store || store.lifecycleState !== 'active') return { ok: false, reason: 'store_not_installed' };
-    const { token, session } = await this.sessions.create(store.storeId, 'embedded');
+    // Any platform user who can open the app in this store's dashboard gets the store's merchant session (one account per store, no team roles in the MVP).
+    const { token, session } = await this.sessions.create(store.storeId, 'embedded', identity.platformUserId);
+    this.telemetry.log.info('embedded sign-in', { store_id: store.storeId, platform_user_id: identity.platformUserId });
     return {
       ok: true,
       storeName: store.name,

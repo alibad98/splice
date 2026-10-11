@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { INTEGRATION_CONFIG, type IntegrationConfig } from '../../infra.module.js';
 import { PlatformUnavailableError } from '../../ports/commerce-platform.js';
 import { Public } from '../session/public.decorator.js';
-import { SessionService } from '../session/session.service.js';
+import { SESSION_COOKIE, SessionService } from '../session/session.service.js';
 import { STATE_TTL_MS } from './install-state.js';
 import { IntegrationService } from './integration.service.js';
 
@@ -62,6 +62,8 @@ export class IntegrationController {
     if (result.ok) {
       // The merchant just proved control of the store with Salla OAuth: that is the direct-link sign-in (AD-12).
       try {
+        const previous = cookieValue(req.headers.cookie, SESSION_COOKIE);
+        if (previous) await this.sessions.revokeCredential(previous);
         cookies.push(this.sessions.cookieFor((await this.sessions.create(result.storeId, 'direct')).token));
       } catch {
         target.searchParams.delete('connected');

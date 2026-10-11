@@ -122,6 +122,8 @@ export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> 
   });
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().set('x-powered-by', false);
+  // Routes match case-exactly, so /V1/Admin/... is a 404, never an unguarded alias of an admin route (the guard also lower-cases).
+  app.getHttpAdapter().getInstance().set('case sensitive routing', true);
   const original = app.close.bind(app);
   app.close = async () => {
     await original();

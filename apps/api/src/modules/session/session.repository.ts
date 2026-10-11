@@ -5,7 +5,7 @@ export type SessionRow = typeof merchantSessions.$inferSelect;
 
 /** Data access for merchant_sessions; runs only inside `withStoreContext` (StoreScoped). */
 export class SessionRepository extends StoreScoped {
-  async insert(row: { id: string; mode: SessionMode; secretHash: string; expiresAt: Date }): Promise<void> {
+  async insert(row: { id: string; mode: SessionMode; secretHash: string; expiresAt: Date; platformUserId?: string }): Promise<void> {
     await this.db.insert(merchantSessions).values({ ...row, storeId: this.storeId });
   }
 

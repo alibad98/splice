@@ -10,6 +10,10 @@ context: []
 warnings: ['oversized']
 deferred:
   - summary: >-
+      Verify app binding of the embedded token in Story 1.11-1.13; owner to confirm staff access (any Salla user who can open the app in the store's dashboard gets the store's merchant session).
+    evidence: |-
+      Security review: the documented introspection response has no app id, so only S-Source binds the app; platform_user_id is stored on the session row and logged.
+  - summary: >-
       Embedded token introspection request and response shapes are taken from the embedded SDK source, not a live call (verify in Story 1.11-1.13).
     evidence: |-
       POST https://api.salla.dev/exchange-authority/v1/introspect with S-Source: <app id>, body {env, token, iss, subject}; response {success, data:{merchant_id, user_id, exp}}. Whether merchant_id equals the OAuth user/info merchant.id (the locator key), the exp format, and which status codes mean "bad token" are unconfirmed.
@@ -118,6 +122,9 @@ deferred:
 - DECISION: framing headers are set by the dashboard proxy: merchant pages `frame-ancestors <EMBED_ALLOWED_ORIGIN, default https://s.salla.sa>`, /admin `frame-ancestors 'none'` plus X-Frame-Options DENY; merchant pages also send Referrer-Policy no-referrer so the host token in the URL never leaks. Every API response sends `frame-ancestors 'none'`.
 - DECISION: the shell decides embedded vs direct from the browser (framed = window.parent differs from window), with Sec-Fetch-Dest: iframe as a server hint to avoid a sign-in flash; the chip is a client component reading the live session and falling back to the server value.
 - DECISION: dashboard /admin shows only a sign-in-unavailable placeholder (no data); the browser-reachable API URL is PUBLIC_API_URL (defaults to API_URL), sibling-host cookie sharing uses SESSION_COOKIE_DOMAIN.
+
+- DECISION (security review): staff access -- any Salla user who can open the app inside a store's Salla dashboard gets that store's merchant session (Salla controls who sees the app; one merchant account per store, no team roles). The platform user id is stored on merchant_sessions.platform_user_id (migration 0007) and logged at sign-in.
+- DECISION (security review): routing is case-sensitive and the access guard lower-cases the path for the admin check; a missing or expired introspection `exp` is rejected; the introspected app id/aud/client_id must equal the configured app when present; the session secret is compared before the mode; a new cookie sign-in revokes the session named by an existing cookie.
 
 ## Verification
 

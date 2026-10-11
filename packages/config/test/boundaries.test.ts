@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax -- this file defines the tenant-context rule and its test fixtures */
 // Covers the spec's I/O matrix rows for import boundaries by linting virtual files
 // at real repo paths with the shared config.
 import { ESLint } from 'eslint';
@@ -64,5 +65,22 @@ describe('import boundaries', () => {
   it('allows preact, preact subpaths and relative imports in packages/player', async () => {
     const msgs = await lint('packages/player/src/z.ts', "import 'preact';\nimport 'preact/hooks';\nimport './a.js';\nimport '../b.js';\n");
     expect(msgs.filter((m) => m.includes('boundary'))).toEqual([]);
+  });
+});
+
+describe('tenant context helper', () => {
+  const sets = ["await c.query(\"select set_config('app.store_id', $1, false)\", [id]);", 'await c.query(`SET LOCAL app.store_id = ${id}`);', "await c.query('SET app.store_id = 1');"];
+  for (const code of sets) {
+    it(`fails on: ${code}`, async () => {
+      const msgs = await lint('apps/api/src/breach.ts', `export async function f(c: any, id: string) {\n  ${code}\n}\n`);
+      expect(msgs.some((m) => m.includes('tenant-context-helper-only'))).toBe(true);
+    });
+  }
+
+  it('allows the helper itself and ordinary queries', async () => {
+    const helper = await lint('packages/db/src/tenant/context.ts', "export const q = \"select set_config('app.store_id', $1, true)\";\n");
+    expect(helper.filter((m) => m.includes('tenant-context-helper-only'))).toEqual([]);
+    const ok = await lint('apps/api/src/ok.ts', "export const q = \"select current_setting('app.store_id')\";\n");
+    expect(ok.filter((m) => m.includes('tenant-context-helper-only'))).toEqual([]);
   });
 });

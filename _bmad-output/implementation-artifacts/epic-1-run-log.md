@@ -71,3 +71,8 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - **Placeholders until Story 1.8:** the connection chip shows "not connected", "Preview store" is disabled with a stated reason, and support is a placeholder `mailto:support@slips.app`.
 - Review: 1 high (the language choice wouldn't persist in the iframe; fixed as above), 2 medium and 4 low, all fixed.
 - Deferred: the real support channel, testing inside a real Salla iframe, and per-merchant language (Story 7.1).
+
+### Story 1.6: Tenant isolation with RLS and StoreScoped. **Done**
+- Delivered: app and admin DB roles (migration), withStoreContext helper, StoreScoped base, RLS convention helpers and audit, ownership registry, cross-tenant harness, lint rule, storeScopedJob for workers.
+- Decisions: uuid store ids; set_config(..., true) as SET LOCAL; roles created NOLOGIN.
+- Deferred: audited admin reads (Epic 7), migrations in the Docker image, real-schema checks once tables exist.

@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 
+/** SQL that sets or changes a session setting: set_config(...), SET LOCAL/SESSION, SET app.*, RESET app.* */
+const STORE_CONTEXT_SQL = String.raw`/\bset_config\b|\bset\s+(local|session)\b|\b(set|reset)\s+app\./i`;
+// eslint-disable-next-line no-restricted-syntax -- defines the rule message
+const STORE_CONTEXT_MESSAGE = 'tenant-context-helper-only: set the store context only through withStoreContext() from @slips/db (SET LOCAL app.store_id)';
+
 /** Element types used by the boundary policies. Order matters: first match wins. */
 export const boundaryElements = [
   { type: 'api-adapter', pattern: 'apps/api/src/adapters/**' },
@@ -89,6 +94,18 @@ export function createConfig(options = {}) {
               },
             ],
           },
+        ],
+      },
+    },
+    // AD-3: the tenant context is set only by withStoreContext() in packages/db/src/tenant/context.ts.
+    {
+      files: ['**/*.{ts,tsx,js,mjs,cjs}'],
+      ignores: ['**/tenant/context.ts'],
+      rules: {
+        'no-restricted-syntax': [
+          'error',
+          { selector: `Literal[value=${STORE_CONTEXT_SQL}]`, message: STORE_CONTEXT_MESSAGE },
+          { selector: `TemplateElement[value.raw=${STORE_CONTEXT_SQL}]`, message: STORE_CONTEXT_MESSAGE },
         ],
       },
     },

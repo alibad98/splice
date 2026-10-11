@@ -105,3 +105,28 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - A tenant event's store wasn't tied to its payload. Now the store comes from the payload and is checked when the event is published and when it's handled.
   - 3 low findings fixed too. An event with no handler now fails loudly instead of being silently dropped, the ledger's DELETE grant is removed, and a real lint rule replaces a weak text-search test.
 - Deferred: the web server (http role) can't publish events yet (it needs a send-only pg-boss client, added when the first module publishes), and old ledger rows are never pruned.
+
+### Story 1.8: Install Slips through Salla OAuth and store tokens securely. **Done** (`0fcdccb`, security fixes `060d2e0`)
+- Delivered:
+  - The `CommercePlatform` port, with a Salla adapter that holds every Salla URL, header and field, and paces calls per store (honouring `Retry-After`).
+  - The first tenant tables: `stores`, `merchant_accounts`, `platform_tokens` and `token_access_log`, with forced RLS. Each passes the cross-tenant test harness.
+  - The install routes `/v1/integrations/salla/install` and `/callback`.
+  - Token refresh: one refresh at a time per store, under a database lock. A definitive rejection marks the store disconnected and emits an event.
+  - The web server (http role) can now publish events.
+- Built and tested against Salla's documented API with mocked HTTP only. There are no Salla credentials yet.
+- Decisions:
+  - **Custom Mode OAuth now; Easy Mode (webhook) shares the same core in Story 1.10.**
+  - **OAuth scopes:** offline_access, settings.read, products.read, orders.read and webhooks.read_write. They can be overridden with `SALLA_SCOPES`.
+  - **Tokens are envelope-encrypted** with AES-256-GCM, bound to the store and field. Every token access is recorded without the token value.
+  - **Only a definitive OAuth rejection disconnects a store.** Network errors, server errors and rate limits change nothing.
+  - **The Salla-store → Slips-store mapping is write-once** and readable only through one narrow database function.
+  - **Required in production:** `OAUTH_STATE_SECRET` and `TOKEN_ENCRYPTION_KEY`.
+  - **Deploy order: migrate → worker → web server**, because the worker sets up the event queue.
+- Security review: the OAuth state flow and the encryption were clean. 3 medium findings, all fixed.
+  - The store mapping could be rewritten to redirect tokens to another tenant. It is now write-once and readable only through the narrow function.
+  - The queue grants let one tenant read other tenants' jobs. They are narrowed to the single insert the outbox needs.
+  - A token refresh could hold a database lock for minutes during a Salla outage. It now fails fast instead.
+  - 3 low findings fixed too: safer saving of rotated tokens, a lock on the install path, and a stable OAuth state secret.
+- Deferred (verify in Stories 1.11–1.13 with a real store):
+  - The exact Salla response shapes, and whether a failed refresh still uses up the refresh token.
+  - Master-key rotation, and retention for the access log.

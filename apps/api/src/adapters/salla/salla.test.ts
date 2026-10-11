@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PlatformAuthRejectedError, PlatformUnavailableError } from '../../ports/commerce-platform.js';
 import { Metric } from '../../ports/telemetry.js';
 import { PinoTelemetry } from '../telemetry/pino-telemetry.js';
-import { SallaCommercePlatform } from './salla-platform.js';
+import { parseEventTime, SallaCommercePlatform } from './salla-platform.js';
 import { parseRetryAfter, SallaHttp } from './salla-http.js';
 
 // Fixtures follow docs/salla-desk-research.md (verify in Story 1.11-1.13 against a real store).
@@ -157,6 +157,18 @@ describe('webhook parsing', () => {
     expect(p.webhooks.parse({ headers: {}, rawBody: Buffer.from('not json') })).toBeNull();
     expect(parse({ merchant: '1' })).toBeNull();
     expect(parse({ event: 'app.store.authorize', merchant: '1', data: { access_token: 'x' } })).toBeNull();
+  });
+});
+
+describe('event time parsing', () => {
+  it('accepts ISO-8601 with an explicit zone, unix times, and reads a zone-less Salla timestamp as Asia/Riyadh', () => {
+    expect(parseEventTime('2026-10-11T10:00:00Z')?.toISOString()).toBe('2026-10-11T10:00:00.000Z');
+    expect(parseEventTime('2026-10-11T13:00:00+03:00')?.toISOString()).toBe('2026-10-11T10:00:00.000Z');
+    expect(parseEventTime('2026-10-11 13:00:00')?.toISOString()).toBe('2026-10-11T10:00:00.000Z');
+    expect(parseEventTime(1_800_000_000)?.toISOString()).toBe('2027-01-15T08:00:00.000Z');
+  });
+  it('treats anything else as missing', () => {
+    for (const bad of ['2026-10-11T10:00:00', 'yesterday', '11/10/2026', '2026-10-11', '']) expect(parseEventTime(bad)).toBeUndefined();
   });
 });
 

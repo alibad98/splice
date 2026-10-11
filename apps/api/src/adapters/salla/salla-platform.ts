@@ -61,6 +61,21 @@ const AuthorizeData = z.object({
   expires: z.coerce.number().positive(),
   scope: z.string().optional(),
 });
+/**
+ * Event time, only when unambiguous: ISO-8601 with an explicit offset or Z, a unix time, or Salla's documented
+ * "YYYY-MM-DD HH:mm:ss" read as Asia/Riyadh (+03:00, verify in Story 1.13). Anything else counts as missing, so the
+ * server's local zone never decides ordering.
+ */
+export function parseEventTime(v: string | number | undefined): Date | undefined {
+  let d: Date | undefined;
+  if (typeof v === 'number') d = new Date(v < 1e12 ? v * 1000 : v);
+  else if (typeof v === 'string') {
+    const t = v.trim();
+    if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/i.test(t)) d = new Date(t.replace(' ', 'T'));
+    else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(t)) d = new Date(`${t.replace(' ', 'T')}+03:00`);
+  }
+  return d && !Number.isNaN(d.getTime()) ? d : undefined;
+}
 const OAuthError = z.object({ error: z.string().optional() });
 const UserInfo = z.object({
   data: z.object({
@@ -250,11 +265,7 @@ export class SallaCommercePlatform implements CommercePlatform {
     if (!env.success) return null;
     const { event, merchant, created_at, data } = env.data;
     const kind: WebhookKind = event === SALLA_APP_EVENTS.authorize ? 'authorize' : event === SALLA_APP_EVENTS.installed ? 'installed' : event === SALLA_APP_EVENTS.uninstalled ? 'uninstalled' : 'other';
-    let occurredAt: Date | undefined;
-    if (created_at !== undefined) {
-      const d = typeof created_at === 'number' ? new Date(created_at < 1e12 ? created_at * 1000 : created_at) : new Date(created_at);
-      if (!Number.isNaN(d.getTime())) occurredAt = d;
-    }
+    const occurredAt = parseEventTime(created_at);
     // Canonical payload: allow-listed fields only, never a spread of the body (AD-5).
     const payload: Record<string, unknown> = { event, kind };
     const out: CanonicalWebhook = {

@@ -48,7 +48,7 @@ describe('integration tables', () => {
   });
 
   it('are owned by integration and the schema has no unowned table', () => {
-    for (const t of [...TENANT_TABLES.filter((x) => x !== 'merchant_sessions'), 'store_locator', 'webhook_inbox', 'lifecycle_audit', 'store_purge_schedule']) expect(tableOwners().get(t)).toBe('integration');
+    for (const t of [...TENANT_TABLES.filter((x) => x !== 'merchant_sessions'), 'store_locator', 'webhook_inbox', 'lifecycle_audit', 'store_purge_schedule', 'lifecycle_event_ledger']) expect(tableOwners().get(t)).toBe('integration');
     expect(tableOwners().get('merchant_sessions')).toBe('session');
     expect(findUnownedTables(schemaTableNames(schema))).toEqual([]);
   });

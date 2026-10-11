@@ -109,6 +109,9 @@ deferred:
 - DECISION: purge leaves a tombstone (stores row in state purged with name scrubbed, locator, job row, audit) so the locator and epoch stay valid; see deferred for Story 7.13.
 - DECISION: an uninstall created more than 5 s before the current epoch started is dropped as stale; an authorize created more than 5 s before the uninstall is dropped.
 - DECISION: StoreDataLifecycle also has `suspend` (called on uninstall) beyond the export/purge/restore in the story, so sessions end at once.
+- DECISION (security review): every applied lifecycle event id (body hash) goes into `lifecycle_event_ledger` (non-tenant, keyed by platform locator, survives purge); a replay is ignored. Pruning entries older than 90 days is deferred.
+- DECISION (security review): a lifecycle event without a usable `created_at` is judged by `received_at` against `epoch_started_at - 5 s`; an authorize predating the epoch of an active store is dropped. `created_at` is accepted only as ISO-8601 with an explicit zone, unix time, or Salla's zone-less "YYYY-MM-DD HH:mm:ss" read as Asia/Riyadh (verify in Story 1.13).
+- DECISION (security review): `slips_app` has no UPDATE on `store_purge_schedule` (reschedule = delete+insert) and no SELECT of `webhook_inbox.secret_enc` or UPDATE of its payload columns; the token pair is read only through SECURITY DEFINER `inbox_secret(id)` (pending rows only) and is not nulled by it, so a retry still has the tokens.
 
 ## Verification
 

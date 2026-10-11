@@ -429,3 +429,49 @@ describe('worker jobs', () => {
     expect((await storeRow(storeId)).lifecycle_state).toBe('purged');
   });
 });
+
+describe('security review fixes', () => {
+  it('an old signed uninstall replayed after purge and reinstall is ignored (replay ledger outlives the purge)', async () => {
+    const { merchant, storeId } = await installStore();
+    const uninstall = hook('app.uninstalled', merchant);
+    await send(uninstall);
+    clock += GRACE_PERIOD_MS + 1000;
+    expect(await service.lifecycle.purge(storeId, 1)).toBe('completed');
+    expect((await admin.query('select 1 from webhook_inbox where platform_store_id = $1', [merchant])).rowCount).toBe(0);
+    userInfoFor = merchant;
+    clock += 1000;
+    await send(hook('app.store.authorize', merchant, authorizeData('after-purge')));
+    await service.inbox.processDue();
+    expect(await storeRow(storeId)).toMatchObject({ lifecycle_state: 'active', install_epoch: 2 });
+    await send(uninstall); // the exact signed body again
+    expect((await storeRow(storeId)).lifecycle_state).toBe('active');
+    expect((await admin.query('select kind from lifecycle_event_ledger where platform_store_id = $1 order by kind', [merchant])).rows.map((r) => r.kind)).toContain('uninstalled');
+  });
+
+  it('without created_at, an uninstall uses received_at', async () => {
+    const { merchant, storeId } = await installStore();
+    clock += 60_000;
+    await send(JSON.stringify({ event: 'app.uninstalled', merchant }));
+    expect((await admin.query("select occurred_at from webhook_inbox where platform_store_id = $1 and type = 'app.uninstalled'", [merchant])).rows[0].occurred_at).toBeNull();
+    expect((await storeRow(storeId)).lifecycle_state).toBe('uninstalled');
+  });
+
+  it('an old authorize replayed against a now-active (reinstalled) store is dropped', async () => {
+    const { merchant, storeId } = await installStore();
+    clock += 60_000;
+    userInfoFor = merchant;
+    await send(hook('app.store.authorize', merchant, authorizeData('old'), { created_at: new Date(clock - 120_000).toISOString() }));
+    await service.inbox.processDue();
+    expect(await service.getAccessToken(storeId)).toBe(`AT-${merchant}`);
+    expect((await admin.query("select status from webhook_inbox where platform_store_id = $1 and occurred_at = $2", [merchant, new Date(clock - 120_000)])).rows).toEqual([{ status: 'ignored' }]);
+  });
+
+  it('slips_app can not UPDATE store_purge_schedule nor read webhook_inbox.secret_enc, and keeps what the code needs', async () => {
+    await expect(app.query('update store_purge_schedule set due_at = now()')).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query('select secret_enc from webhook_inbox')).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query('select * from webhook_inbox')).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query('update webhook_inbox set payload = $1', ['{}'])).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query('select count(*) from webhook_inbox')).resolves.toBeDefined();
+    await expect(app.query('delete from lifecycle_event_ledger')).rejects.toMatchObject({ code: '42501' });
+  });
+});

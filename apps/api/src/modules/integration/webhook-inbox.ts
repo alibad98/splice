@@ -31,8 +31,8 @@ interface InboxRow {
   type: string;
   platform_store_id: string;
   payload: { kind?: string } & Record<string, unknown>;
-  secret_enc: string | null;
   occurred_at: Date | null;
+  received_at: Date;
   attempts: number;
   parked_since: Date | null;
 }
@@ -115,7 +115,7 @@ export class WebhookInbox {
     const now = new Date(this.now());
     const claimed = await this.pool.query<InboxRow>(
       `update webhook_inbox set next_attempt_at = $2 where id = $1 and status = 'pending' and next_attempt_at <= $3
-       returning id::text as id, platform, event_id, type, platform_store_id, payload, secret_enc, occurred_at, attempts, parked_since`,
+       returning id::text as id, platform, event_id, type, platform_store_id, payload, occurred_at, received_at, attempts, parked_since`,
       [id, new Date(now.getTime() + LEASE_MS), now],
     );
     const row = claimed.rows[0];
@@ -135,20 +135,30 @@ export class WebhookInbox {
     if (kind !== 'authorize' && kind !== 'installed' && kind !== 'uninstalled') return 'ignored';
     const storeId = await this.locate(row.platform_store_id);
     if (kind === 'installed') return storeId ? 'ignored' : 'parked'; // Easy Mode: tokens follow in app.store.authorize
+    // Replay defence: a lifecycle event already applied (the ledger outlives a purge) is never applied twice.
+    if (await this.lifecycle.wasApplied(row.platform, row.event_id)) return 'ignored';
+    // Platform time when it gave one (parsed with an explicit zone), else when we received it.
+    const eventAt = row.occurred_at ?? row.received_at;
+    let outcome: 'processed' | 'ignored' | 'parked';
     if (kind === 'uninstalled') {
       if (!storeId) return 'parked';
-      const outcome = await this.lifecycle.uninstall(storeId, row.occurred_at ?? undefined);
-      return outcome === 'uninstalled' ? 'processed' : 'ignored';
+      outcome = (await this.lifecycle.uninstall(storeId, eventAt)) === 'uninstalled' ? 'processed' : 'ignored';
+    } else {
+      // authorize (Easy Mode): the same install core as the OAuth callback (Story 1.8).
+      if (storeId && (await this.lifecycle.authorizeIsStale(storeId, eventAt))) outcome = 'ignored';
+      else {
+        const sealed = (await this.pool.query<{ s: string | null }>('select inbox_secret($1::uuid) as s', [row.id])).rows[0]?.s;
+        if (!sealed) throw new Error('authorize event without tokens');
+        const raw = JSON.parse(this.cipher.decrypt(sealed, secretAad(row.platform, row.event_id))) as { a: string; r: string; e: string; s: string[] };
+        const tokens: TokenSet = { accessToken: raw.a, refreshToken: raw.r, expiresAt: new Date(raw.e), scopes: raw.s };
+        const profile = await this.platform.auth.getMerchantProfile(tokens.accessToken);
+        if (profile.platformStoreId !== row.platform_store_id) throw new PlatformAuthRejectedError('authorize event and token belong to different stores');
+        await this.install(tokens, profile);
+        outcome = 'processed';
+      }
     }
-    // authorize (Easy Mode): the same install core as the OAuth callback (Story 1.8).
-    if (storeId && (await this.lifecycle.authorizePredatesUninstall(storeId, row.occurred_at ?? undefined))) return 'ignored';
-    if (!row.secret_enc) throw new Error('authorize event without tokens');
-    const raw = JSON.parse(this.cipher.decrypt(row.secret_enc, secretAad(row.platform, row.event_id))) as { a: string; r: string; e: string; s: string[] };
-    const tokens: TokenSet = { accessToken: raw.a, refreshToken: raw.r, expiresAt: new Date(raw.e), scopes: raw.s };
-    const profile = await this.platform.auth.getMerchantProfile(tokens.accessToken);
-    if (profile.platformStoreId !== row.platform_store_id) throw new PlatformAuthRejectedError('authorize event and token belong to different stores');
-    await this.install(tokens, profile);
-    return 'processed';
+    await this.lifecycle.recordApplied(row.platform, row.event_id, row.platform_store_id, kind);
+    return outcome;
   }
 
   private async finish(id: string, status: 'processed' | 'ignored'): Promise<void> {

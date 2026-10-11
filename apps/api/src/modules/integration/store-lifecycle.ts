@@ -64,9 +64,10 @@ export class StoreLifecycle {
       await this.repo.deleteTokens();
       for (const lc of this.lifecycles) await lc.suspend?.({ storeId, installEpoch: store.installEpoch, tx: ctx });
       await ctx.query(
-        'insert into store_purge_schedule (id, install_epoch, due_at) values ($1, $2, $3) on conflict (id) do update set install_epoch = excluded.install_epoch, due_at = excluded.due_at',
-        [storeId, store.installEpoch, graceEndsAt],
+        'delete from store_purge_schedule where id = $1',
+        [storeId],
       );
+      await ctx.query('insert into store_purge_schedule (id, install_epoch, due_at) values ($1, $2, $3)', [storeId, store.installEpoch, graceEndsAt]);
       await writeAudit(ctx, store.platform, store.platformStoreId, 'uninstalled', store.installEpoch, { grace_ends_at: graceEndsAt.toISOString() });
       await publishEvent(ctx, this.events, this.telemetry, 'integration.store.uninstalled', {
         v: 1,
@@ -97,15 +98,28 @@ export class StoreLifecycle {
   }
 
   /**
-   * An authorize event created before the store's uninstall is an out-of-order delivery of the old install, not a
-   * reinstall: applying it would resurrect an uninstalled store. Reinstalls carry a later `created_at`.
+   * An authorize that belongs to an earlier era is not a (re)install and must not be applied: against an uninstalled or
+   * purged store it is an out-of-order delivery of the old install (it would resurrect the store); against a store that
+   * is already active it is a replay from before the current epoch. A genuine reinstall is created after the uninstall.
    */
-  async authorizePredatesUninstall(storeId: string, eventAt: Date | undefined): Promise<boolean> {
-    if (!eventAt) return false;
+  async authorizeIsStale(storeId: string, eventAt: Date): Promise<boolean> {
     return withStoreContext(this.pool, storeId, async () => {
       const store = await this.repo.getStore();
-      return !!store?.uninstalledAt && (store.lifecycleState === 'uninstalled' || store.lifecycleState === 'purged') && eventAt.getTime() < store.uninstalledAt.getTime() - CLOCK_SKEW_MS;
+      if (!store) return false;
+      if (store.lifecycleState === 'uninstalled' || store.lifecycleState === 'purged') {
+        return !!store.uninstalledAt && eventAt.getTime() < store.uninstalledAt.getTime() - CLOCK_SKEW_MS;
+      }
+      return eventAt.getTime() < store.epochStartedAt.getTime() - CLOCK_SKEW_MS;
     });
+  }
+
+  /** Has this lifecycle event (by id) already been applied? The ledger outlives a purge. */
+  async wasApplied(platform: string, eventId: string): Promise<boolean> {
+    return ((await this.pool.query('select 1 from lifecycle_event_ledger where platform = $1 and event_id = $2', [platform, eventId])).rowCount ?? 0) > 0;
+  }
+
+  async recordApplied(platform: string, eventId: string, platformStoreId: string, kind: string): Promise<void> {
+    await this.pool.query('insert into lifecycle_event_ledger (platform, event_id, platform_store_id, kind, applied_at) values ($1, $2, $3, $4, $5) on conflict do nothing', [platform, eventId, platformStoreId, kind, new Date(this.now())]);
   }
 
   /** Stores whose grace has ended and whose purge has not completed (the sweep enqueues one purge job each). */

@@ -140,3 +140,12 @@ export const storePurgeSchedule = pgTable('store_purge_schedule', {
   installEpoch: integer('install_epoch').notNull(),
   dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
 });
+
+/** Lifecycle events already applied (replay ledger); keyed by the platform locator so it survives a purge. */
+export const lifecycleEventLedger = pgTable('lifecycle_event_ledger', {
+  platform: text('platform').$type<StorePlatform>().notNull(),
+  eventId: text('event_id').notNull(),
+  platformStoreId: text('platform_store_id').notNull(),
+  kind: text('kind').notNull(),
+  appliedAt: timestamp('applied_at', { withTimezone: true }).notNull().default(sql`now()`),
+});

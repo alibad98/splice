@@ -1,5 +1,6 @@
 // The single source of queue groups, concurrency and retry policy (AD-1).
 // Default: 5 attempts with exponential backoff 30 s -> 15 min; media: 3 attempts.
+import { EVENT_QUEUE } from '@slips/contracts';
 import type { QueueOptions } from 'pg-boss';
 
 export const QUEUE_GROUPS = ['realtime', 'media', 'batch'] as const;
@@ -42,8 +43,8 @@ export function deadLetterName(queue: string): string {
   return `${queue}.dead_letter`;
 }
 
-/** Registered queues. Modules add theirs here as they land (none yet). */
-export const QUEUES: readonly QueueDefinition[] = [];
+/** Registered queues. Modules add theirs here as they land. */
+export const QUEUES: readonly QueueDefinition[] = [{ name: EVENT_QUEUE, group: 'realtime' }];
 
 export function queuesFor(groups: readonly QueueGroup[], queues: readonly QueueDefinition[] = QUEUES): QueueDefinition[] {
   return queues.filter((q) => groups.includes(q.group));

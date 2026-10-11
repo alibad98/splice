@@ -19,3 +19,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-3-observability-baseline.md`
   summary: Dashboard SLI counting trusts an x-slips-client header or /v1/dashboard path prefix.
   evidence: Fine for metrics; revisit when dashboard auth (1.9) defines the dashboard API surface.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-7-transactional-domain-event-transport.md`
+  summary: The http role has no pg-boss producer yet; publishEvent needs a send-only PgBoss in the http infra when the first module publishes.
+  evidence: events.dispatch is created by the worker at boot, so publishing before the first worker boot fails on the queue foreign key.

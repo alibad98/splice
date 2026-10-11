@@ -1,5 +1,8 @@
 import { createServer, type Server } from 'node:http';
+import pg from 'pg';
 import { PgBoss } from 'pg-boss';
+import { EVENT_QUEUE } from '@slips/contracts';
+import { EventHandlerRegistry, eventDispatcher } from '../events/dispatcher.js';
 import { HealthResponse } from '@slips/contracts';
 import { isAuthorizedForMetrics } from '../adapters/telemetry/http.js';
 import { instrumentJob, type JobHandler } from '../adapters/telemetry/jobs.js';
@@ -84,6 +87,7 @@ export async function startWorker(
   env: Env,
   queues: readonly QueueDefinition[] = QUEUES,
   handlers: Readonly<Record<string, JobHandler>> = {},
+  events: EventHandlerRegistry = new EventHandlerRegistry(),
 ): Promise<PgBoss> {
   const infra = buildInfra(env, 'worker');
   const { telemetry } = infra;
@@ -95,13 +99,17 @@ export async function startWorker(
     render: infra.metrics.render,
     metricsToken: env.METRICS_TOKEN,
   });
+  // Domain events are consumed here and nowhere else (AD-17); handlers run in the worker's own pool.
+  const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 4 });
+  pool.on('error', () => undefined);
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...handlers };
   const boss = new PgBoss({ connectionString: env.DATABASE_URL, persistQueueStats: true });
   boss.on('error', (err) => telemetry.captureError(err, { component: 'pg-boss' }));
   let stopPoller = () => {};
   try {
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
-    await registerQueues(boss, telemetry, selected, handlers);
+    await registerQueues(boss, telemetry, selected, allHandlers);
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),
@@ -112,6 +120,7 @@ export async function startWorker(
   } catch (err) {
     server.close();
     await boss.stop({ graceful: false }).catch(() => undefined);
+    await pool.end().catch(() => undefined);
     throw err;
   }
 
@@ -122,6 +131,7 @@ export async function startWorker(
       stopPoller();
       server.close();
       await boss.stop({ graceful: true });
+      await pool.end();
       await infra.probe.close();
       process.exit(0);
     } catch (err) {

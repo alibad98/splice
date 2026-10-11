@@ -84,3 +84,20 @@ describe('tenant context helper', () => {
     expect(ok.filter((m) => m.includes('tenant-context-helper-only'))).toEqual([]);
   });
 });
+
+describe('no in-process emitters (AD-17)', () => {
+  it.each([
+    "import { EventEmitter } from 'node:events';\nexport const e = new EventEmitter();\n",
+    "import EventEmitter from 'events';\nexport const e = new EventEmitter();\n",
+    "import { EventEmitter2 } from '@nestjs/event-emitter';\nexport const e = EventEmitter2;\n",
+    "import mitt from 'mitt';\nexport const e = mitt;\n",
+  ])('fails in an api module: %s', async (code) => {
+    const msgs = await lint('apps/api/src/modules/catalog/x.ts', code);
+    expect(msgs.some((m) => m.includes('no-in-process-emitter'))).toBe(true);
+  });
+
+  it('allows node:events helpers that are not emitters', async () => {
+    const msgs = await lint('apps/api/src/modules/catalog/x.ts', "import { once } from 'node:events';\nexport const o = once;\n");
+    expect(msgs.filter((m) => m.includes('no-in-process-emitter'))).toEqual([]);
+  });
+});

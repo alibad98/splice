@@ -15,6 +15,8 @@ const STORE_CONTEXT_SQL = String.raw`/\bset_config\b|\bset\s+(local|session)\b|\
 // eslint-disable-next-line no-restricted-syntax -- defines the rule message
 const STORE_CONTEXT_MESSAGE = 'tenant-context-helper-only: set the store context only through withStoreContext() from @slips/db (SET LOCAL app.store_id)';
 
+const EMITTER_MESSAGE = 'no-in-process-emitter: cross-module reactions go through publishEvent() domain events (AD-17), not an in-process emitter';
+
 /** Element types used by the boundary policies. Order matters: first match wins. */
 export const boundaryElements = [
   { type: 'api-adapter', pattern: 'apps/api/src/adapters/**' },
@@ -113,6 +115,24 @@ export function createConfig(options = {}) {
     ...inPackage(pkgDir, ['apps/api/src/modules/**'], {
       rules: {
         'no-restricted-imports': ['error', { patterns: [{ group: ['**/adapters', '**/adapters/**'], message: 'boundary api-module-no-adapter: apps/api/src/modules must not import apps/api/src/adapters' }] }],
+      },
+    }),
+    // AD-17: modules react to each other through transactional domain events, never an in-process emitter.
+    ...inPackage(pkgDir, ['apps/api/src/**/*.ts'], {
+      ignores: scoped(pkgDir, ['apps/api/src/adapters/**']),
+      rules: {
+        '@typescript-eslint/no-restricted-imports': [
+          'error',
+          {
+            paths: [
+              { name: 'node:events', importNames: ['EventEmitter', 'default'], message: EMITTER_MESSAGE },
+              { name: 'events', importNames: ['EventEmitter', 'default'], message: EMITTER_MESSAGE },
+              { name: 'eventemitter3', message: EMITTER_MESSAGE },
+              { name: 'mitt', message: EMITTER_MESSAGE },
+            ],
+            patterns: [{ group: ['@nestjs/event-emitter', '@nestjs/event-emitter/*'], message: EMITTER_MESSAGE }],
+          },
+        ],
       },
     }),
     // Salla is allowed in the salla adapter only, not in other adapters.

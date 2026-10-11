@@ -150,3 +150,26 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - The shape of Salla's token-check response, and whether the token is bound to our app.
   - How the dashboard behaves inside the real Salla iframe.
   - Rate-limiting embedded sign-in, and pruning old sessions.
+
+### Story 1.10: Install and uninstall webhooks and the store lifecycle. **Done** (`fb270fb`, security fixes `b43bb5f`)
+- Delivered:
+  - `POST /v1/webhooks/salla`, which checks the HMAC signature over the raw body with a timing-safe compare. A bad signature gets 401 and nothing is stored.
+  - `webhook_inbox` stores only a cleaned-up copy of each event with no personal data, plus a hash of the body.
+  - Easy Mode install via the `app.store.authorize` webhook, reusing the Story 1.8 install code.
+  - **Uninstall** stops Slips immediately and starts a 30-day grace period. After that, a resumable purge job deletes the store's data under a per-store lock.
+  - **Reinstall** restores the same store record and moves it to a new install "epoch", so work from the old install is dropped.
+  - Events for a store Slips doesn't know yet are held and retried for 15 minutes, then dead-lettered. They never get a 404.
+  - `isStoreActive` checks are ready for the storefront (Epic 4) and billing.
+- Decisions:
+  - **Salla documents no event ID, so the event ID is a SHA-256 hash of the raw body.** To be verified with a real store in Story 1.13.
+  - **Only `app.store.authorize`, `app.installed` and `app.uninstalled` drive the lifecycle for now.** Other signed events are stored and marked ignored until their stories arrive.
+  - **Uninstall runs inside the request**, so Slips stops at once. Installs and retries run in a worker sweep every minute.
+  - **Revoking tokens means deleting our stored copy.** There's no revoke call to Salla.
+  - **If the merchant reinstalls during the grace period, the reinstall wins**, even if the purge has already started. After a full purge, a reinstall starts fresh under a new epoch.
+  - **A purge leaves a small tombstone** (the scrubbed store row and the audit record) so the identifiers stay valid. Story 7.13 must allow for this.
+- Security review: the signature check, payload cleaning and purge locking were sound. 1 medium finding fixed: an old signed uninstall replayed after a reinstall could kill the store. Now every applied lifecycle event goes into a replay ledger that survives purge, and events without a timestamp are judged by when they arrived. 3 low findings fixed: stale-authorize checks on active stores, strict timestamp parsing, and narrower database grants (the stored install tokens are readable only through a narrow function).
+- Deferred:
+  - Exact Salla webhook headers and fields (Story 1.13).
+  - Retention for the inbox, audit and ledger tables.
+  - Purging media and CDN copies, which arrives with those modules.
+  - A replay procedure in the dead-letter runbook.

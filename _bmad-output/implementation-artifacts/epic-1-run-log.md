@@ -89,3 +89,19 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - Default grants exposed every future table; they are now removed.
   - 3 low findings were fixed too. Lint covers more bypasses, and the harness refuses a superuser pool, checks the exact error codes, and tests cross-tenant inserts.
 - Deferred: audited admin reads (Epic 7); shipping migrations in the Docker image and running them in deploy; real-schema checks once tenant tables exist (from Story 1.8).
+
+### Story 1.7: Transactional domain event transport. **Done** (`5163ea4`, review fixes `0aa73b1`)
+- Delivered:
+  - `publishEvent` puts the event on the pg-boss queue in the same database transaction as the change. A rolled-back change publishes nothing.
+  - One queue, `events.dispatch`, consumed only by the worker (enforced by a lint rule).
+  - A per-handler delivery record (ledger), so handlers are idempotent.
+  - An event catalogue with Zod schemas in `packages/contracts`, starting with `integration.store.installed`.
+- Decisions:
+  - **One queue for all events**, fanned out to handlers by name.
+  - **The pg-boss job ID is the event ID** (UUIDv7), so publishing the same event twice can't duplicate it.
+  - **The ledger is an infrastructure table** with no owning module.
+- Review: 2 medium findings, both fixed.
+  - One failing handler stopped the others. Now each handler runs in its own transaction and only the failed ones retry.
+  - A tenant event's store wasn't tied to its payload. Now the store comes from the payload and is checked when the event is published and when it's handled.
+  - 3 low findings fixed too. An event with no handler now fails loudly instead of being silently dropped, the ledger's DELETE grant is removed, and a real lint rule replaces a weak text-search test.
+- Deferred: the web server (http role) can't publish events yet (it needs a send-only pg-boss client, added when the first module publishes), and old ledger rows are never pruned.

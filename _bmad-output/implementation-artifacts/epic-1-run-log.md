@@ -23,3 +23,19 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - Retries for the CLS tests are 0, so an intermittent layout shift can't pass on a second try.
 - Review: an independent reviewer found 2 medium issues. The loader could insert content above the screen, and the tests couldn't catch it because Chrome's scroll anchoring hid the shift. Both are fixed, along with 3 low ones.
 - Deferred: the stub doesn't read `salla.config` yet (Story 1.11); the CLS suite runs against a placeholder loader and must be re-run against the real player in Epic 5.
+
+### Story 1.3: Observability baseline. **Done** (`6adbc89`, review fixes `5ca6af8`)
+- Delivered:
+  - One vendor-neutral telemetry module: pino JSON logs with deep redaction, metrics in Prometheus format at `GET /metrics`, alert rules with runbooks, and env-backed feature flags.
+  - `/v1/health` now checks the database and returns 503 "degraded" when it's down; the worker has its own `/health` on port 3002.
+  - CI now runs a Postgres 18 service container.
+- Decisions:
+  - **Redaction is over-cautious by design.** Any key that mentions token, secret, password, cookie, authorization, email, phone, name, address, customer or shopper is masked. Bearer tokens, JWTs, credentials in query strings and email addresses are masked inside free text too.
+  - **`/metrics` is off unless `METRICS_TOKEN` is set.** When it's on, it needs `Bearer <token>`, checked with a timing-safe compare.
+  - **Alert rules are vendor-neutral PromQL** in `ops/alert-rules.json`: alert at 5% server errors over 5 minutes, and whenever anything is in a dead-letter queue. Owners are placeholder roles, `platform-oncall` and `integration-owner`, until real contacts exist.
+  - **Feature flags come from env vars** (`FEATURE_FLAGS=name=true`) for now. AD-22's database config table waits for the schema stories.
+- Review: 2 medium findings (log messages and URL query strings skipped redaction) and 6 low ones. All fixed.
+- Deferred:
+  - No error-tracking vendor yet; errors are only logged, redacted.
+  - The alert rules aren't loaded into any alerting system.
+  - The dashboard's request-success metric relies on a header that a client could fake.

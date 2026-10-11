@@ -175,3 +175,43 @@ describe('SallaHttp pacing and Retry-After', () => {
     expect(f).toHaveBeenCalledTimes(3);
   });
 });
+
+// Shape from the embedded SDK source (docs/salla-desk-research.md G8); verify in Story 1.11-1.13 against a real store.
+const INTROSPECT_FIXTURE = { success: true, data: { merchant_id: 123456, user_id: 99, exp: '2099-01-01T00:00:00Z' } };
+
+describe('SallaCommercePlatform embedded', () => {
+  it('introspects with the app id as S-Source and returns the store the platform vouches for', async () => {
+    const f = vi.fn(async () => json(INTROSPECT_FIXTURE));
+    const id = await platform(f as unknown as typeof fetch).embedded.introspect('host-token');
+    expect(id).toEqual({ platformStoreId: '123456', platformUserId: '99', expiresAt: new Date('2099-01-01T00:00:00Z') });
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.salla.dev/exchange-authority/v1/introspect');
+    expect((init.headers as Record<string, string>)['S-Source']).toBe('app-1');
+    expect(JSON.parse(String(init.body))).toMatchObject({ token: 'host-token' });
+  });
+
+  it.each([401, 403, 400, 422])('treats a %s answer as a rejected token', async (status) => {
+    const f = vi.fn(async () => json({ success: false }, { status }));
+    await expect(platform(f as unknown as typeof fetch).embedded.introspect('t')).rejects.toBeInstanceOf(PlatformAuthRejectedError);
+  });
+
+  it('treats success:false, missing data and an expired exp as rejected', async () => {
+    for (const body of [{ success: false, data: null }, { success: true }, { success: true, data: { merchant_id: 1, exp: '2000-01-01T00:00:00Z' } }]) {
+      const f = vi.fn(async () => json(body));
+      await expect(platform(f as unknown as typeof fetch).embedded.introspect('t')).rejects.toBeInstanceOf(PlatformAuthRejectedError);
+    }
+  });
+
+  it('treats 5xx, 429, network failure, an unrecognised body and a missing app id as unavailable (not a bad token)', async () => {
+    for (const f of [vi.fn(async () => json({}, { status: 503 })), vi.fn(async () => json({}, { status: 429 })), vi.fn(async () => { throw new Error('boom'); }), vi.fn(async () => json('nonsense'))]) {
+      await expect(platform(f as unknown as typeof fetch).embedded.introspect('t')).rejects.toBeInstanceOf(PlatformUnavailableError);
+    }
+    const noApp = new SallaCommercePlatform({ ...config, appId: undefined }, telemetry(), { fetch: vi.fn() as unknown as typeof fetch });
+    await expect(noApp.embedded.introspect('t')).rejects.toBeInstanceOf(PlatformUnavailableError);
+  });
+
+  it('builds the Open in Salla URL from the app id and none without one', () => {
+    expect(platform(vi.fn()).embedded.openUrl()).toBe('https://s.salla.sa/embedded/app/app-1');
+    expect(new SallaCommercePlatform({ ...config, appId: undefined }, telemetry()).embedded.openUrl()).toBeUndefined();
+  });
+});

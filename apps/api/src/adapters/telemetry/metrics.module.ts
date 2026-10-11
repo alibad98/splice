@@ -1,8 +1,10 @@
 import { Controller, Get, Headers, Inject, Module, NotFoundException, UnauthorizedException, Header } from '@nestjs/common';
 import { METRICS_ENDPOINT, type MetricsEndpoint } from '../../infra.module.js';
+import { Public } from '../../modules/session/public.decorator.js';
 import { isAuthorizedForMetrics } from './http.js';
 
 /** `GET /metrics`: Prometheus text exposition, disabled (404) unless METRICS_TOKEN is set. */
+@Public()
 @Controller('metrics')
 export class MetricsController {
   constructor(@Inject(METRICS_ENDPOINT) private readonly metrics: MetricsEndpoint) {}

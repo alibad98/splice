@@ -24,3 +24,9 @@ export const SALLA_MIN_INTERVAL_MS = 500;
 
 /** Token-endpoint error codes that mean the grant is gone for good (revoked, expired or already used). */
 export const SALLA_DEFINITIVE_OAUTH_ERRORS = ['invalid_grant', 'invalid_token', 'unauthorized_client', 'access_denied'] as const;
+
+/** Embedded-page token verification (verify in Story 1.11-1.13: body and response are from the embedded SDK source, not a live call). */
+export const SALLA_INTROSPECT_URL = 'https://api.salla.dev/exchange-authority/v1/introspect';
+export const SALLA_INTROSPECT_SOURCE_HEADER = 'S-Source';
+/** Merchant dashboard page that hosts the embedded app: `<base>/<appId>`. */
+export const SALLA_EMBEDDED_APP_BASE = 'https://s.salla.sa/embedded/app';

@@ -10,6 +10,7 @@ export function unconfiguredPlatform(): CommercePlatform {
   return {
     platform: 'salla',
     auth: { buildAuthorizeUrl: fail, exchangeCode: fail, refresh: fail, getMerchantProfile: fail },
+    embedded: { introspect: fail, openUrl: () => undefined },
     products: { list: fail },
     orders: { get: fail },
     subscriptions: { list: fail },

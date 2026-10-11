@@ -43,6 +43,13 @@
       "when": 1760572800000,
       "tag": "0005_store_locator_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1760659200000,
+      "tag": "0006_merchant_sessions",
+      "breakpoints": true
     }
   ]
 }

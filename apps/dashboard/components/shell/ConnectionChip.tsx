@@ -1,10 +1,15 @@
+'use client';
+
+import { useSession } from '../session/SessionProvider';
 import { LangLink } from './LangLink';
 import { CONNECTION_HREF } from '../../lib/shell';
 import type { ShellConnection } from '../../lib/shell';
 import type { Messages } from '../../i18n/messages';
 
-/** Status chip linking to Settings > Connection. Renders from a typed prop (real data: Story 1.8). */
-export function ConnectionChip({ connection, messages }: { connection: ShellConnection; messages: Messages }) {
+/** Status chip linking to Settings > Connection. Shows the live session's ConnectionStatus (Story 1.9); the prop is the server-rendered fallback. */
+export function ConnectionChip({ connection: initial, messages }: { connection: ShellConnection; messages: Messages }) {
+  const session = useSession();
+  const connection = session?.state.status === 'signed-in' ? session.state.connection : session ? ({ state: 'not-connected' } as const) : initial;
   const connected = connection.state === 'connected';
   return (
     <LangLink

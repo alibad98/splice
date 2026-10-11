@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConnectionStatus } from '@slips/contracts';
-import { runOutsideStoreContext, withStoreContext } from '@slips/db';
+import { runOutsideStoreContext, withStoreContext, type LifecycleState } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL, EVENT_SENDER, INTEGRATION_CONFIG, type IntegrationConfig } from '../../infra.module.js';
 import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
@@ -232,6 +232,16 @@ export class IntegrationService {
     if (at !== undefined && this.now() - at <= PERSIST_FAILURE_WINDOW_MS) return true;
     const rows = await this.repo.countRecentAccess('refresh', 'persist_failed', new Date(this.now() - PERSIST_FAILURE_WINDOW_MS));
     return rows > 0;
+  }
+
+  /** The store behind a platform store id, for sign-in: undefined when Slips was never installed there. */
+  async findStoreForSignIn(platformStoreId: string): Promise<{ storeId: string; name: string; lifecycleState: LifecycleState } | undefined> {
+    const storeId = await this.locate(platformStoreId);
+    if (!storeId) return undefined;
+    return withStoreContext(this.pool, storeId, async () => {
+      const store = await this.repo.getStore();
+      return store ? { storeId, name: store.name, lifecycleState: store.lifecycleState } : undefined;
+    });
   }
 
   /** What the dashboard connection chip shows for a store. */

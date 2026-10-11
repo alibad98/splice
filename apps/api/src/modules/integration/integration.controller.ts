@@ -2,6 +2,8 @@ import { Controller, Get, Inject, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { INTEGRATION_CONFIG, type IntegrationConfig } from '../../infra.module.js';
 import { PlatformUnavailableError } from '../../ports/commerce-platform.js';
+import { Public } from '../session/public.decorator.js';
+import { SessionService } from '../session/session.service.js';
 import { STATE_TTL_MS } from './install-state.js';
 import { IntegrationService } from './integration.service.js';
 
@@ -16,11 +18,13 @@ function cookieValue(header: string | undefined, name: string): string | undefin
   return undefined;
 }
 
+@Public()
 @Controller('v1/integrations/salla')
 export class IntegrationController {
   constructor(
     @Inject(IntegrationService) private readonly service: IntegrationService,
     @Inject(INTEGRATION_CONFIG) private readonly config: IntegrationConfig,
+    @Inject(SessionService) private readonly sessions: SessionService,
   ) {}
 
   /** Begin installation: set the state-binding cookie and send the merchant to Salla's consent screen. */
@@ -42,7 +46,7 @@ export class IntegrationController {
     res.redirect(302, begun.redirectUrl);
   }
 
-  /** OAuth redirect target. Always ends in a redirect to the dashboard; the query (code, state) is never logged. */
+  /** OAuth redirect target; on success it also signs the merchant in with a first-party cookie session. Always ends in a redirect to the dashboard; the query (code, state) is never logged. */
   @Get('callback')
   async callback(@Query('code') code: string | undefined, @Query('state') state: string | undefined, @Query('error') error: string | undefined, @Req() req: Request, @Res() res: Response): Promise<void> {
     const result = await this.service.completeInstall({
@@ -54,7 +58,17 @@ export class IntegrationController {
     const target = new URL('/', this.config.dashboardUrl);
     if (result.ok) target.searchParams.set('connected', '1');
     else target.searchParams.set('install_error', result.reason);
-    res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Lax; Path=${COOKIE_PATH}; Max-Age=0`);
+    const cookies = [`${COOKIE}=; HttpOnly; SameSite=Lax; Path=${COOKIE_PATH}; Max-Age=0`];
+    if (result.ok) {
+      // The merchant just proved control of the store with Salla OAuth: that is the direct-link sign-in (AD-12).
+      try {
+        cookies.push(this.sessions.cookieFor((await this.sessions.create(result.storeId, 'direct')).token));
+      } catch {
+        target.searchParams.delete('connected');
+        target.searchParams.set('install_error', 'internal');
+      }
+    }
+    res.setHeader('Set-Cookie', cookies);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.redirect(302, target.toString());

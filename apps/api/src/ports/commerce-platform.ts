@@ -77,6 +77,13 @@ export class PlatformUnavailableError extends Error {
   }
 }
 
+/** Who the platform vouches for after verifying an embedded-page token. Identity comes only from this (AD-12). */
+export interface EmbeddedIdentity {
+  platformStoreId: string;
+  platformUserId: string;
+  expiresAt: Date;
+}
+
 export interface CommercePlatform {
   readonly platform: PlatformId;
   readonly auth: {
@@ -86,6 +93,12 @@ export interface CommercePlatform {
     /** Refresh tokens are single-use: call only from `integration.getAccessToken`, under the store's lock. */
     refresh(refreshToken: string): Promise<TokenSet>;
     getMerchantProfile(accessToken: string): Promise<MerchantProfile>;
+  };
+  readonly embedded: {
+    /** Server-side verification of the token the embedded page got from the platform host. Throws PlatformAuthRejectedError for an invalid or expired token, PlatformUnavailableError when the platform cannot be asked. */
+    introspect(token: string): Promise<EmbeddedIdentity>;
+    /** Where the merchant opens Slips inside the platform dashboard ("Open in Salla"); undefined when not configured. */
+    openUrl(): string | undefined;
   };
   readonly products: { list(session: PlatformSession, page: number): Promise<{ items: CanonicalProduct[]; hasMore: boolean }> };
   readonly orders: { get(session: PlatformSession, externalId: string): Promise<CanonicalOrder> };

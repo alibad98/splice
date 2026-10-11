@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@salla.sa/embedded-sdk": "0.2.6",
     "@slips/contracts": "workspace:*",
     "@slips/ui": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",

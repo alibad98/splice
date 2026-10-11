@@ -31,6 +31,8 @@ export const boundaryElements = [
   { type: 'api-adapter', pattern: 'apps/api/src/adapters/**' },
   { type: 'api-module', pattern: 'apps/api/src/modules/**' },
   { type: 'app-api', pattern: 'apps/api/**' },
+  // The one dashboard folder that talks to the Salla dashboard host (embedded SDK); see AD-12.
+  { type: 'dashboard-embedded-host', pattern: 'apps/dashboard/lib/embedded/**' },
   { type: 'app-dashboard', pattern: 'apps/dashboard/**' },
   { type: 'pkg-db', pattern: 'packages/db/**' },
   { type: 'pkg-contracts', pattern: 'packages/contracts/**' },
@@ -98,10 +100,10 @@ export function createConfig(options = {}) {
                 message: 'boundary api-module-no-adapter: apps/api/src/modules must not import apps/api/src/adapters',
               },
               {
-                // Salla packages only inside apps/api/src/adapters/salla.
-                from: { element: { types: { noneOf: ['api-adapter'] } } },
+                // Salla packages only inside apps/api/src/adapters/salla (and the dashboard's embedded host shim).
+                from: { element: { types: { noneOf: ['api-adapter', 'dashboard-embedded-host'] } } },
                 disallow: { to: { module: { source: '@salla.sa/**' } } },
-                message: 'boundary salla-adapter-only: Salla packages may only be imported under apps/api/src/adapters/salla',
+                message: 'boundary salla-adapter-only: Salla packages may only be imported under apps/api/src/adapters/salla (or apps/dashboard/lib/embedded for the embedded SDK)',
               },
             ],
           },

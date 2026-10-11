@@ -63,6 +63,7 @@ class FakePlatform implements CommercePlatform {
     getMerchantProfile: async () => this.profile,
   };
   profile: MerchantProfile = uniqueStore();
+  embedded = { introspect: async (): Promise<never> => { throw new PlatformAuthRejectedError(); }, openUrl: () => undefined };
   products = { list: async () => ({ items: [], hasMore: false }) };
   orders = { get: async () => ({ externalId: '1', status: 's', total: 1, currency: 'SAR', lines: [] }) };
   subscriptions = { list: async () => [] };

@@ -49,6 +49,18 @@ describe('import boundaries', () => {
     expect(msgs.filter((m) => m.includes('boundary'))).toEqual([]);
   });
 
+  it('allows the embedded SDK only in apps/dashboard/lib/embedded', async () => {
+    const ok = await lint('apps/dashboard/lib/embedded/host.ts', "import '@salla.sa/embedded-sdk';\n");
+    expect(ok.filter((m) => m.includes('boundary'))).toEqual([]);
+    const bad = await lint('apps/dashboard/components/x.tsx', "import '@salla.sa/embedded-sdk';\n");
+    expect(bad.some((m) => m.includes('boundary salla-adapter-only'))).toBe(true);
+  });
+
+  it('keeps @slips/db out of apps/dashboard/lib/embedded', async () => {
+    const msgs = await lint('apps/dashboard/lib/embedded/x.ts', "import { schema } from '@slips/db';\nexport const s = schema;\n");
+    expect(msgs.some((m) => m.includes('boundary app-api-only-db'))).toBe(true);
+  });
+
   it('fails when packages/player imports another @slips package', async () => {
     const msgs = await lint('packages/player/src/x.ts', "import '@slips/ui';\n");
     expect(msgs.some((m) => m.includes('boundary player-preact-only'))).toBe(true);

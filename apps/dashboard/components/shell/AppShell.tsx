@@ -7,6 +7,9 @@ import { LocaleSwitch } from './LocaleSwitch';
 import { ConnectionChip } from './ConnectionChip';
 import { Icon } from './Icon';
 import { Logo } from './Logo';
+import { SessionActions } from '../session/SessionActions';
+import { SessionGate } from '../session/SessionGate';
+import { StoreName } from './StoreName';
 import { MobileNav } from './MobileNav';
 import { NavList } from './NavList';
 
@@ -44,7 +47,7 @@ export function AppShell({ locale, messages, context, children }: Props) {
             <MobileNav />
             <div className="flex min-w-0 items-center gap-2">
               <span className="text-small text-muted-foreground">{m.storeIdentity}</span>
-              <span className="truncate text-body font-bold">{storeName}</span>
+              <StoreName initial={storeName} />
             </div>
             <ConnectionChip connection={context.connection} messages={messages} />
             <div className="ms-auto flex flex-wrap items-center gap-2">
@@ -84,11 +87,14 @@ export function AppShell({ locale, messages, context, children }: Props) {
                   </span>
                 </span>
               )}
+              <SessionActions />
               <LocaleSwitch />
             </div>
           </header>
           <main id="main-content" tabIndex={-1} className="grid grid-cols-12 gap-x-(--spacing-gutter) px-(--page-padding) py-6 outline-none">
-            <div className="col-span-12">{children}</div>
+            <div className="col-span-12">
+              <SessionGate>{children}</SessionGate>
+            </div>
           </main>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { Controller, Get, Inject, Res } from '@nestjs/common';
 import { HealthResponse } from '@slips/contracts';
 import type { Response } from 'express';
 import { APP_INFO, type AppInfo } from '../../infra.module.js';
+import { Public } from '../session/public.decorator.js';
 import { DATABASE_PROBE, type DatabaseProbe } from '../../ports/database-probe.js';
 
 export function buildHealth(version: string, databaseUp: boolean, now: Date = new Date()): HealthResponse {
@@ -14,6 +15,7 @@ export function buildHealth(version: string, databaseUp: boolean, now: Date = ne
   });
 }
 
+@Public()
 @Controller('v1/health')
 export class HealthController {
   constructor(

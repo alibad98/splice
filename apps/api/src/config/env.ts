@@ -66,6 +66,8 @@ export const EnvSchema = z
   SALLA_SCOPES: z.preprocess(emptyToUndefined, z.string().optional()),
   SALLA_APP_ID: z.preprocess(emptyToUndefined, z.string().optional()),
   SALLA_WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().min(8).optional()),
+  /** Domain attribute for the merchant session cookie (e.g. slips.app) so the dashboard host receives it. Host-only when unset. */
+  SESSION_COOKIE_DOMAIN: z.preprocess(emptyToUndefined, z.string().regex(/^[a-z0-9.-]+$/i).optional()),
   /** Where the merchant lands after install. */
   DASHBOARD_URL: z.url().default('http://localhost:3000'),
 })

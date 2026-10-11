@@ -40,3 +40,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-salla-oauth-install-secure-tokens.md`
   summary: http-role event publishing needs the worker to have booted once (pg-boss schema, queue, app-role grants).
   evidence: grantEventPublishing runs at worker boot; deploy order must be migrate, worker, http.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
+  summary: Embedded introspection shape (exchange-authority endpoint, S-Source, merchant_id/exp) and iframe behaviour (getToken from URL, auth.refresh, Sec-Fetch-Dest, s.salla.sa origin) are source-derived only.
+  evidence: verify in Story 1.11-1.13 on a real store; EMBED_ALLOWED_ORIGIN overrides the framing origin.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
+  summary: No throttle on POST /v1/session/embedded and no retention job for merchant_sessions (lazy per-store delete only).
+  evidence: Add with the other retention jobs; low risk at pilot scale.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
+  summary: Cookie sessions need API and dashboard on the same site (SESSION_COOKIE_DOMAIN); CSRF relies on SameSite=Lax plus the x-csrf-token header, no Origin check; direct-link sign-in re-runs the full OAuth install path.
+  evidence: Add to the deploy runbook; consider a sign-in-only grant after Story 1.10.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
+  summary: No browser end-to-end test of the iframe flow; Admin sign-in provider is a deny-all stub until Epic 7.
+  evidence: Unit, render and live-Postgres composition tests only.

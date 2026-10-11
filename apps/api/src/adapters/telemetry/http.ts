@@ -78,6 +78,7 @@ export class TelemetryExceptionFilter implements ExceptionFilter {
         title: exception.message,
         status,
         ...(status < 500 && typeof body === 'object' ? { detail: (body as { message?: unknown }).message } : {}),
+        ...(typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string' ? { code: (body as { code: string }).code } : {}),
       });
       return;
     }

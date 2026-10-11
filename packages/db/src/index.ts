@@ -7,5 +7,5 @@ export { findTenantViolations, tablesOwnedBy, tenantTableStatements, type Tenant
 export type { Queryable } from './tenant/queryable.js';
 export { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables, type TenantTableRegistration } from './testing/cross-tenant.js';
 export { ensureTestAppRole } from './testing/app-role.js';
-export { and, eq, gt } from 'drizzle-orm';
-export type { LifecycleState, StorePlatform } from './schema/integration.js';
+export { and, eq, gt, lt, sql } from 'drizzle-orm';
+export type { LifecycleState, SessionMode, StorePlatform } from './schema/integration.js';

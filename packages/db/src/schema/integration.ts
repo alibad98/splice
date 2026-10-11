@@ -61,3 +61,17 @@ export const tokenAccessLog = pgTable('token_access_log', {
   outcome: text('outcome').notNull(),
   accessedAt: timestamp('accessed_at', { withTimezone: true }).notNull().default(sql`now()`),
 });
+
+export const SESSION_MODES = ['embedded', 'direct'] as const;
+export type SessionMode = (typeof SESSION_MODES)[number];
+
+/** A signed-in merchant (Story 1.9): an in-memory bearer minted after embedded introspection, or a direct-link cookie session. Holds only a hash of the secret. */
+export const merchantSessions = pgTable('merchant_sessions', {
+  id: uuid('id').primaryKey(),
+  storeId: uuid('store_id').notNull(),
+  mode: text('mode').$type<SessionMode>().notNull(),
+  secretHash: text('secret_hash').notNull(),
+  createdAt: now(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().default(sql`now()`),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});

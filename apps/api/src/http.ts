@@ -10,6 +10,7 @@ import { PinoTelemetry } from './adapters/telemetry/pino-telemetry.js';
 import { EnvelopeTokenCipher } from './adapters/crypto/envelope-cipher.js';
 import { SendOnlyEventSender } from './adapters/pgboss/send-only-producer.js';
 import { SallaCommercePlatform, unconfiguredPlatform } from './adapters/salla/index.js';
+import { denyAllAdminAccess } from './ports/admin-access.js';
 import type { TokenCipher } from './ports/token-cipher.js';
 import { AppModule } from './app.module.js';
 import type { Env } from './config/env.js';
@@ -35,6 +36,7 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'SALLA_APP_ID'
       | 'SALLA_WEBHOOK_SECRET'
       | 'DASHBOARD_URL'
+      | 'SESSION_COOKIE_DOMAIN'
     >
   >;
 
@@ -87,6 +89,15 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
           : randomBytes(32),
       secureCookies: env.NODE_ENV === 'production',
     },
+    session: overrides.session ?? {
+      secret: createHmac('sha256', env.OAUTH_STATE_SECRET ?? (masterKey ? Buffer.from(masterKey, 'base64') : randomBytes(32))).update('slips/session-csrf/v1').digest(),
+      secureCookies: env.NODE_ENV === 'production',
+      ...(env.SESSION_COOKIE_DOMAIN ? { cookieDomain: env.SESSION_COOKIE_DOMAIN } : {}),
+      embeddedTtlMs: 15 * 60_000,
+      directMaxAgeMs: 30 * 24 * 3_600_000,
+      idleMs: 12 * 3_600_000,
+    },
+    adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),
     info: overrides.info ?? { version },
@@ -98,7 +109,17 @@ export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> 
   const deps = buildInfra(env, 'http', overrides);
   const app = await NestFactory.create(AppModule.register(deps), { logger: new NestTelemetryLogger(deps.telemetry) });
   app.use(requestTelemetry(deps.telemetry));
-  app.enableCors({ origin: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean), exposedHeaders: ['x-request-id', 'x-trace-id'] });
+  app.enableCors({
+    origin: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+    credentials: true,
+    allowedHeaders: ['authorization', 'content-type', 'x-csrf-token', 'x-slips-client', 'x-request-id'],
+    exposedHeaders: ['x-request-id', 'x-trace-id'],
+  });
+  // The API is never framed (AD-12); merchant pages are framed by the dashboard app, whose policy allows only the platform origin.
+  app.use((_req: unknown, res: { setHeader(n: string, v: string): void }, next: () => void) => {
+    res.setHeader('content-security-policy', "frame-ancestors 'none'");
+    next();
+  });
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().set('x-powered-by', false);
   const original = app.close.bind(app);

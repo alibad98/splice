@@ -245,6 +245,9 @@ importers:
 
   apps/dashboard:
     dependencies:
+      '@salla.sa/embedded-sdk':
+        specifier: 0.2.6
+        version: 0.2.6
       '@slips/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

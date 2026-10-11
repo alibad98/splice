@@ -7,6 +7,7 @@ import {
   type CanonicalProduct,
   type CanonicalSubscription,
   type CommercePlatform,
+  type EmbeddedIdentity,
   type MerchantProfile,
   type PlatformSession,
   type TokenSet,
@@ -18,6 +19,9 @@ import {
   SALLA_AUTHORIZE_URL,
   SALLA_DEFAULT_SCOPES,
   SALLA_DEFINITIVE_OAUTH_ERRORS,
+  SALLA_EMBEDDED_APP_BASE,
+  SALLA_INTROSPECT_SOURCE_HEADER,
+  SALLA_INTROSPECT_URL,
   SALLA_HEADERS,
   SALLA_SIGNATURE_STRATEGY,
   SALLA_TOKEN_URL,
@@ -54,6 +58,10 @@ const UserInfo = z.object({
       domain: z.string().optional(),
     }),
   }),
+});
+const IntrospectResponse = z.object({
+  success: z.boolean().optional(),
+  data: z.object({ merchant_id: z.union([z.string(), z.number()]), user_id: z.union([z.string(), z.number()]).optional(), exp: z.string().optional() }).nullish(),
 });
 // Unknown keys (names, phones, addresses...) are dropped by the schemas: AD-5, only whitelisted fields survive.
 const Money = z.object({ amount: z.coerce.number(), currency: z.string() });
@@ -126,6 +134,32 @@ export class SallaCommercePlatform implements CommercePlatform {
         domains: host ? [host] : [],
       };
     },
+  };
+
+  readonly embedded = {
+    introspect: async (token: string): Promise<EmbeddedIdentity> => {
+      if (!this.config.appId) throw new PlatformUnavailableError('SALLA_APP_ID is not configured');
+      const res = await this.http.request(undefined, SALLA_INTROSPECT_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json', [SALLA_INTROSPECT_SOURCE_HEADER]: this.config.appId },
+        body: JSON.stringify({ env: 'prod', token, iss: 'merchant-dashboard', subject: 'embedded-page' }),
+      }, TOKEN_ENDPOINT_LIMITS);
+      if (res.status === 401 || res.status === 403) throw new PlatformAuthRejectedError('Salla rejected the embedded token');
+      if (res.status >= 400 && res.status < 500 && res.status !== 429) throw new PlatformAuthRejectedError('Salla rejected the embedded token');
+      if (!res.ok) throw new PlatformUnavailableError(`Salla introspection failed (${res.status})`);
+      const parsed = IntrospectResponse.safeParse(await res.json().catch(() => null));
+      if (!parsed.success) throw new PlatformUnavailableError('Salla introspection response was not recognised');
+      if (parsed.data.success === false || !parsed.data.data) throw new PlatformAuthRejectedError('Salla did not verify the embedded token');
+      const exp = parsed.data.data.exp ? new Date(parsed.data.data.exp) : undefined;
+      if (exp && Number.isNaN(exp.getTime())) throw new PlatformUnavailableError('Salla introspection response was not recognised');
+      if (exp && exp.getTime() <= this.now()) throw new PlatformAuthRejectedError('Salla embedded token has expired');
+      return {
+        platformStoreId: String(parsed.data.data.merchant_id),
+        platformUserId: String(parsed.data.data.user_id ?? parsed.data.data.merchant_id),
+        expiresAt: exp ?? new Date(this.now() + 60_000),
+      };
+    },
+    openUrl: (): string | undefined => (this.config.appId ? `${SALLA_EMBEDDED_APP_BASE}/${encodeURIComponent(this.config.appId)}` : undefined),
   };
 
   readonly products = {

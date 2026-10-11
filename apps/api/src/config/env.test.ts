@@ -62,6 +62,12 @@ describe('parseEnv', () => {
         expect((err as EnvError).message).not.toContain('c2hvcnQ=');
       }
     });
+    it('accepts an optional SESSION_COOKIE_DOMAIN and rejects a malformed one', () => {
+      expect(parseEnv({ ...base }).SESSION_COOKIE_DOMAIN).toBeUndefined();
+      expect(parseEnv({ ...base, SESSION_COOKIE_DOMAIN: 'slips.app' }).SESSION_COOKIE_DOMAIN).toBe('slips.app');
+      expect(() => parseEnv({ ...base, SESSION_COOKIE_DOMAIN: 'bad; Path=/' })).toThrow(/SESSION_COOKIE_DOMAIN/);
+    });
+
     it('rejects a short OAUTH_STATE_SECRET', () => {
       expect(() => parseEnv({ ...base, OAUTH_STATE_SECRET: 'short' })).toThrow(/OAUTH_STATE_SECRET/);
     });

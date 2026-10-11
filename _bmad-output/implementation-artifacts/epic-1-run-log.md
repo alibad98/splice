@@ -130,3 +130,23 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
 - Deferred (verify in Stories 1.11–1.13 with a real store):
   - The exact Salla response shapes, and whether a failed refresh still uses up the refresh token.
   - Master-key rotation, and retention for the access log.
+
+### Story 1.9: Merchant sign-in from the Salla iframe and from a direct link. **Done** (`7d7b50c`, security fixes `7acfb71`)
+- Delivered:
+  - **Inside Salla (embedded):** the dashboard sends Salla's `getToken()` token to the API, which checks it with Salla and returns a 15-minute token. The dashboard keeps that token in memory only.
+  - **Direct link:** sign-in goes through Salla OAuth and sets an httpOnly cookie, with a CSRF token required on every change.
+  - **Sessions** are stored on the server (`merchant_sessions`), so sign-out and the 12-hour idle timeout take effect immediately.
+  - **Access** is denied by default for every route. `/admin` refuses everyone until Epic 7 adds an admin sign-in.
+  - **Framing:** merchant pages can be framed only by `https://s.salla.sa`; admin pages and API responses can't be framed at all.
+  - **Connection chip:** the dashboard's chip now shows real connection data.
+- Decisions:
+  - **A stored session only works the way it was issued.** An embedded token works only as a bearer header and a cookie session only as a cookie, so a stolen cookie can't be used as a bearer.
+  - **Direct-link sign-in reuses the Story 1.8 install flow.** A returning merchant goes through OAuth again.
+  - **⚠ Needs your confirmation: staff access.** Any Salla user who can open the app inside that store's Salla dashboard gets the store's session. Salla controls who sees the app, and the MVP has one account per store with no team roles. Each session records which Salla user signed in, for audit.
+- Security review: 1 high finding, fixed. Express matches routes regardless of upper or lower case, so a merchant session could reach `/V1/Admin/...`. Routing is now case-sensitive and the guard compares lower-cased paths, with tests.
+  - 2 medium findings fixed: an embedded token missing its expiry was accepted, and a token's app ID wasn't checked when present.
+  - 3 low findings fixed: a timing-safe compare runs first, the old session is revoked when signing in again, and a callback without a valid state is proven to fail closed.
+- Deferred (verify in Stories 1.11–1.13 with a real store):
+  - The shape of Salla's token-check response, and whether the token is bound to our app.
+  - How the dashboard behaves inside the real Salla iframe.
+  - Rate-limiting embedded sign-in, and pruning old sessions.

@@ -2,9 +2,13 @@
 @import "tailwindcss";
 @source "../../../../apps/dashboard";
 @source "..";
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark {
+  &:is(.dark, .dark *) { @slot; }
+  @media (prefers-color-scheme: dark) { &:not(:where(.light, .light *, .dark, .dark *)) { @slot; } }
+}
 
 :root {
+  color-scheme: light dark;
   --radius: 1rem;
   --background: #FFFFFF; --page: #FAF8F6; --foreground: #15110F;
   --card: #FFFFFF; --card-foreground: #15110F;
@@ -34,6 +38,7 @@
 @media (min-width: 1024px) { :root { --page-padding: 28px; } }
 
 .dark {
+  color-scheme: dark;
   --background: #100D0C; --page: #0B0908; --foreground: #F5F1EE;
   --card: #1A1615; --card-foreground: #F5F1EE;
   --popover: #1A1615; --popover-foreground: #F5F1EE;
@@ -55,6 +60,32 @@
   --card-shadow: 0 8px 24px -14px rgba(0, 0, 0, .6);
   --story-ring-gradient: conic-gradient(#FF6A5C, #FFC23D, #FF6A5C);
 }
+/* Follows the OS by default (no JS flash); .dark / .light force a theme */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #100D0C; --page: #0B0908; --foreground: #F5F1EE;
+    --card: #1A1615; --card-foreground: #F5F1EE;
+    --popover: #1A1615; --popover-foreground: #F5F1EE;
+    --primary: #FF6A5C; --primary-foreground: #15110F;
+    --secondary: #241F1D; --secondary-foreground: #F5F1EE;
+    --muted: #241F1D; --muted-foreground: #A89F99;
+    --accent: #FFC23D; --accent-foreground: #3A2600;
+    --destructive: #FF5C80; --destructive-foreground: #1A0306; --destructive-text: #FFA3B5;
+    --success: #3FD27F; --success-foreground: #04230F; --success-text: #8AF0B5;
+    --warning: #FFC46B; --warning-foreground: #3D2500; --warning-text: #FFD699;
+    --info-text: #FFB3A8;
+    --delta-up: #3FD27F; --delta-down: #FF7A95;
+    --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #FF8A7E; --focus-ring-inner: #FFFFFF;
+    --story-ring-seen: #4A423E;
+    --success-tint: #3FD27F26; --primary-tint: #FF6A5C26; --destructive-tint: #FF5C8026; --warning-tint: #FFC46B26;
+    --chart-1: #FF6A5C; --chart-2: #D9D2CD; --chart-3: #2DD4BF; --chart-4: #FFC23D; --chart-5: #60B4FF;
+    --sidebar: #1A1615; --sidebar-foreground: #F5F1EE; --sidebar-primary: #FF6A5C; --sidebar-primary-foreground: #15110F;
+    --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #FF8A7E;
+    --card-shadow: 0 8px 24px -14px rgba(0, 0, 0, .6);
+    --story-ring-gradient: conic-gradient(#FF6A5C, #FFC23D, #FF6A5C);
+  }
+}
+
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 8px);  /* 8px */
@@ -64,7 +95,7 @@
   --radius-pill: 999px;
   --shadow-card: var(--card-shadow);
   --font-sans: var(--font-jakarta), "Plus Jakarta Sans", var(--font-plex-arabic), system-ui, sans-serif;
-  --font-arabic: var(--font-plex-arabic), "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-arabic: var(--font-plex-arabic), var(--font-jakarta), "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
   --spacing-gutter: 18px;
   --color-player-scrim: var(--player-scrim); --color-player-surface: var(--player-surface);
   --color-player-surface-foreground: var(--player-surface-foreground); --color-player-cta: var(--player-cta);
@@ -103,7 +134,7 @@
 @layer base {
   * { @apply border-border; }
   /* Two-tone focus ring, full opacity: ink (dark: white) inner + coral outer; visible on coral fills */
-  :focus-visible { outline: 2px solid transparent; /* forced-colors fallback */ box-shadow: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--ring); }
+  :focus-visible { outline: 2px solid transparent; /* forced-colors fallback */ box-shadow: var(--tw-shadow, 0 0 #0000), 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--ring); }
   input, textarea, select, [role="combobox"], [role="checkbox"] { border-color: var(--input-border); }
   body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; }
   :lang(ar) body, body:lang(ar) { font-family: var(--font-arabic); letter-spacing: 0; line-height: 1.6; }

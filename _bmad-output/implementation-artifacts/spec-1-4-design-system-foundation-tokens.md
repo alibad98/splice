@@ -54,6 +54,7 @@ deferred: []
 - DECISION: page padding is a plain `--page-padding` variable (16px, 28px from 1024px), gutter is `--spacing-gutter` 18px.
 - DECISION: dark focus inner (white) on a coral fill is 2.81:1; exempted in the test because the `ring-dark` halo carries 3:1 against the surface. Approved tokens left unchanged.
 - DECISION: light chart-4 amber is graphics-only and exempt from the 3:1 check on white (per DESIGN.md, chart colors are never text).
+- DECISION: dark mode follows the OS via `@media (prefers-color-scheme: dark) { :root:not(.light) }`, with `.dark`/`.light` as explicit overrides and a dark custom variant matching both.
 - DECISION: fonts use `next/font/google`, which self-hosts the files at build time (woff2 emitted to `.next/static/media`).
 - Player styles/tokens are defined here but the player (Shadow DOM, system fonts) does not import this CSS.
 

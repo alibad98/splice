@@ -111,6 +111,13 @@ describe('design tokens', () => {
     expect(light['--info-text']).not.toBe(light['--primary']);
   });
 
+  it('follows the OS dark preference unless .light is set', () => {
+    const m = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\.light\) \{([^}]*)\}/);
+    expect(m, 'media block').not.toBeNull();
+    expect(m![1]).toContain('--background: #100D0C');
+    expect(css).toContain('color-scheme: light dark');
+  });
+
   it('form controls use input-border and focus ring is two-tone', () => {
     expect(css).toMatch(/input, textarea, select[^{]*\{\s*border-color: var\(--input-border\)/);
     expect(css).toMatch(/:focus-visible \{[^}]*0 0 0 2px var\(--focus-ring-inner\), 0 0 0 4px var\(--ring\)/);

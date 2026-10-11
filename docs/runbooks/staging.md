@@ -23,3 +23,7 @@ Status: no hosting provider yet. Hosting, deploy target and secrets wait on **Q-
 ## Environment
 
 - Every process validates its environment with Zod at boot and exits non-zero, naming the variable, when one is missing or invalid. See `.env.example` for the variable list.
+
+## Dashboard build and Google Fonts
+
+`next build` for the dashboard downloads Plus Jakarta Sans and IBM Plex Sans Arabic from `fonts.googleapis.com` / `fonts.gstatic.com` and self-hosts them in the output. These hosts must be reachable from CI and Docker builds.

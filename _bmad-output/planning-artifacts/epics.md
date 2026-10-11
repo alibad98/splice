@@ -1,5 +1,5 @@
 ---
-status: draft
+status: final
 stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - docs/prd.md

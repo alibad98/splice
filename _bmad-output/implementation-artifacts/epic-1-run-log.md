@@ -7,3 +7,8 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
 - Stories 1.11–1.14 (Salla gate G1–G8) need a Salla Partners app and a demo store, which are not available. They are prepared as far as possible without one and marked blocked.
 
 ## Story log
+
+### Story 1.1: Monorepo and CI. **Done** (`f610c31`)
+- CI on PR #1 is green: lint, typecheck, test and build all pass, and both Docker images (api, dashboard) build.
+- Decisions: NestJS uses its default HTTP layer (Express). Staging means CI-built images plus `docs/runbooks/staging.md`; no deploy target until hosting is chosen (Q-05). Removed the root `AGENTS.md` that Turbo generated.
+- Deferred: DB check in the health endpoint, a CI smoke run of the images, pinning MinIO, and tests for worker queue registration. All are in `deferred-work.md`.

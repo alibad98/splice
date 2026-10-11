@@ -92,6 +92,12 @@ export function createConfig(options = {}) {
         ],
       },
     },
+    // Backstop for api-module-no-adapter when the adapter path does not resolve (yet).
+    ...inPackage(pkgDir, ['apps/api/src/modules/**'], {
+      rules: {
+        'no-restricted-imports': ['error', { patterns: [{ group: ['**/adapters', '**/adapters/**'], message: 'boundary api-module-no-adapter: apps/api/src/modules must not import apps/api/src/adapters' }] }],
+      },
+    }),
     // Salla is allowed in the salla adapter only, not in other adapters.
     ...inPackage(pkgDir, ['apps/api/src/adapters/!(salla)/**'], {
       rules: {

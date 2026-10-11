@@ -2,7 +2,7 @@
 title: 'Story 1.1: Scaffold the Turborepo monorepo and CI pipeline'
 type: 'chore'
 created: '2026-10-11'
-status: 'in-review'
+status: 'done'
 baseline_commit: '5a2ae8896e9f08cf579300dda38d27ba540849d7'
 route: 'dispatch'
 review_loop_iteration: 0

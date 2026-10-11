@@ -50,7 +50,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # build runs the gzip budget gate (50 KB initial fails, 20 KB loader warns, viewer 25 KB, batcher 5 KB)
-      - run: pnpm --filter @slips/player build
+      - run: pnpm turbo run build --filter=@slips/player...
       - run: pnpm --filter @slips/player exec playwright install --with-deps chromium
       - run: pnpm --filter @slips/player test:e2e
       - uses: actions/upload-artifact@v4

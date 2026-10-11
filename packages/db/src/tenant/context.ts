@@ -90,3 +90,12 @@ export async function withStoreContext<T>(pool: Pool, storeId: string, fn: (ctx:
     client.release(destroy);
   }
 }
+
+/**
+ * Run `fn` with no ambient store context, so a `withStoreContext` inside it opens its OWN transaction instead of
+ * joining the caller's. For work that must commit independently of the surrounding transaction (e.g. persisting a
+ * rotated single-use token before the outer transaction ends).
+ */
+export function runOutsideStoreContext<T>(fn: () => T): T {
+  return storage.exit(fn);
+}

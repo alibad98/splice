@@ -15,6 +15,12 @@ export interface SallaHttpOptions {
   timeoutMs?: number;
 }
 
+/** Per-call overrides, e.g. no sleeping at all for a call made while a database transaction is held open. */
+export interface RequestLimits {
+  maxRateLimitRetries?: number;
+  timeoutMs?: number;
+}
+
 /** Retry-After as delta seconds or an HTTP date, in milliseconds; undefined when absent or unusable. */
 export function parseRetryAfter(value: string | null, now: number): number | undefined {
   if (!value) return undefined;
@@ -66,12 +72,14 @@ export class SallaHttp {
    * non-429 response (the caller decides what 4xx/5xx mean); throws PlatformUnavailableError on network failure,
    * timeout, or when rate limiting outlasts the retry budget. Never puts request details in error messages.
    */
-  async request(storeKey: string | undefined, url: string, init: RequestInit = {}): Promise<Response> {
+  async request(storeKey: string | undefined, url: string, init: RequestInit = {}, limits: RequestLimits = {}): Promise<Response> {
+    const maxRetries = limits.maxRateLimitRetries ?? this.maxRetries;
+    const timeoutMs = limits.timeoutMs ?? this.timeoutMs;
     for (let attempt = 0; ; attempt++) {
       if (storeKey) await this.pace(storeKey);
       let res: Response;
       try {
-        res = await this.fetchImpl(url, { ...init, signal: AbortSignal.timeout(this.timeoutMs) });
+        res = await this.fetchImpl(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
       } catch (err) {
         const timeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
         this.fail(timeout ? 'timeout' : 'network');
@@ -85,7 +93,7 @@ export class SallaHttp {
       await res.body?.cancel().catch(() => undefined);
       this.fail('rate_limited');
       if (storeKey) this.blockedUntil.set(storeKey, Math.max(this.blockedUntil.get(storeKey) ?? 0, this.now() + waitMs));
-      if (attempt >= this.maxRetries || waitMs > this.maxWaitMs) throw new PlatformUnavailableError('Salla rate limit', Math.ceil(waitMs / 1000));
+      if (attempt >= maxRetries || waitMs > this.maxWaitMs) throw new PlatformUnavailableError('Salla rate limit', Math.ceil(waitMs / 1000));
       if (!storeKey) await this.sleep(waitMs);
     }
   }

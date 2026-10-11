@@ -1,4 +1,4 @@
-import { schema, StoreScoped, and, eq, type LifecycleState, type StorePlatform } from '@slips/db';
+import { schema, StoreScoped, and, eq, gt, type LifecycleState, type StorePlatform } from '@slips/db';
 
 const { stores, merchantAccounts, platformTokens, tokenAccessLog } = schema;
 
@@ -55,7 +55,15 @@ export class IntegrationRepository extends StoreScoped {
   }
 
   /** Append one token-access record (purpose and outcome only, never a token). */
-  async logAccess(purpose: 'install' | 'use' | 'refresh', outcome: 'ok' | 'rejected' | 'error'): Promise<void> {
+  async logAccess(purpose: 'install' | 'use' | 'refresh', outcome: 'ok' | 'rejected' | 'error' | 'persist_failed'): Promise<void> {
     await this.db.insert(tokenAccessLog).values({ storeId: this.storeId, purpose, outcome });
+  }
+
+  async countRecentAccess(purpose: string, outcome: string, since: Date): Promise<number> {
+    const rows = await this.db
+      .select({ id: tokenAccessLog.id })
+      .from(tokenAccessLog)
+      .where(and(eq(tokenAccessLog.storeId, this.storeId), eq(tokenAccessLog.purpose, purpose), eq(tokenAccessLog.outcome, outcome), gt(tokenAccessLog.accessedAt, since)));
+    return rows.length;
   }
 }

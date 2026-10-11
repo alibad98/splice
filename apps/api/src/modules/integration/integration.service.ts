@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConnectionStatus } from '@slips/contracts';
-import { withStoreContext } from '@slips/db';
+import { runOutsideStoreContext, withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL, EVENT_SENDER, INTEGRATION_CONFIG, type IntegrationConfig } from '../../infra.module.js';
 import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
@@ -20,6 +20,10 @@ import { IntegrationRepository } from './integration.repository.js';
 
 /** Refresh when the access token has less than this left. */
 export const REFRESH_SKEW_MS = 60_000;
+/** An invalid_grant this soon after a failed persist of a rotated token is our loss, not the merchant's revocation. */
+export const PERSIST_FAILURE_WINDOW_MS = 10 * 60_000;
+const PERSIST_ATTEMPTS = 3;
+const lockKey = (storeId: string): string => `platform_tokens:${storeId}`;
 
 export type InstallFailure = 'denied' | 'state' | 'rejected' | 'unavailable' | 'conflict' | 'internal';
 export type InstallResult = { ok: true; storeId: string; created: boolean } | { ok: false; reason: InstallFailure };
@@ -83,7 +87,9 @@ export class IntegrationService {
       const existing = await this.locate(profile.platformStoreId);
       try {
         if (existing) {
-          await withStoreContext(this.pool, existing, async () => {
+          await withStoreContext(this.pool, existing, async (ctx) => {
+            // Same lock as refresh, so an install can not interleave with a refresh and overwrite its rotated pair.
+            await ctx.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey(existing)]);
             const store = await this.repo.getStore();
             if (!store) throw new Error('store locator points at a missing store');
             if (store.lifecycleState !== 'active' && store.lifecycleState !== 'disconnected') throw new StoreLifecycleConflictError();
@@ -126,8 +132,8 @@ export class IntegrationService {
   }
 
   private async locate(platformStoreId: string): Promise<string | undefined> {
-    const { rows } = await this.pool.query<{ id: string }>('select id::text as id from store_locator where platform = $1 and platform_store_id = $2', [this.platform.platform, platformStoreId]);
-    return rows[0]?.id;
+    const { rows } = await this.pool.query<{ id: string | null }>('select locate_store($1, $2)::text as id', [this.platform.platform, platformStoreId]);
+    return rows[0]?.id ?? undefined;
   }
 
   /**
@@ -153,7 +159,7 @@ export class IntegrationService {
         await this.repo.logAccess('use', 'ok');
         return { kind: 'token', token: this.cipher.decrypt(state.token.accessTokenEnc, `${storeId}:access`) };
       }
-      await ctx.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [`platform_tokens:${storeId}`]);
+      await ctx.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey(storeId)]);
       state = await read(); // another caller may have refreshed (or disconnected) while we waited
       if ('outcome' in state) return state.outcome;
       if (fresh(state.token.accessExpiresAt)) {
@@ -162,10 +168,17 @@ export class IntegrationService {
       }
       try {
         const next = await this.platform.auth.refresh(this.cipher.decrypt(state.token.refreshTokenEnc, `${storeId}:refresh`));
-        await this.repo.upsertTokens(this.seal(storeId, next));
-        await this.repo.logAccess('refresh', 'ok');
+        // Salla has rotated the single-use refresh token: persist the new pair in its own short transaction, now.
+        const persisted = await this.persistRotated(storeId, next);
+        await this.repo.logAccess('refresh', persisted ? 'ok' : 'persist_failed');
         return { kind: 'token', token: next.accessToken };
       } catch (err) {
+        if (err instanceof PlatformAuthRejectedError && (await this.recentPersistFailure(storeId))) {
+          // The rejection is most likely the consequence of a rotated pair we failed to save, not a revocation.
+          this.telemetry.captureError(err, { code: 'token_persist_failed', store_id: storeId, note: 'refresh rejected after a persist failure; store left connected' });
+          await this.repo.logAccess('refresh', 'error');
+          return { kind: 'unavailable', error: new PlatformUnavailableError('refresh rejected after a token persist failure') };
+        }
         if (err instanceof PlatformAuthRejectedError) {
           const store = (await this.repo.getStore())!;
           await this.repo.markDisconnected();
@@ -191,6 +204,34 @@ export class IntegrationService {
       case 'unavailable':
         throw outcome.error;
     }
+  }
+
+  /** Write the rotated pair in a transaction independent of the caller's, retrying; false when every attempt failed. */
+  private async persistRotated(storeId: string, next: TokenSet): Promise<boolean> {
+    const sealed = this.seal(storeId, next);
+    let last: unknown;
+    for (let attempt = 1; attempt <= PERSIST_ATTEMPTS; attempt++) {
+      try {
+        await runOutsideStoreContext(() => withStoreContext(this.pool, storeId, () => this.repo.upsertTokens(sealed)));
+        return true;
+      } catch (err) {
+        last = err;
+        if (attempt < PERSIST_ATTEMPTS) await new Promise((r) => setTimeout(r, 50 * attempt));
+      }
+    }
+    this.persistFailures.set(storeId, this.now());
+    this.telemetry.captureError(last, { code: 'token_persist_failed', store_id: storeId, attempts: PERSIST_ATTEMPTS });
+    return false;
+  }
+
+  private persistFailures = new Map<string, number>();
+
+  /** True when a persist failure was recorded for this store within the window (this process, or the access log). */
+  private async recentPersistFailure(storeId: string): Promise<boolean> {
+    const at = this.persistFailures.get(storeId);
+    if (at !== undefined && this.now() - at <= PERSIST_FAILURE_WINDOW_MS) return true;
+    const rows = await this.repo.countRecentAccess('refresh', 'persist_failed', new Date(this.now() - PERSIST_FAILURE_WINDOW_MS));
+    return rows > 0;
   }
 
   /** What the dashboard connection chip shows for a store. */

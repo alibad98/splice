@@ -54,6 +54,8 @@ export const EnvSchema = z
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
   /** Master key (base64, 32 bytes) that wraps the data keys encrypting platform tokens. Required in production. Never logged. */
   TOKEN_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, masterKey.optional()),
+  /** HMAC secret (32+ chars) for the OAuth `state`; must be identical on every replica and across restarts. Required in production. */
+  OAUTH_STATE_SECRET: z.preprocess(emptyToUndefined, z.string().min(32).optional()),
   /** Id stored beside each ciphertext so the master key can be rotated. */
   TOKEN_ENCRYPTION_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/).default('k1'),
   /** Salla OAuth app credentials (Partners Portal). Required in production. */
@@ -70,7 +72,7 @@ export const EnvSchema = z
   .refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' })
   .superRefine((e, ctx) => {
     if (e.NODE_ENV !== 'production') return;
-    for (const name of ['TOKEN_ENCRYPTION_KEY', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI'] as const) {
+    for (const name of ['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI'] as const) {
       if (!e[name]) ctx.addIssue({ code: 'custom', path: [name], message: 'is required in production' });
     }
   });

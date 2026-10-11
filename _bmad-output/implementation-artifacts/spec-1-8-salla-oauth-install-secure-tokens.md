@@ -107,6 +107,8 @@ deferred:
 - DECISION: runMigrations takes a session advisory lock so parallel test files and deploys do not race; @slips/db re-exports drizzle `and`/`eq` so apps/api needs no direct drizzle dependency (no lockfile change).
 - DECISION: dashboard chip wiring is deferred to Story 1.9 (no session to identify the store safely); the contract, API service method and mapper are done.
 
+- DECISION (security review): store_locator is write-once (trigger; cascade delete from stores allowed), readable by the app role only via SECURITY DEFINER locate_store(); the app role's pg-boss access is INSERT plus SELECT(id) on the event queue's job table and SELECT on queue-settings columns of pgboss.queue only; token-endpoint calls never sleep on 429 (0 retries, 8 s timeout); a rotated token pair is persisted in its own transaction (3 attempts, token_persist_failed telemetry, persist_failed marker in token_access_log, invalid_grant within 10 minutes of it leaves the store connected as unavailable); install takes the refresh advisory lock; OAUTH_STATE_SECRET is required in production.
+
 ## Verification
 
 **Commands:**

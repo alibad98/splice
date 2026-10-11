@@ -73,6 +73,9 @@ const SubscriptionsResponse = z.object({
   data: z.array(z.object({ id: z.union([z.string(), z.number()]), plan_name: z.string(), plan_type: z.string(), status: z.string().optional() })),
 });
 
+/** The token endpoint is called while a refresh transaction and advisory lock are held: never sleep on 429, give up fast. */
+const TOKEN_ENDPOINT_LIMITS = { maxRateLimitRetries: 0, timeoutMs: 8_000 } as const;
+
 /** Hostname from a store URL or bare host, lower case; undefined when unusable. */
 function hostOf(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -177,7 +180,7 @@ export class SallaCommercePlatform implements CommercePlatform {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body,
-    });
+    }, TOKEN_ENDPOINT_LIMITS);
     if (!res.ok) {
       const err = OAuthError.safeParse(await res.json().catch(() => null));
       const code = err.success ? err.data.error : undefined;

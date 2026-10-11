@@ -62,14 +62,17 @@ describe('parseEnv', () => {
         expect((err as EnvError).message).not.toContain('c2hvcnQ=');
       }
     });
+    it('rejects a short OAUTH_STATE_SECRET', () => {
+      expect(() => parseEnv({ ...base, OAUTH_STATE_SECRET: 'short' })).toThrow(/OAUTH_STATE_SECRET/);
+    });
     it('requires the key and Salla credentials in production', () => {
       expect.assertions(2);
       try {
         parseEnv({ ...base, NODE_ENV: 'production' });
       } catch (err) {
-        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI']);
+        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI']);
       }
-      const ok = parseEnv({ ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: key, SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://api.example.com/cb' });
+      const ok = parseEnv({ ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: key, OAUTH_STATE_SECRET: 's'.repeat(32), SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://api.example.com/cb' });
       expect(ok.TOKEN_ENCRYPTION_KEY).toBe(key);
     });
   });

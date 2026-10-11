@@ -111,7 +111,7 @@ export async function startWorker(
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
     await registerQueues(boss, telemetry, selected, allHandlers);
-    await grantEventPublishing(pool, telemetry);
+    await grantEventPublishing(pool, telemetry, EVENT_QUEUE);
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),

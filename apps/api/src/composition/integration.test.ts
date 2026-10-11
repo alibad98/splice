@@ -3,14 +3,16 @@ import 'reflect-metadata';
 import { randomBytes, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { PgBoss } from 'pg-boss';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { EVENT_QUEUE } from '@slips/contracts';
 import { ensureTestAppRole, runMigrations } from '@slips/db';
 import { EnvelopeTokenCipher } from '../adapters/crypto/envelope-cipher.js';
 import { SendOnlyEventSender } from '../adapters/pgboss/send-only-producer.js';
 import { grantEventPublishing } from '../events/queue-grants.js';
 import { PinoTelemetry } from '../adapters/telemetry/pino-telemetry.js';
-import { createHttpApp } from '../http.js';
+import { SallaCommercePlatform } from '../adapters/salla/index.js';
+import { buildInfra, createHttpApp } from '../http.js';
+import { IntegrationRepository } from '../modules/integration/integration.repository.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CommercePlatform, type MerchantProfile, type TokenSet } from '../ports/commerce-platform.js';
 import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integration/errors.js';
 import { createInstallState } from '../modules/integration/install-state.js';
@@ -81,7 +83,7 @@ beforeAll(async () => {
   boss = new PgBoss({ connectionString: ADMIN_URL, schema: SCHEMA });
   await boss.start();
   await boss.createQueue(EVENT_QUEUE);
-  await grantEventPublishing(admin, telemetry, SCHEMA, 'slips_app');
+  await grantEventPublishing(admin, telemetry, EVENT_QUEUE, SCHEMA, 'slips_app');
 });
 afterAll(async () => {
   await boss?.stop({ graceful: false });
@@ -260,5 +262,103 @@ describe('http role', () => {
     } finally {
       await nest.close();
     }
+  });
+});
+
+describe('security review fixes', () => {
+  async function installedExpired(p: FakePlatform) {
+    const t = p.issue('seed');
+    const { storeId } = await service(p).installFromTokens({ ...t, expiresAt: new Date(Date.now() - 1000) }, uniqueStore());
+    return storeId;
+  }
+
+  it('the app role has only the outbox insert on pg-boss: no job reads, no internals', async () => {
+    await expect(app.query(`select * from ${SCHEMA}.job`)).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query(`select * from ${SCHEMA}.job_common`)).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query(`select data from ${SCHEMA}.job_common`)).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query(`select * from ${SCHEMA}.queue`)).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query(`insert into ${SCHEMA}.schedule (name, cron) values ('x', '* * * * *')`)).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query(`delete from ${SCHEMA}.job_common`)).rejects.toMatchObject({ code: '42501' });
+    // ... and publishing through it still works (covered end to end by the install tests above).
+    const p = new FakePlatform();
+    const { storeId } = await service(p).installFromTokens(p.issue('grants'), uniqueStore());
+    expect(await jobsFor(storeId, 'integration.store.installed')).toBe(1);
+  });
+
+  it('a 429 from the token endpoint fails the refresh at once without sleeping inside the transaction', async () => {
+    const f = vi.fn(async () => new Response('', { status: 429, headers: { 'retry-after': '90' } }));
+    const sleep = vi.fn(async () => undefined);
+    const salla = new SallaCommercePlatform({ clientId: 'c', clientSecret: 'secret-123', redirectUri: 'https://x/cb' }, telemetry, { fetch: f as unknown as typeof fetch, sleep });
+    const fake = new FakePlatform();
+    const id = await installedExpired(fake);
+    const s = new IntegrationService(app, salla, cipher, telemetry, boss, config);
+    await expect(s.getAccessToken(id)).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect((await admin.query('select lifecycle_state from stores where id = $1', [id])).rows[0].lifecycle_state).toBe('active');
+  });
+
+  it('retries persisting the rotated pair in its own transaction', async () => {
+    const p = new FakePlatform();
+    const id = await installedExpired(p);
+    const orig = IntegrationRepository.prototype.upsertTokens;
+    let calls = 0;
+    vi.spyOn(IntegrationRepository.prototype, 'upsertTokens').mockImplementation(function (this: IntegrationRepository, t) {
+      return ++calls <= 2 ? Promise.reject(new Error('db blip')) : orig.call(this, t);
+    });
+    const capture = vi.spyOn(telemetry, 'captureError');
+    expect(await service(p).getAccessToken(id)).toBe('AT-r1');
+    expect(calls).toBe(3);
+    expect(capture).not.toHaveBeenCalled();
+    const row = (await admin.query('select access_token_enc from platform_tokens where store_id = $1', [id])).rows[0];
+    expect(cipher.decrypt(row.access_token_enc, `${id}:access`)).toBe('AT-r1');
+  });
+
+  it('when persisting keeps failing: reports token_persist_failed, and the next invalid_grant leaves the store connected', async () => {
+    const p = new FakePlatform();
+    const id = await installedExpired(p);
+    vi.spyOn(IntegrationRepository.prototype, 'upsertTokens').mockRejectedValue(new Error('db down'));
+    const capture = vi.spyOn(telemetry, 'captureError');
+    const s = service(p);
+    expect(await s.getAccessToken(id)).toBe('AT-r1'); // this caller still gets the fresh token
+    expect(capture).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({ code: 'token_persist_failed', store_id: id }));
+    vi.restoreAllMocks();
+    // The stored pair is the old, now-consumed one: Salla answers invalid_grant.
+    await expect(service(p).getAccessToken(id)).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect((await admin.query('select lifecycle_state from stores where id = $1', [id])).rows[0].lifecycle_state).toBe('active');
+    expect(await jobsFor(id, 'integration.store.disconnected')).toBe(0);
+    // The marker is also in the access log, so another replica reaches the same verdict.
+    expect((await admin.query("select 1 from token_access_log where store_id = $1 and outcome = 'persist_failed'", [id])).rowCount).toBe(1);
+    await expect(service(p).getAccessToken(id)).rejects.toBeInstanceOf(PlatformUnavailableError);
+  });
+
+  it('install of an existing store waits for the refresh lock', async () => {
+    const p = new FakePlatform();
+    const profile = uniqueStore();
+    const { storeId } = await service(p).installFromTokens(p.issue('lock'), profile);
+    const holder = await admin.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [`platform_tokens:${storeId}`]);
+      let done = false;
+      const install = service(p).installFromTokens(p.issue('lock2'), profile).then((r) => ((done = true), r));
+      await new Promise((r) => setTimeout(r, 400));
+      expect(done).toBe(false);
+      await holder.query('COMMIT');
+      await install;
+      expect(done).toBe(true);
+    } finally {
+      holder.release();
+    }
+  });
+
+  it('the OAuth state secret is stable across processes when OAUTH_STATE_SECRET is set', () => {
+    const env = { CORS_ORIGINS: 'x', LOG_LEVEL: 'silent' as const, OAUTH_STATE_SECRET: 'z'.repeat(32) };
+    const a = buildInfra(env, 'http', { pool: app, events: boss });
+    const b = buildInfra(env, 'http', { pool: app, events: boss });
+    expect(a.integration.stateSecret.equals(b.integration.stateSecret)).toBe(true);
+    const c = buildInfra({ CORS_ORIGINS: 'x', LOG_LEVEL: 'silent' }, 'http', { pool: app, events: boss });
+    const d = buildInfra({ CORS_ORIGINS: 'x', LOG_LEVEL: 'silent' }, 'http', { pool: app, events: boss });
+    expect(c.integration.stateSecret.equals(d.integration.stateSecret)).toBe(false); // dev fallback only
   });
 });

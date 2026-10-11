@@ -27,6 +27,7 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'NODE_ENV'
       | 'TOKEN_ENCRYPTION_KEY'
       | 'TOKEN_ENCRYPTION_KEY_ID'
+      | 'OAUTH_STATE_SECRET'
       | 'SALLA_CLIENT_ID'
       | 'SALLA_CLIENT_SECRET'
       | 'SALLA_REDIRECT_URI'
@@ -77,8 +78,13 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     platform,
     integration: overrides.integration ?? {
       dashboardUrl: env.DASHBOARD_URL ?? 'http://localhost:3000',
-      // Derived from the master key so replicas agree; a random per-process key (dev only) otherwise.
-      stateSecret: masterKey ? createHmac('sha256', Buffer.from(masterKey, 'base64')).update('slips/oauth-state/v1').digest() : randomBytes(32),
+      // OAUTH_STATE_SECRET is required in production (env validation). In dev, fall back to a key derived from the
+      // master key, then to a random per-process key (state then only survives within one process).
+      stateSecret: env.OAUTH_STATE_SECRET
+        ? createHmac('sha256', env.OAUTH_STATE_SECRET).update('slips/oauth-state/v1').digest()
+        : masterKey
+          ? createHmac('sha256', Buffer.from(masterKey, 'base64')).update('slips/oauth-state/v1').digest()
+          : randomBytes(32),
       secureCookies: env.NODE_ENV === 'production',
     },
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),

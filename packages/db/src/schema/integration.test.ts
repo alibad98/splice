@@ -107,4 +107,26 @@ describe('integration tables', () => {
       c.release();
     }
   });
+
+  it('store_locator: the app role can insert but not read or update; lookup goes through locate_store(); rows are write-once', async () => {
+    const id = randomUUID();
+    const ps = `loc-${id}`;
+    const c = await admin.connect();
+    try {
+      await seedStore(c, id); // stores row + locator row (as admin)
+    } finally {
+      c.release();
+    }
+    await expect(app.query('select * from store_locator')).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query("update store_locator set id = $1 where platform_store_id = $2", [randomUUID(), `seed-${id}`])).rejects.toMatchObject({ code: '42501' });
+    await expect(app.query('delete from store_locator')).rejects.toMatchObject({ code: '42501' });
+    expect((await app.query<{ id: string }>("select locate_store('salla', $1)::text as id", [`seed-${id}`])).rows[0]!.id).toBe(id);
+    expect((await app.query("select locate_store('salla', $1) as id", [`nope-${ps}`])).rows[0]!.id).toBeNull();
+    // even a privileged role can not re-point a row
+    await expect(admin.query('update store_locator set id = $1 where platform_store_id = $2', [randomUUID(), `seed-${id}`])).rejects.toMatchObject({ code: '42501' });
+    await expect(admin.query('delete from store_locator where platform_store_id = $1', [`seed-${id}`])).rejects.toMatchObject({ code: '42501' });
+    // purging the store cascades to its locator row
+    await admin.query('delete from stores where id = $1', [id]);
+    expect((await admin.query('select 1 from store_locator where id = $1', [id])).rowCount).toBe(0);
+  });
 });

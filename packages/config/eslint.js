@@ -4,28 +4,46 @@ import js from '@eslint/js';
 import boundaries from 'eslint-plugin-boundaries';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
-const SALLA = ['@salla.sa/embedded-sdk', '@salla.sa/twilight', '@salla.sa/*'];
 
 /** Element types used by the boundary policies. Order matters: first match wins. */
 export const boundaryElements = [
-  { type: 'api-adapter', pattern: 'apps/api/src/adapters/**', mode: 'full' },
-  { type: 'api-module', pattern: 'apps/api/src/modules/**', mode: 'full' },
-  { type: 'app-api', pattern: 'apps/api/**', mode: 'full' },
-  { type: 'app-dashboard', pattern: 'apps/dashboard/**', mode: 'full' },
-  { type: 'pkg-db', pattern: 'packages/db/**', mode: 'full' },
-  { type: 'pkg-contracts', pattern: 'packages/contracts/**', mode: 'full' },
-  { type: 'pkg-player', pattern: 'packages/player/**', mode: 'full' },
-  { type: 'pkg-ui', pattern: 'packages/ui/**', mode: 'full' },
+  { type: 'api-adapter', pattern: 'apps/api/src/adapters/**' },
+  { type: 'api-module', pattern: 'apps/api/src/modules/**' },
+  { type: 'app-api', pattern: 'apps/api/**' },
+  { type: 'app-dashboard', pattern: 'apps/dashboard/**' },
+  { type: 'pkg-db', pattern: 'packages/db/**' },
+  { type: 'pkg-contracts', pattern: 'packages/contracts/**' },
+  { type: 'pkg-player', pattern: 'packages/player/**' },
+  { type: 'pkg-ui', pattern: 'packages/ui/**' },
 ];
 
 /**
- * @param {{ extra?: import('eslint').Linter.Config[] }} [options]
+ * Flat-config `files` globs are relative to the package's config file, so repo-relative
+ * globs are rebased onto the package dir (or dropped when they point elsewhere).
+ */
+function scoped(pkgDir, repoGlobs) {
+  const rel = path.relative(repoRoot, pkgDir).split(path.sep).join('/');
+  if (rel === '') return repoGlobs;
+  return repoGlobs.filter((g) => g.startsWith(`${rel}/`)).map((g) => g.slice(rel.length + 1));
+}
+
+/** Wrap a config block so it only applies when its files live in this package. */
+function inPackage(pkgDir, repoGlobs, block) {
+  const files = scoped(pkgDir, repoGlobs);
+  return files.length > 0 ? [{ ...block, files }] : [];
+}
+
+/**
+ * @param {{ dir?: string, extra?: import('eslint').Linter.Config[] }} [options]
+ *   dir: the package directory (pass `import.meta.dirname`); defaults to cwd.
  */
 export function createConfig(options = {}) {
+  const pkgDir = options.dir ?? process.cwd();
   return tseslint.config(
     { ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', '**/coverage/**', '**/next-env.d.ts'] },
     js.configs.recommended,
@@ -42,17 +60,19 @@ export function createConfig(options = {}) {
         'boundaries/root-path': repoRoot,
         'boundaries/elements': boundaryElements,
         'boundaries/include': ['apps/**', 'packages/**'],
+        'import/resolver': { typescript: { alwaysTryTypes: true, noWarnOnMultipleProjects: true, project: ['apps/*/tsconfig.json', 'packages/*/tsconfig.json'].map((g) => repoRoot + g) } },
       },
       rules: {
         'boundaries/dependencies': [
           'error',
           {
             default: 'allow',
+            checkAllOrigins: true,
             policies: [
               {
                 // Only apps/api may import @slips/db.
                 from: { element: { types: { noneOf: ['app-api', 'api-module', 'api-adapter', 'pkg-db'] } } },
-                disallow: { to: { module: { source: '@slips/db' } } },
+                disallow: [{ to: { element: { type: 'pkg-db' } } }, { to: { module: { source: '@slips/db{,/**}' } } }],
                 message: 'boundary app-api-only-db: only apps/api may import @slips/db',
               },
               {
@@ -64,7 +84,7 @@ export function createConfig(options = {}) {
               {
                 // Salla packages only inside apps/api/src/adapters/salla.
                 from: { element: { types: { noneOf: ['api-adapter'] } } },
-                disallow: { to: { module: { source: { anyOf: SALLA } } } },
+                disallow: { to: { module: { source: '@salla.sa/**' } } },
                 message: 'boundary salla-adapter-only: Salla packages may only be imported under apps/api/src/adapters/salla',
               },
             ],
@@ -72,16 +92,14 @@ export function createConfig(options = {}) {
         ],
       },
     },
-    {
-      // Salla is allowed in the salla adapter only, not in other adapters.
-      files: ['**/apps/api/src/adapters/!(salla)/**'],
+    // Salla is allowed in the salla adapter only, not in other adapters.
+    ...inPackage(pkgDir, ['apps/api/src/adapters/!(salla)/**'], {
       rules: {
         'no-restricted-imports': ['error', { patterns: [{ group: ['@salla.sa/*'], message: 'boundary salla-adapter-only: Salla packages may only be imported under apps/api/src/adapters/salla' }] }],
       },
-    },
-    {
-      // The player imports @slips/contracts type-only; preact is its only runtime dependency.
-      files: ['**/packages/player/**/*.{ts,tsx}'],
+    }),
+    // The player imports @slips/contracts type-only; preact is its only runtime dependency.
+    ...inPackage(pkgDir, ['packages/player/src/**/*.{ts,tsx}'], {
       rules: {
         '@typescript-eslint/no-restricted-imports': [
           'error',
@@ -93,7 +111,7 @@ export function createConfig(options = {}) {
           },
         ],
       },
-    },
+    }),
     ...(options.extra ?? []),
   );
 }

@@ -1,0 +1,39 @@
+# Local development stack only. Not a deployment target (hosting waits on Q-05).
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: slips
+      POSTGRES_PASSWORD: slips
+      POSTGRES_DB: slips
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slips -d slips"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    # TODO: pin a verified MinIO release tag (could not be checked from the build sandbox).
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: slips
+      MINIO_ROOT_PASSWORD: slips-local-only
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  miniodata:

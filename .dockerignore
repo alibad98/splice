@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+.git
+_bmad
+_bmad-output
+.claude
+.env
+.env.local
+coverage
+**/coverage

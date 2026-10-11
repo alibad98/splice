@@ -1,0 +1,45 @@
+import { z } from 'zod';
+import { QUEUE_GROUPS, type QueueGroup } from '../worker/queues.js';
+
+const queueGroups = z
+  .preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().default(QUEUE_GROUPS.join(',')))
+  .transform((raw, ctx) => {
+    const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    const unknown = parts.filter((p) => !(QUEUE_GROUPS as readonly string[]).includes(p));
+    if (unknown.length > 0) {
+      ctx.addIssue({ code: 'custom', message: `unknown queue group(s): ${unknown.join(', ')} (allowed: ${QUEUE_GROUPS.join(', ')})` });
+      return z.NEVER;
+    }
+    if (parts.length === 0) {
+      ctx.addIssue({ code: 'custom', message: 'must list at least one queue group' });
+      return z.NEVER;
+    }
+    return [...new Set(parts)] as QueueGroup[];
+  });
+
+export const EnvSchema = z.object({
+  ROLE: z.enum(['http', 'worker']),
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  CORS_ORIGINS: z.string().default('http://localhost:3000'),
+  WORKER_QUEUES: queueGroups,
+  APP_VERSION: z.string().default('0.0.0'),
+});
+export type Env = z.infer<typeof EnvSchema>;
+
+export class EnvError extends Error {
+  constructor(readonly variables: string[], readonly details: string) {
+    super(`Invalid environment: ${details}`);
+    this.name = 'EnvError';
+  }
+}
+
+/** Validate env at boot. Throws EnvError naming every missing or invalid variable. */
+export function parseEnv(source: Record<string, string | undefined>): Env {
+  const result = EnvSchema.safeParse(source);
+  if (result.success) return result.data;
+  const variables = [...new Set(result.error.issues.map((i) => String(i.path[0] ?? '?')))];
+  const details = result.error.issues.map((i) => `${String(i.path[0] ?? '?')}: ${i.message}`).join('; ');
+  throw new EnvError(variables, details);
+}

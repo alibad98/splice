@@ -1,0 +1,1 @@
+{ "extends": "@slips/config/tsconfig/library.json", "include": ["src"] }

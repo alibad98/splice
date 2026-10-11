@@ -1,0 +1,55 @@
+// Covers the spec's I/O matrix rows for import boundaries by linting virtual files
+// at real repo paths with the shared config.
+import { ESLint } from 'eslint';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { createConfig, repoRoot } from '../eslint.js';
+
+async function lint(repoPath: string, code: string): Promise<string[]> {
+  const dir = path.join(repoRoot, repoPath.split('/').slice(0, 2).join('/'));
+  const eslint = new ESLint({ cwd: dir, overrideConfigFile: true, overrideConfig: createConfig({ dir }) });
+  const [result] = await eslint.lintText(code, { filePath: path.join(repoRoot, repoPath) });
+  return (result?.messages ?? []).map((m) => m.message);
+}
+
+describe('import boundaries', () => {
+  it('fails when apps/dashboard imports @slips/db', async () => {
+    const msgs = await lint('apps/dashboard/lib/breach.ts', "import { schema } from '@slips/db';\nexport const s = schema;\n");
+    expect(msgs.some((m) => m.includes('boundary app-api-only-db'))).toBe(true);
+  });
+
+  it('allows apps/api to import @slips/db', async () => {
+    const msgs = await lint('apps/api/src/ok.ts', "import { schema } from '@slips/db';\nexport const s = schema;\n");
+    expect(msgs.filter((m) => m.startsWith('boundary'))).toEqual([]);
+  });
+
+  it('fails when packages/player value-imports @slips/contracts', async () => {
+    const msgs = await lint('packages/player/src/breach.ts', "import { HealthResponse } from '@slips/contracts';\nexport const h = HealthResponse;\n");
+    expect(msgs.some((m) => m.includes('boundary player-contracts-type-only'))).toBe(true);
+  });
+
+  it('allows a type-only contracts import in packages/player', async () => {
+    const msgs = await lint('packages/player/src/ok.ts', "import type { HealthResponse } from '@slips/contracts';\nexport type H = HealthResponse;\n");
+    expect(msgs.filter((m) => m.startsWith('boundary'))).toEqual([]);
+  });
+
+  it('fails when an api module imports an adapter', async () => {
+    const msgs = await lint('apps/api/src/modules/x.ts', "import { y } from '../../adapters/salla/y.js';\nexport const z = y;\n");
+    expect(msgs.some((m) => m.includes('boundary api-module-no-adapter'))).toBe(true);
+  });
+
+  it.each(['apps/dashboard/lib/x.ts', 'apps/api/src/adapters/other/x.ts'])('fails when %s imports a Salla package', async (file) => {
+    const msgs = await lint(file, "import '@salla.sa/embedded-sdk';\n");
+    expect(msgs.some((m) => m.includes('boundary salla-adapter-only'))).toBe(true);
+  });
+
+  it('allows Salla packages under apps/api/src/adapters/salla', async () => {
+    const msgs = await lint('apps/api/src/adapters/salla/x.ts', "import '@salla.sa/embedded-sdk';\n");
+    expect(msgs.filter((m) => m.includes('boundary'))).toEqual([]);
+  });
+
+  it('fails when packages/player imports another @slips package', async () => {
+    const msgs = await lint('packages/player/src/x.ts', "import '@slips/ui';\n");
+    expect(msgs.some((m) => m.includes('boundary player-preact-only'))).toBe(true);
+  });
+});

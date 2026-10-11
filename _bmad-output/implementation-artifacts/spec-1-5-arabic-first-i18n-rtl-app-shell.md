@@ -2,7 +2,7 @@
 title: 'Story 1.5: Set up Arabic-first i18n, RTL/LTR and the branded app shell'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '47ae70f88a5049088be66022344c73f53b2d4d0c'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -11,7 +11,19 @@ context:
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-splice-2026-10-10/DESIGN.md'
   - '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-splice-2026-10-10/EXPERIENCE.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      Connection chip, store name and Preview store URL come from a placeholder getShellContext(); support link is a placeholder mailto.
+    evidence: |-
+      Real data arrives with Story 1.8 (Salla OAuth); support channel is undefined (lib/shell.ts, TODO markers).
+    location: >-
+      apps/dashboard/lib/shell.ts
+    severity: low
+  - summary: >-
+      Iframe behaviors (no nested scroll, modals fit iframe) are verified by static guards only, not in a real Salla iframe.
+    evidence: |-
+      Needs the Salla iframe harness (Story 1.8+) to confirm auto-resize and modal sizing end to end.
+    severity: low
 ---
 
 <intent-contract>
@@ -78,3 +90,23 @@ Catalogs are TS objects: `en` defines the shape, `ar` is typed against it, so a 
 
 **Commands:**
 - `pnpm install --frozen-lockfile && pnpm turbo run lint typecheck test build` -- expected: all tasks successful (after deleting dist/.next).
+
+## Implementation Notes
+
+- DECISION: no i18n library; typed TS catalogs (en defines shape, ar typed against it) with a cookie (slips-locale) read in the root layout; switching uses a server action. Avoids a new dependency and keeps root lang/dir server-rendered.
+- DECISION: formatters force Western digits and Gregorian calendar via the -u-ca-gregory-nu-latn locale extension; the Arabic riyal output strips bidi marks and the trailing full stop so it reads "340 ر.س".
+- DECISION: /admin stays English-only and is excluded from the hard-coded-string guard (internal back-office, Epic 7).
+- DECISION: physical-direction rule is a local ESLint rule (apps/dashboard/eslint-rules) plus a CSS scan in vitest; window.top/top.location/_top targets are lint errors.
+- DECISION: logo lockup is HTML (mark img then wordmark text in the page fonts) so the mark sits at inline-start in both directions with 2x stroke padding; the standalone wordmark SVGs are unchanged.
+- DECISION: nav sheet below md is a native modal dialog from the inline-start edge; icons-only nav at md; placeholder pages for content/products/analytics/settings so nav links resolve.
+- DECISION: Preview store renders aria-disabled with a reason until a store URL exists; support link is a placeholder mailto.
+- Implemented without subagents (none available); parent runs the independent review.
+
+## Auto Run Result
+
+Status: done
+Summary: Arabic-first i18n (ar/en catalogs, cookie locale, root lang/dir), Intl formatters, CI guards, branded responsive shell, app icon export.
+Files: apps/dashboard/{i18n,components,eslint-rules,lib/shell.ts,lib/i18n-guards.test.ts,app/layout.tsx,app/(merchant)/*,public/brand/app-icon*}.
+Review: self-review only (no subagents); no patches; deferred items listed in frontmatter.
+Verification: clean-slate `pnpm install --frozen-lockfile && pnpm turbo run lint typecheck test build` -> 26/26 successful; dashboard tests 71 passed; manual Playwright smoke: default ar/rtl, switch to en/ltr, skip link first focus, sheet at 390px, no horizontal overflow at 1280/800/390.
+Residual risks: shell iframe behavior unverified in a real Salla frame.

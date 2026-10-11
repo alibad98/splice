@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import MerchantHome from './page';
 
+vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => ({ value: 'en' }) }) }));
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe('merchant home', () => {

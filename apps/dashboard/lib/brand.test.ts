@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const files = ['app/icon.svg', ...['logo-mark', 'logo-mark-dark', 'logo-wordmark-en', 'logo-wordmark-en-dark', 'logo-wordmark-ar', 'logo-wordmark-ar-dark'].map((n) => `public/brand/${n}.svg`)];
+const files = ['app/icon.svg', ...['logo-mark', 'logo-mark-dark', 'logo-wordmark-en', 'logo-wordmark-en-dark', 'logo-wordmark-ar', 'logo-wordmark-ar-dark', 'app-icon'].map((n) => `public/brand/${n}.svg`)];
 
 describe('brand assets', () => {
   it.each(files)('%s exists and has no purple', (f) => {

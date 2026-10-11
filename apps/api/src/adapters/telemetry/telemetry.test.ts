@@ -56,6 +56,26 @@ describe('redaction', () => {
   });
 });
 
+describe('free-text and key coverage', () => {
+  it('masks query-string credentials, emails, and strings inside arrays', () => {
+    const url = 'GET /cb?code=abc123&access_token=at1&refresh_token=rt1&client_secret=cs1&token=t1&signature=sg1&password=pw1&ok=1';
+    const out = redact({ url, list: ['mail nora@example.sa now', url] }) as { url: string; list: string[] };
+    for (const leaked of ['abc123', 'at1', 'rt1', 'cs1', 't1&', 'sg1', 'pw1']) expect(out.url).not.toContain(leaked);
+    expect(out.url).toContain('ok=1');
+    expect(out.list[0]).not.toContain('nora@example.sa');
+    expect(out.list[1]).not.toContain('abc123');
+  });
+  it('masks bare name, recipient, street and city keys', () => {
+    const out = redact({ name: 'Nora', recipient: 'x', street: 'y', city: 'z', store_id: 's' }) as Record<string, string>;
+    expect(out).toEqual({ name: REDACTED, recipient: REDACTED, street: REDACTED, city: REDACTED, store_id: 's' });
+  });
+  it('scrubs the log message string', () => {
+    const { telemetry, lines } = makeTelemetry();
+    telemetry.log.info('calling with Bearer abc123 for nora@example.sa');
+    expect(JSON.stringify(lines)).not.toMatch(/abc123|nora@example/);
+  });
+});
+
 describe('PinoTelemetry', () => {
   it('writes JSON logs carrying request_id, trace_id, store_id and job_id from context', () => {
     const { telemetry, lines } = makeTelemetry();

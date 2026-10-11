@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { HttpException, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import { Metric, type Telemetry } from '../../ports/telemetry.js';
@@ -77,7 +77,7 @@ export class TelemetryExceptionFilter implements ExceptionFilter {
         type: 'about:blank',
         title: exception.message,
         status,
-        ...(typeof body === 'object' ? { detail: (body as { message?: unknown }).message } : {}),
+        ...(status < 500 && typeof body === 'object' ? { detail: (body as { message?: unknown }).message } : {}),
       });
       return;
     }
@@ -86,10 +86,11 @@ export class TelemetryExceptionFilter implements ExceptionFilter {
   }
 }
 
-/** Constant-time check of `Authorization: Bearer <token>`. Returns false when no token is configured. */
+/** Constant-time check of `Authorization: Bearer <token>` (digests compared). False when no token is configured. */
 export function isAuthorizedForMetrics(authorization: string | undefined, token: string | undefined): boolean {
   if (!token || !authorization) return false;
-  const given = Buffer.from(authorization.replace(/^Bearer\s+/i, ''));
-  const wanted = Buffer.from(token);
-  return given.length === wanted.length && timingSafeEqual(given, wanted);
+  const match = /^Bearer (.+)$/.exec(authorization);
+  if (!match) return false;
+  const digest = (v: string) => createHash('sha256').update(v).digest();
+  return timingSafeEqual(digest(match[1]!), digest(token));
 }

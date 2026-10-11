@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { pino, type DestinationStream, type Logger as PinoLogger } from 'pino';
 import { Metric, type Labels, type LogFields, type Logger, type Telemetry, type TraceContext } from '../../ports/telemetry.js';
 import { MetricRegistry } from './registry.js';
-import { redact } from './redact.js';
+import { redact, scrubString } from './redact.js';
 
 export interface PinoTelemetryOptions {
   level?: string;
@@ -34,8 +34,9 @@ export class PinoTelemetry implements Telemetry {
       opts.stream,
     );
     const emit = (level: 'debug' | 'info' | 'warn' | 'error') => (msg: string, fields?: LogFields) => {
-      if (fields) this.pino[level](fields, msg);
-      else this.pino[level](msg);
+      const safe = scrubString(msg);
+      if (fields) this.pino[level](fields, safe);
+      else this.pino[level](safe);
     };
     this.log = { debug: emit('debug'), info: emit('info'), warn: emit('warn'), error: emit('error') };
 

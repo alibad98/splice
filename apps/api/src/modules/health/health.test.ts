@@ -55,6 +55,8 @@ describe('GET /v1/health and /metrics', () => {
 
   it('serves metrics only with the bearer token and counts requests', async () => {
     expect((await fetch(`${baseUrl}/metrics`)).status).toBe(401);
+    expect((await fetch(`${baseUrl}/metrics`, { headers: { authorization: 'Bearer wrong-token-123456' } })).status).toBe(401);
+    expect((await fetch(`${baseUrl}/metrics`, { headers: { authorization: 'metrics-token-1234567' } })).status).toBe(401);
     const res = await fetch(`${baseUrl}/metrics`, { headers: { authorization: 'Bearer metrics-token-1234567' } });
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -66,6 +68,9 @@ describe('GET /v1/health and /metrics', () => {
     const res = await fetch(`${baseUrl}/nope`);
     expect(res.status).toBe(404);
     expect(res.headers.get('content-type')).toContain('application/problem+json');
+    await new Promise((r) => setTimeout(r, 50));
+    const metrics = await (await fetch(`${baseUrl}/metrics`, { headers: { authorization: 'Bearer metrics-token-1234567' } })).text();
+    expect(metrics).toMatch(/slips_api_requests_total\{outcome="client_error"\} [1-9]/);
   });
 });
 

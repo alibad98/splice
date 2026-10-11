@@ -87,18 +87,6 @@ export async function startWorker(
 ): Promise<PgBoss> {
   const infra = buildInfra(env, 'worker');
   const { telemetry } = infra;
-  const boss = new PgBoss({ connectionString: env.DATABASE_URL, persistQueueStats: true });
-  boss.on('error', (err) => telemetry.captureError(err, { component: 'pg-boss' }));
-  await boss.start();
-
-  const selected = queuesFor(env.WORKER_QUEUES, queues);
-  await registerQueues(boss, telemetry, selected, handlers);
-
-  const stopPoller = startQueueStatsPoller(
-    boss,
-    selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),
-    telemetry,
-  );
   const server = await startWorkerHttp({
     port: env.WORKER_HEALTH_PORT,
     probe: infra.probe,
@@ -107,6 +95,25 @@ export async function startWorker(
     render: infra.metrics.render,
     metricsToken: env.METRICS_TOKEN,
   });
+  const boss = new PgBoss({ connectionString: env.DATABASE_URL, persistQueueStats: true });
+  boss.on('error', (err) => telemetry.captureError(err, { component: 'pg-boss' }));
+  let stopPoller = () => {};
+  try {
+    await boss.start();
+    const selected = queuesFor(env.WORKER_QUEUES, queues);
+    await registerQueues(boss, telemetry, selected, handlers);
+    stopPoller = startQueueStatsPoller(
+      boss,
+      selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),
+      telemetry,
+      30_000,
+      infra.probe,
+    );
+  } catch (err) {
+    server.close();
+    await boss.stop({ graceful: false }).catch(() => undefined);
+    throw err;
+  }
 
   telemetry.log.info('worker started', { queue_groups: env.WORKER_QUEUES, health_port: env.WORKER_HEALTH_PORT });
 

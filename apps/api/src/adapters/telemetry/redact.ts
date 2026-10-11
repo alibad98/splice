@@ -25,6 +25,10 @@ const SENSITIVE_PARTS = [
   'fullname',
   'address',
   'customer',
+  'name',
+  'recipient',
+  'street',
+  'city',
   'shopper',
   'nationalid',
   'iban',
@@ -38,11 +42,18 @@ export function isSensitiveKey(key: string): boolean {
 }
 
 const BEARER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi;
+const KEY_VALUE =
+  /\b((?:access_|refresh_|id_|api_)?token|code|client_secret|secret|signature|password|passwd|api_?key|authorization)=[^&\s"']*/gi;
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const JWT = /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g;
 
 /** Scrub credential-looking substrings out of free text (error messages, stacks). */
 export function scrubString(value: string): string {
-  return value.replace(BEARER, `$1 ${REDACTED}`).replace(JWT, REDACTED);
+  return value
+    .replace(BEARER, `$1 ${REDACTED}`)
+    .replace(JWT, REDACTED)
+    .replace(KEY_VALUE, `$1=${REDACTED}`)
+    .replace(EMAIL, REDACTED);
 }
 
 const MAX_DEPTH = 8;

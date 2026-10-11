@@ -1,11 +1,12 @@
 import type { LoggerService } from '@nestjs/common';
+import { redact, scrubString } from './redact.js';
 import type { Telemetry } from '../../ports/telemetry.js';
 
 /** Route Nest's own framework logs through telemetry so every line is JSON and redacted. */
 export class NestTelemetryLogger implements LoggerService {
   constructor(private readonly telemetry: Telemetry) {}
   private text(message: unknown): string {
-    return typeof message === 'string' ? message : JSON.stringify(message);
+    return scrubString(typeof message === 'string' ? message : (JSON.stringify(redact(message)) ?? String(message)));
   }
   log(message: unknown, context?: string) {
     this.telemetry.log.info(this.text(message), { context });

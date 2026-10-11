@@ -40,4 +40,8 @@ describe('parseEnv', () => {
   it('rejects an unknown queue group and names it', () => {
     expect(() => parseEnv({ ...base, ROLE: 'worker', WORKER_QUEUES: 'realtime,email' })).toThrow(/WORKER_QUEUES: unknown queue group\(s\): email/);
   });
+
+  it('rejects PORT equal to WORKER_HEALTH_PORT', () => {
+    expect(() => parseEnv({ ROLE: 'http', DATABASE_URL: 'postgres://u:p@localhost:5432/db', PORT: '3002', WORKER_HEALTH_PORT: '3002' })).toThrow(/WORKER_HEALTH_PORT/);
+  });
 });

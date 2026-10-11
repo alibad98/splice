@@ -55,6 +55,19 @@ describe('pollQueueStats', () => {
   });
 });
 
+describe('worker liveness gauge', () => {
+  it('is refreshed by the queue-stats pass', async () => {
+    const t = silent();
+    let up = true;
+    const probe = { isReachable: async () => up };
+    await pollQueueStats({ getQueues: async () => [] }, [], t, probe);
+    expect(t.registry.value(Metric.WorkerUp)).toBe(1);
+    up = false;
+    await pollQueueStats({ getQueues: async () => [] }, [], t, probe);
+    expect(t.registry.value(Metric.WorkerUp)).toBe(0);
+  });
+});
+
 describe('jobMeta', () => {
   it('carries the request trace_id and store_id into the job payload', () => {
     const t = silent();

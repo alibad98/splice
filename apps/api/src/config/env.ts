@@ -34,7 +34,8 @@ const featureFlags = z
     return out;
   });
 
-export const EnvSchema = z.object({
+export const EnvSchema = z
+  .object({
   ROLE: z.enum(['http', 'worker']),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
@@ -48,7 +49,7 @@ export const EnvSchema = z.object({
   METRICS_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(16).optional()),
   /** Worker role only: port for its liveness and metrics server. */
   WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(3002),
-});
+}).refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' });
 export type Env = z.infer<typeof EnvSchema>;
 
 export class EnvError extends Error {

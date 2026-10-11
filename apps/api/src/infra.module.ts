@@ -6,6 +6,7 @@ import { COMMERCE_PLATFORM, type CommercePlatform } from './ports/commerce-platf
 import { TOKEN_CIPHER, type TokenCipher } from './ports/token-cipher.js';
 import { DATABASE_PROBE, type DatabaseProbe } from './ports/database-probe.js';
 import { FEATURE_FLAGS, type FeatureFlags } from './ports/feature-flags.js';
+import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from './ports/store-data-lifecycle.js';
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 
 export const APP_INFO = Symbol('APP_INFO');
@@ -63,6 +64,8 @@ export interface InfraDeps {
   integration: IntegrationConfig;
   session: SessionConfig;
   adminAccess: AdminAccess;
+  /** Modules that hold tenant data, registered for uninstall, reinstall and purge (the integration module adds its own, last). */
+  lifecycles: readonly StoreDataLifecycle[];
 }
 
 /** Binds the ports to their adapters for the Nest container. Global so domain modules just inject tokens. */
@@ -83,6 +86,7 @@ export class InfraModule {
       { provide: INTEGRATION_CONFIG, useValue: deps.integration },
       { provide: SESSION_CONFIG, useValue: deps.session },
       { provide: ADMIN_ACCESS, useValue: deps.adminAccess },
+      { provide: STORE_DATA_LIFECYCLES, useValue: deps.lifecycles },
     ];
     return { module: InfraModule, providers, exports: providers.map((p) => p.provide) };
   }

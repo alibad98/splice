@@ -8,6 +8,8 @@ import { HealthResponse } from '@slips/contracts';
 import { isAuthorizedForMetrics } from '../adapters/telemetry/http.js';
 import { instrumentJob, type JobHandler } from '../adapters/telemetry/jobs.js';
 import { startQueueStatsPoller } from '../adapters/telemetry/queue-stats.js';
+import { IntegrationService } from '../modules/integration/integration.service.js';
+import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { buildInfra } from '../http.js';
 import type { Env } from '../config/env.js';
 import type { DatabaseProbe } from '../ports/database-probe.js';
@@ -103,15 +105,19 @@ export async function startWorker(
   // Domain events are consumed here and nowhere else (AD-17); handlers run in the worker's own pool.
   const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 4 });
   pool.on('error', () => undefined);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...handlers };
   const boss = new PgBoss({ connectionString: env.DATABASE_URL, persistQueueStats: true });
   boss.on('error', (err) => telemetry.captureError(err, { component: 'pg-boss' }));
+  // The worker publishes through its own pg-boss; the integration service runs on the worker's pool.
+  const integration = new IntegrationService(pool, infra.platform, infra.cipher, telemetry, boss, infra.integration, infra.lifecycles);
+  registerIntegrationEventHandlers(events, telemetry);
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...handlers };
   let stopPoller = () => {};
   try {
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
     await registerQueues(boss, telemetry, selected, allHandlers);
     await grantEventPublishing(pool, telemetry, EVENT_QUEUE);
+    if (selected.some((q) => q.name === WEBHOOK_SWEEP_QUEUE)) await boss.schedule(WEBHOOK_SWEEP_QUEUE, SWEEP_CRON, { v: 1, trace_id: 'schedule' });
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),

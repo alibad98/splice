@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConnectionStatus } from '@slips/contracts';
 import { runOutsideStoreContext, withStoreContext, type LifecycleState } from '@slips/db';
 import type { Pool } from 'pg';
@@ -16,7 +16,11 @@ import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
 import { TOKEN_CIPHER, type TokenCipher } from '../../ports/token-cipher.js';
 import { StoreDisconnectedError, StoreLifecycleConflictError, StoreNotConnectedError } from './errors.js';
 import { createInstallState, verifyInstallState } from './install-state.js';
+import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from '../../ports/store-data-lifecycle.js';
+import { integrationStoreData } from './integration.lifecycle.js';
 import { IntegrationRepository } from './integration.repository.js';
+import { lockStore, StoreLifecycle } from './store-lifecycle.js';
+import { WebhookInbox } from './webhook-inbox.js';
 
 /** Refresh when the access token has less than this left. */
 export const REFRESH_SKEW_MS = 60_000;
@@ -47,7 +51,17 @@ export class IntegrationService {
     @Inject(TELEMETRY) private readonly telemetry: Telemetry,
     @Inject(EVENT_SENDER) private readonly events: EventSender,
     @Inject(INTEGRATION_CONFIG) private readonly config: IntegrationConfig,
-  ) {}
+    @Optional() @Inject(STORE_DATA_LIFECYCLES) modules: readonly StoreDataLifecycle[] = [],
+  ) {
+    // Other modules purge first; the integration module's own data (tokens, account) goes last.
+    this.lifecycle = new StoreLifecycle(pool, telemetry, events, [...modules, integrationStoreData], () => this.now());
+    this.inbox = new WebhookInbox(pool, platform, cipher, telemetry, this.lifecycle, (t, p) => this.installFromTokens(t, p), (id) => this.locate(id), () => this.now());
+  }
+
+  /** Uninstall, reinstall and purge (AD-20). */
+  readonly lifecycle: StoreLifecycle;
+  /** Verified-webhook intake and processing (AD-13). */
+  readonly inbox: WebhookInbox;
 
   /** Clock; tests replace it. */
   now: () => number = Date.now;
@@ -82,7 +96,8 @@ export class IntegrationService {
    * store is located by (platform, platform_store_id); a second install of the same store updates it in place.
    * Reused by the Easy Mode webhook (Story 1.10).
    */
-  async installFromTokens(tokens: TokenSet, profile: MerchantProfile): Promise<{ storeId: string; created: boolean }> {
+  async installFromTokens(tokens: TokenSet, profile: MerchantProfile): Promise<{ storeId: string; created: boolean; restored?: boolean }> {
+    let restored = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       const existing = await this.locate(profile.platformStoreId);
       try {
@@ -90,17 +105,25 @@ export class IntegrationService {
           await withStoreContext(this.pool, existing, async (ctx) => {
             // Same lock as refresh, so an install can not interleave with a refresh and overwrite its rotated pair.
             await ctx.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [lockKey(existing)]);
+            await lockStore(ctx); // also serialises with uninstall and with the purge's batches
             const store = await this.repo.getStore();
             if (!store) throw new Error('store locator points at a missing store');
-            if (store.lifecycleState !== 'active' && store.lifecycleState !== 'disconnected') throw new StoreLifecycleConflictError();
+            if (store.lifecycleState === 'uninstalled' || store.lifecycleState === 'purged') {
+              // AD-20: the same row comes back with the next epoch; a purge in flight sees it and stops.
+              const epoch = await this.lifecycle.reinstallInTx(ctx, { installEpoch: store.installEpoch, lifecycleState: store.lifecycleState, platform: store.platform, platformStoreId: store.platformStoreId }, { name: profile.storeName, syncedDomains: profile.domains });
+              if (epoch === undefined) throw new StoreLifecycleConflictError();
+              await this.persistInstall(existing, tokens, profile);
+              restored = true;
+              return;
+            }
             await this.repo.refreshStoreDetails({ name: profile.storeName, syncedDomains: profile.domains }, 'active');
             await this.persistInstall(existing, tokens, profile);
           });
-          return { storeId: existing, created: false };
+          return { storeId: existing, created: false, ...(restored ? { restored } : {}) };
         }
         const id = uuidv7();
         await withStoreContext(this.pool, id, async (ctx) => {
-          await this.repo.insertStore({ platform: this.platform.platform, platformStoreId: profile.platformStoreId, name: profile.storeName, syncedDomains: profile.domains });
+          await this.repo.insertStore({ platform: this.platform.platform, platformStoreId: profile.platformStoreId, name: profile.storeName, syncedDomains: profile.domains, at: new Date(this.now()) });
           await ctx.query('insert into store_locator (platform, platform_store_id, id) values ($1, $2, $3)', [this.platform.platform, profile.platformStoreId, id]);
           await this.persistInstall(id, tokens, profile);
           await publishEvent(ctx, this.events, this.telemetry, 'integration.store.installed', { v: 1, store_id: id, install_epoch: 1 });
@@ -131,7 +154,7 @@ export class IntegrationService {
     };
   }
 
-  private async locate(platformStoreId: string): Promise<string | undefined> {
+  async locate(platformStoreId: string): Promise<string | undefined> {
     const { rows } = await this.pool.query<{ id: string | null }>('select locate_store($1, $2)::text as id', [this.platform.platform, platformStoreId]);
     return rows[0]?.id ?? undefined;
   }
@@ -242,6 +265,21 @@ export class IntegrationService {
       const store = await this.repo.getStore();
       return store ? { storeId, name: store.name, lifecycleState: store.lifecycleState } : undefined;
     });
+  }
+
+  /**
+   * The active-store check for storefront-facing endpoints (the Epic 4 content endpoint calls this with the locator
+   * from the request). False for an unknown, disconnected, uninstalled or purged store, so the endpoint answers with an
+   * empty result for it (AD-20). Billing and other per-store processing use the same check.
+   */
+  async isStoreActive(locator: { platform?: string; platformStoreId: string }): Promise<boolean> {
+    if (locator.platform && locator.platform !== this.platform.platform) return false;
+    const storeId = await this.locate(locator.platformStoreId);
+    return storeId ? this.isStoreActiveById(storeId) : false;
+  }
+
+  async isStoreActiveById(storeId: string): Promise<boolean> {
+    return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.lifecycleState === 'active');
   }
 
   /** What the dashboard connection chip shows for a store. */

@@ -14,6 +14,6 @@ export function unconfiguredPlatform(): CommercePlatform {
     products: { list: fail },
     orders: { get: fail },
     subscriptions: { list: fail },
-    webhooks: { verify: () => false },
+    webhooks: { verify: () => false, parse: () => null },
   };
 }

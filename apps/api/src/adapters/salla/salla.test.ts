@@ -128,6 +128,38 @@ describe('webhook verification', () => {
   });
 });
 
+describe('webhook parsing', () => {
+  const p = platform(vi.fn());
+  const parse = (o: unknown) => p.webhooks.parse({ headers: {}, rawBody: Buffer.from(JSON.stringify(o)) });
+
+  it('reduces app.store.authorize to a canonical payload with the token pair kept apart', () => {
+    const e = parse({ event: 'app.store.authorize', merchant: 123456, created_at: '2026-10-11T10:00:00Z', data: { id: 7, app_name: 'Slips', access_token: 'AT-1', refresh_token: 'RT-1', expires: 1_800_000_000, scope: 'offline_access settings.read', token_type: 'bearer' } })!;
+    expect(e).toMatchObject({ type: 'app.store.authorize', kind: 'authorize', platformStoreId: '123456' });
+    expect(e.tokens).toMatchObject({ accessToken: 'AT-1', refreshToken: 'RT-1', scopes: ['offline_access', 'settings.read'] });
+    expect(e.tokens!.expiresAt.toISOString()).toBe('2027-01-15T08:00:00.000Z');
+    expect(JSON.stringify(e.payload)).not.toMatch(/AT-1|RT-1|Slips/);
+    expect(e.occurredAt?.toISOString()).toBe('2026-10-11T10:00:00.000Z');
+  });
+  it('keeps no field of an uninstall or unknown event beyond the allow-list (no shopper PII)', () => {
+    const pii = { customer: { email: 'shopper@example.com' }, mobile: '0555' };
+    const u = parse({ event: 'app.uninstalled', merchant: '9', data: pii })!;
+    expect(u).toMatchObject({ kind: 'uninstalled', platformStoreId: '9', payload: { event: 'app.uninstalled', kind: 'uninstalled' } });
+    const o = parse({ event: 'order.created', merchant: '9', data: pii })!;
+    expect(o.kind).toBe('other');
+    expect(JSON.stringify([u, o])).not.toMatch(/shopper@example.com|0555/);
+  });
+  it('gives a retry of the same body the same event id and a different body another', () => {
+    const body = { event: 'app.uninstalled', merchant: '9' };
+    expect(parse(body)!.eventId).toBe(parse(body)!.eventId);
+    expect(parse({ ...body, created_at: '2026-01-01' })!.eventId).not.toBe(parse(body)!.eventId);
+  });
+  it('returns null for unusable bodies without throwing', () => {
+    expect(p.webhooks.parse({ headers: {}, rawBody: Buffer.from('not json') })).toBeNull();
+    expect(parse({ merchant: '1' })).toBeNull();
+    expect(parse({ event: 'app.store.authorize', merchant: '1', data: { access_token: 'x' } })).toBeNull();
+  });
+});
+
 describe('SallaHttp pacing and Retry-After', () => {
   it('parses Retry-After seconds and HTTP dates', () => {
     expect(parseRetryAfter('7', 0)).toBe(7000);

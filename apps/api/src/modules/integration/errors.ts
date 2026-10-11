@@ -14,7 +14,7 @@ export class StoreDisconnectedError extends Error {
   }
 }
 
-/** The platform asked to install a store whose lifecycle state this story does not restore (Story 1.10 does). */
+/** The store moved to another lifecycle state while an install was restoring it; the install is retried. */
 export class StoreLifecycleConflictError extends Error {
   constructor() {
     super('store is in a lifecycle state that install does not restore');

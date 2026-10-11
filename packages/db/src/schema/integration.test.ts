@@ -11,7 +11,7 @@ import * as schema from './index.js';
 
 const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
 const APP_URL = 'postgres://slips_it_integration:it_integration_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['stores', 'merchant_accounts', 'platform_tokens', 'token_access_log', 'merchant_sessions'];
+const TENANT_TABLES = ['stores', 'merchant_accounts', 'platform_tokens', 'token_access_log', 'merchant_sessions', 'store_data_jobs'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -48,7 +48,7 @@ describe('integration tables', () => {
   });
 
   it('are owned by integration and the schema has no unowned table', () => {
-    for (const t of [...TENANT_TABLES.filter((x) => x !== 'merchant_sessions'), 'store_locator']) expect(tableOwners().get(t)).toBe('integration');
+    for (const t of [...TENANT_TABLES.filter((x) => x !== 'merchant_sessions'), 'store_locator', 'webhook_inbox', 'lifecycle_audit', 'store_purge_schedule']) expect(tableOwners().get(t)).toBe('integration');
     expect(tableOwners().get('merchant_sessions')).toBe('session');
     expect(findUnownedTables(schemaTableNames(schema))).toEqual([]);
   });
@@ -84,10 +84,17 @@ describe('integration tables', () => {
           return (await c.query<{ id: string }>(`insert into merchant_sessions (id, store_id, mode, secret_hash, expires_at) values ($2, $1, 'direct', 'h', now() + interval '1 day') returning id::text as id`, [s, randomUUID()])).rows[0]!.id;
         },
       },
+      {
+        table: 'store_data_jobs',
+        seed: async (c: pg.PoolClient, s: string) => {
+          await seedStore(c, s);
+          return (await c.query<{ id: string }>(`insert into store_data_jobs (id, store_id, kind, install_epoch) values ($2, $1, 'purge', 1) on conflict (store_id, kind, install_epoch) do update set batches = 0 returning id::text as id`, [s, randomUUID()])).rows[0]!.id;
+        },
+      },
     ];
     for (const r of regs) registerTenantTable(r);
     expect(findUnregisteredTenantTables(TENANT_TABLES)).toEqual([]);
-    expect(registeredTenantTables().length).toBe(5);
+    expect(registeredTenantTables().length).toBe(6);
   });
 
   it.each(TENANT_TABLES)('%s: store A can not read, change or write store B rows', async (table) => {

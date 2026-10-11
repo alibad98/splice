@@ -39,3 +39,15 @@ describe('integration.store.disconnected', () => {
     expect(schema.safeParse({ ...ok, reason: 'because' }).success).toBe(false);
   });
 });
+
+describe('store lifecycle events', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  it('uninstalled carries the grace end; reinstalled and purged carry the epoch', () => {
+    expect(EVENT_CATALOG['integration.store.uninstalled'].schema.safeParse({ v: 1, store_id: id, install_epoch: 1, grace_ends_at: '2026-11-10T10:00:00.000Z' }).success).toBe(true);
+    expect(EVENT_CATALOG['integration.store.uninstalled'].schema.safeParse({ v: 1, store_id: id, install_epoch: 1 }).success).toBe(false);
+    for (const name of ['integration.store.reinstalled', 'integration.store.purged'] as const) {
+      expect(EVENT_CATALOG[name].schema.safeParse({ v: 1, store_id: id, install_epoch: 2 }).success).toBe(true);
+      expect(EVENT_CATALOG[name].schema.safeParse({ v: 1, store_id: id }).success).toBe(false);
+    }
+  });
+});

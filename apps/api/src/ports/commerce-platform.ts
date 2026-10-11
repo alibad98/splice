@@ -61,6 +61,24 @@ export interface WebhookRequest {
   rawBody: Buffer;
 }
 
+export type WebhookKind = 'authorize' | 'installed' | 'uninstalled' | 'other';
+
+/** A verified webhook reduced to what Slips may keep (AD-5, AD-13): no shopper PII, no raw body. */
+export interface CanonicalWebhook {
+  /** Unique per delivery of one event: a retry of the same event carries the same id. */
+  eventId: string;
+  /** The platform's event name, kept for the inbox. */
+  type: string;
+  kind: WebhookKind;
+  /** The platform's store id (the store locator, AD-16). */
+  platformStoreId: string;
+  occurredAt?: Date;
+  /** Built from an allow-list of fields; safe to store and log. */
+  payload: Record<string, unknown>;
+  /** Present only for `authorize` (Easy Mode): the token pair. A secret: stored only envelope-encrypted. */
+  tokens?: TokenSet;
+}
+
 /** The refresh or code was rejected for good (revoked, expired, already used): the store must be disconnected. */
 export class PlatformAuthRejectedError extends Error {
   constructor(message = 'platform rejected the credentials') {
@@ -106,6 +124,8 @@ export interface CommercePlatform {
   readonly webhooks: {
     /** True only when the signature matches the raw body (timing-safe). */
     verify(req: WebhookRequest): boolean;
+    /** Reduce a VERIFIED webhook to its canonical form; null when the body is not a recognisable event. Never throws on bad input. */
+    parse(req: WebhookRequest): CanonicalWebhook | null;
   };
 }
 

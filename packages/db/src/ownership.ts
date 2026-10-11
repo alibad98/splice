@@ -4,7 +4,7 @@ import { PgTable } from 'drizzle-orm/pg-core';
 /** Table ownership map from ARCHITECTURE-SPINE (AD-2): exactly one owning module per table. */
 export const OWNERSHIP = {
   session: ['merchant_sessions'],
-  integration: ['stores', 'store_settings', 'store_settings_history', 'platform_tokens', 'token_access_log', 'store_locator', 'merchant_accounts', 'webhook_inbox', 'orders', 'order_lines', 'store_data_jobs'],
+  integration: ['stores', 'store_settings', 'store_settings_history', 'platform_tokens', 'token_access_log', 'store_locator', 'merchant_accounts', 'webhook_inbox', 'orders', 'order_lines', 'store_data_jobs', 'lifecycle_audit', 'store_purge_schedule'],
   catalog: ['products', 'categories'],
   content: ['content_items', 'slides', 'placements', 'schedules', 'content_product_links'],
   media: ['media_assets', 'renditions'],

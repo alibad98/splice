@@ -67,7 +67,7 @@ class FakePlatform implements CommercePlatform {
   products = { list: async () => ({ items: [], hasMore: false }) };
   orders = { get: async () => ({ externalId: '1', status: 's', total: 1, currency: 'SAR', lines: [] }) };
   subscriptions = { list: async () => [] };
-  webhooks = { verify: () => false };
+  webhooks = { verify: () => false, parse: () => null };
 }
 
 function service(platform: FakePlatform) {

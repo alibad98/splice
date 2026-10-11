@@ -10,6 +10,7 @@ import { PinoTelemetry } from './adapters/telemetry/pino-telemetry.js';
 import { EnvelopeTokenCipher } from './adapters/crypto/envelope-cipher.js';
 import { SendOnlyEventSender } from './adapters/pgboss/send-only-producer.js';
 import { SallaCommercePlatform, unconfiguredPlatform } from './adapters/salla/index.js';
+import { sessionStoreData } from './modules/session/session.lifecycle.js';
 import { denyAllAdminAccess } from './ports/admin-access.js';
 import type { TokenCipher } from './ports/token-cipher.js';
 import { AppModule } from './app.module.js';
@@ -98,6 +99,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
       idleMs: 12 * 3_600_000,
     },
     adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
+    lifecycles: overrides.lifecycles ?? [sessionStoreData],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),
     info: overrides.info ?? { version },
@@ -107,7 +109,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
 
 export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> = {}): Promise<INestApplication> {
   const deps = buildInfra(env, 'http', overrides);
-  const app = await NestFactory.create(AppModule.register(deps), { logger: new NestTelemetryLogger(deps.telemetry) });
+  const app = await NestFactory.create(AppModule.register(deps), { logger: new NestTelemetryLogger(deps.telemetry), rawBody: true });
   app.use(requestTelemetry(deps.telemetry));
   app.enableCors({
     origin: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),

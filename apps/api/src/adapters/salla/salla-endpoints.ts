@@ -30,3 +30,11 @@ export const SALLA_INTROSPECT_URL = 'https://api.salla.dev/exchange-authority/v1
 export const SALLA_INTROSPECT_SOURCE_HEADER = 'S-Source';
 /** Merchant dashboard page that hosts the embedded app: `<base>/<appId>`. */
 export const SALLA_EMBEDDED_APP_BASE = 'https://s.salla.sa/embedded/app';
+
+/** App events delivered to the app webhook URL (verify in Story 1.13: names from docs, payload fields from the SDK types). */
+export const SALLA_APP_EVENTS = {
+  authorize: 'app.store.authorize',
+  installed: 'app.installed',
+  uninstalled: 'app.uninstalled',
+} as const;
+/** A delivery has no documented event id; the SHA-256 of the raw body stands in (a retry resends the same body). Verify in Story 1.13. */

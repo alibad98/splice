@@ -1,10 +1,10 @@
 // Tables owned by the `integration` module (AD-2). Tenant tables carry store_id with forced RLS (migration 0004).
 import { sql } from 'drizzle-orm';
-import { integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const STORE_PLATFORMS = ['salla'] as const;
 export type StorePlatform = (typeof STORE_PLATFORMS)[number];
-/** AD-20: active -> disconnected -> uninstalled (30-day grace) -> purged. Transitions beyond `disconnected` arrive in Story 1.10. */
+/** AD-20: active -> disconnected -> uninstalled (30-day grace) -> purged. Uninstall, grace and purge: Story 1.10. */
 export const LIFECYCLE_STATES = ['active', 'disconnected', 'uninstalled', 'purged'] as const;
 export type LifecycleState = (typeof LIFECYCLE_STATES)[number];
 
@@ -20,6 +20,12 @@ export const stores = pgTable('stores', {
   lifecycleState: text('lifecycle_state').$type<LifecycleState>().notNull().default('active'),
   installEpoch: integer('install_epoch').notNull().default(1),
   syncedDomains: text('synced_domains').array().notNull().default(sql`'{}'::text[]`),
+  /** Set when the store becomes `uninstalled`; the 30-day grace ends at `graceEndsAt` (AD-20). */
+  uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
+  graceEndsAt: timestamp('grace_ends_at', { withTimezone: true }),
+  purgedAt: timestamp('purged_at', { withTimezone: true }),
+  /** When the current install epoch began; a webhook older than this belongs to an earlier epoch and is dropped. */
+  epochStartedAt: timestamp('epoch_started_at', { withTimezone: true }).notNull().default(sql`now()`),
   createdAt: now(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().default(sql`now()`),
 });
@@ -76,4 +82,61 @@ export const merchantSessions = pgTable('merchant_sessions', {
   createdAt: now(),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().default(sql`now()`),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+export const WEBHOOK_STATUSES = ['pending', 'processed', 'ignored', 'dead_lettered'] as const;
+export type WebhookStatus = (typeof WEBHOOK_STATUSES)[number];
+
+/** Verified webhooks (AD-13). Canonical PII-free payload only; not a tenant table because the store may not exist yet. */
+export const webhookInbox = pgTable('webhook_inbox', {
+  id: uuid('id').primaryKey(),
+  platform: text('platform').$type<StorePlatform>().notNull(),
+  eventId: text('event_id').notNull(),
+  type: text('type').notNull(),
+  platformStoreId: text('platform_store_id').notNull(),
+  bodyHash: text('body_hash').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  secretEnc: text('secret_enc'),
+  secretKeyId: text('secret_key_id'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }),
+  status: text('status').$type<WebhookStatus>().notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().default(sql`now()`),
+  parkedSince: timestamp('parked_since', { withTimezone: true }),
+  lastError: text('last_error'),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().default(sql`now()`),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+});
+
+/** Resumable per-store data jobs (the purge). One row per (store, kind, install epoch). */
+export const storeDataJobs = pgTable('store_data_jobs', {
+  id: uuid('id').primaryKey(),
+  storeId: uuid('store_id').notNull(),
+  kind: text('kind').$type<'purge'>().notNull(),
+  installEpoch: integer('install_epoch').notNull(),
+  status: text('status').$type<'running' | 'completed' | 'aborted'>().notNull().default('running'),
+  completedModules: text('completed_modules').array().notNull().default(sql`'{}'::text[]`),
+  batches: integer('batches').notNull().default(0),
+  abortReason: text('abort_reason'),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().default(sql`now()`),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().default(sql`now()`),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
+});
+
+/** Append-only lifecycle trail keyed by the platform locator so it survives a purge. No PII. */
+export const lifecycleAudit = pgTable('lifecycle_audit', {
+  id: uuid('id').primaryKey(),
+  platform: text('platform').$type<StorePlatform>().notNull(),
+  platformStoreId: text('platform_store_id').notNull(),
+  action: text('action').notNull(),
+  installEpoch: integer('install_epoch').notNull(),
+  details: jsonb('details').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  at: timestamp('at', { withTimezone: true }).notNull().default(sql`now()`),
+});
+
+/** Uninstalled stores awaiting purge, readable across tenants for the sweep. One row per store; replaced on uninstall, removed on reinstall or purge. */
+export const storePurgeSchedule = pgTable('store_purge_schedule', {
+  id: uuid('id').primaryKey(),
+  installEpoch: integer('install_epoch').notNull(),
+  dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
 });

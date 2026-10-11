@@ -44,7 +44,11 @@ export function deadLetterName(queue: string): string {
 }
 
 /** Registered queues. Modules add theirs here as they land. */
-export const QUEUES: readonly QueueDefinition[] = [{ name: EVENT_QUEUE, group: 'realtime' }];
+export const QUEUES: readonly QueueDefinition[] = [
+  { name: EVENT_QUEUE, group: 'realtime' },
+  { name: 'integration.webhook.sweep', group: 'realtime' },
+  { name: 'integration.store.purge', group: 'batch' },
+];
 
 export function queuesFor(groups: readonly QueueGroup[], queues: readonly QueueDefinition[] = QUEUES): QueueDefinition[] {
   return queues.filter((q) => groups.includes(q.group));

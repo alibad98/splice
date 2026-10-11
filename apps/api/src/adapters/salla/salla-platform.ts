@@ -1,9 +1,11 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import {
   PlatformAuthRejectedError,
   PlatformUnavailableError,
   type CanonicalOrder,
+  type CanonicalWebhook,
+  type WebhookKind,
   type CanonicalProduct,
   type CanonicalSubscription,
   type CommercePlatform,
@@ -16,6 +18,7 @@ import {
 import type { Telemetry } from '../../ports/telemetry.js';
 import {
   SALLA_ADMIN_BASE,
+  SALLA_APP_EVENTS,
   SALLA_AUTHORIZE_URL,
   SALLA_DEFAULT_SCOPES,
   SALLA_DEFINITIVE_OAUTH_ERRORS,
@@ -44,6 +47,18 @@ const TokenResponse = z.object({
   access_token: z.string().min(1),
   refresh_token: z.string().min(1),
   expires_in: z.coerce.number().positive(),
+  scope: z.string().optional(),
+});
+const WebhookEnvelope = z.object({
+  event: z.string().min(1).max(100),
+  merchant: z.union([z.string().min(1), z.number()]),
+  created_at: z.union([z.string(), z.number()]).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+const AuthorizeData = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  expires: z.coerce.number().positive(),
   scope: z.string().optional(),
 });
 const OAuthError = z.object({ error: z.string().optional() });
@@ -221,7 +236,47 @@ export class SallaCommercePlatform implements CommercePlatform {
       const expected = createHmac('sha256', secret).update(req.rawBody).digest();
       return timingSafeEqual(expected, Buffer.from(given, 'hex'));
     },
+    parse: (req: WebhookRequest): CanonicalWebhook | null => this.parseWebhook(req),
   };
+
+  private parseWebhook(req: WebhookRequest): CanonicalWebhook | null {
+    let json: unknown;
+    try {
+      json = JSON.parse(req.rawBody.toString('utf8'));
+    } catch {
+      return null;
+    }
+    const env = WebhookEnvelope.safeParse(json);
+    if (!env.success) return null;
+    const { event, merchant, created_at, data } = env.data;
+    const kind: WebhookKind = event === SALLA_APP_EVENTS.authorize ? 'authorize' : event === SALLA_APP_EVENTS.installed ? 'installed' : event === SALLA_APP_EVENTS.uninstalled ? 'uninstalled' : 'other';
+    let occurredAt: Date | undefined;
+    if (created_at !== undefined) {
+      const d = typeof created_at === 'number' ? new Date(created_at < 1e12 ? created_at * 1000 : created_at) : new Date(created_at);
+      if (!Number.isNaN(d.getTime())) occurredAt = d;
+    }
+    // Canonical payload: allow-listed fields only, never a spread of the body (AD-5).
+    const payload: Record<string, unknown> = { event, kind };
+    const out: CanonicalWebhook = {
+      eventId: createHash('sha256').update(req.rawBody).digest('hex'),
+      type: event,
+      kind,
+      platformStoreId: String(merchant),
+      payload,
+      ...(occurredAt ? { occurredAt } : {}),
+    };
+    if (kind === 'authorize') {
+      const a = AuthorizeData.safeParse(data);
+      if (!a.success) return null;
+      const scopes = (a.data.scope ?? '').split(/\s+/).filter(Boolean);
+      const expiresAt = new Date(a.data.expires < 1e12 ? a.data.expires * 1000 : a.data.expires);
+      if (Number.isNaN(expiresAt.getTime())) return null;
+      out.tokens = { accessToken: a.data.access_token, refreshToken: a.data.refresh_token, expiresAt, scopes };
+      payload.scopes = scopes;
+      payload.expires_at = expiresAt.toISOString();
+    }
+    return out;
+  }
 
   private async tokenRequest(grant: Record<string, string>): Promise<TokenSet> {
     const body = new URLSearchParams({ ...grant, client_id: this.config.clientId, client_secret: this.config.clientSecret });

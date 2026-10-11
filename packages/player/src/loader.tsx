@@ -48,7 +48,9 @@ function insertWhenOffscreen(anchor: Element, manifest: Manifest): void {
   };
   const io = new IntersectionObserver((entries) => {
     const e = entries[entries.length - 1];
-    if (e && !e.isIntersecting) {
+    // AD-8: insert only while the anchor is entirely BELOW the viewport. Above or inside it, do not mount
+    // (an overlay fallback is planned for Epic 5).
+    if (e && !e.isIntersecting && e.boundingClientRect.top >= (e.rootBounds?.bottom ?? window.innerHeight)) {
       io.disconnect();
       mount();
     }
@@ -57,6 +59,10 @@ function insertWhenOffscreen(anchor: Element, manifest: Manifest): void {
 }
 
 export async function boot(cfg: SlipsConfig): Promise<void> {
+  // The stub's timeout removes the script unless the loader reports ready.
+  const g = window as unknown as { __slips?: { ready?: boolean } };
+  if (g.__slips) g.__slips.ready = true;
+  // TODO(Story 1.11): read salla.config here to derive the page context and store locator.
   const anchor = document.querySelector(ANCHOR);
   if (!anchor) return;
   const manifest = await fetchManifest(cfg);

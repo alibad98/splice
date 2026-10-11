@@ -64,9 +64,18 @@ for (const theme of THEMES) {
       await open(page, 'slow-content');
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
       expect(await page.locator('[data-slips-root]').count()).toBe(0); // manifest still pending
-      await expect(page.locator('[data-slips-root]')).toHaveCount(1);
       await settle(page);
+      expect(await page.locator('[data-slips-root]').count()).toBe(0); // anchor is above the viewport: not mounted
       expect((await shifts(page)).filter((s) => s.slips)).toEqual([]);
+      expect(await shifts(page)).toEqual([]);
+    });
+
+    test('anchor inside the viewport at manifest time: nothing mounted, no shift', async ({ page }) => {
+      await open(page, 'slow-content');
+      await page.locator('[data-slips-anchor]').scrollIntoViewIfNeeded();
+      await page.evaluate(() => document.querySelector('[data-slips-anchor]')!.scrollIntoView({ block: 'center' }));
+      await settle(page);
+      expect(await page.locator('[data-slips-root]').count()).toBe(0);
       expect(await shifts(page)).toEqual([]);
     });
   });

@@ -14,14 +14,20 @@ function closure(entry, seen = new Set()) {
   if (seen.has(entry)) return seen;
   seen.add(entry);
   const src = readFileSync(entry, 'utf8');
-  for (const m of src.matchAll(/(?:^|[;}\s])(?:import|export)\s[^'"()]*?from\s*["'](\.[^"']+)["']|(?:^|[;\s])import\s*["'](\.[^"']+)["']/g)) {
-    closure(join(dirname(entry), m[1] ?? m[2]), seen);
+  // Static `import ... from "./x"`, `export ... from "./x"` and bare `import"./x"`; whitespace-tolerant.
+  for (const m of src.matchAll(/\b(?:import|export)\s*(?:[^'"();]*?\s*from\s*)?["'](\.{1,2}\/[^"']+)["']/g)) {
+    closure(join(dirname(entry), m[1]), seen);
   }
   return seen;
 }
 
 const total = (files) => [...files].reduce((n, f) => n + gz(f), 0);
 const loaderFiles = closure(join(dist, 'loader.js'));
+if (![...loaderFiles].some((f) => /\/preact[^/]*\.js$/.test(f))) {
+  console.error('FAIL chunk discovery: the core loader closure does not include the preact chunk; the size gate would undercount');
+  process.exit(1);
+}
+
 const sizes = {
   loader: total(loaderFiles),
   initial: total(loaderFiles) + gz(stubFile),

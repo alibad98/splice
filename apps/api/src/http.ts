@@ -15,6 +15,7 @@ import { denyAllAdminAccess } from './ports/admin-access.js';
 import type { TokenCipher } from './ports/token-cipher.js';
 import { AppModule } from './app.module.js';
 import type { Env } from './config/env.js';
+import { createWebhookRecorder } from './modules/integration/webhook-recorder.js';
 import type { InfraDeps } from './infra.module.js';
 
 export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
@@ -27,6 +28,7 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'FEATURE_FLAGS'
       | 'METRICS_TOKEN'
       | 'NODE_ENV'
+      | 'WEBHOOK_RECORD_DIR'
       | 'TOKEN_ENCRYPTION_KEY'
       | 'TOKEN_ENCRYPTION_KEY_ID'
       | 'OAUTH_STATE_SECRET'
@@ -73,6 +75,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
           telemetry,
         )
       : unconfiguredPlatform());
+  const recorder = env.NODE_ENV === 'production' ? undefined : createWebhookRecorder(env.WEBHOOK_RECORD_DIR);
   return {
     telemetry,
     pool,
@@ -89,6 +92,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
           ? createHmac('sha256', Buffer.from(masterKey, 'base64')).update('slips/oauth-state/v1').digest()
           : randomBytes(32),
       secureCookies: env.NODE_ENV === 'production',
+      ...(recorder ? { webhookRecorder: recorder } : {}),
     },
     session: overrides.session ?? {
       secret: createHmac('sha256', env.OAUTH_STATE_SECRET ?? (masterKey ? Buffer.from(masterKey, 'base64') : randomBytes(32))).update('slips/session-csrf/v1').digest(),

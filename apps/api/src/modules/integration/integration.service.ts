@@ -55,7 +55,7 @@ export class IntegrationService {
   ) {
     // Other modules purge first; the integration module's own data (tokens, account) goes last.
     this.lifecycle = new StoreLifecycle(pool, telemetry, events, [...modules, integrationStoreData], () => this.now());
-    this.inbox = new WebhookInbox(pool, platform, cipher, telemetry, this.lifecycle, (t, p) => this.installFromTokens(t, p), (id) => this.locate(id), () => this.now());
+    this.inbox = new WebhookInbox(pool, platform, cipher, telemetry, this.lifecycle, (t, p) => this.installFromTokens(t, p), (id) => this.locate(id), () => this.now(), config.webhookRecorder ? (r) => config.webhookRecorder?.record(r) : undefined);
   }
 
   /** Uninstall, reinstall and purge (AD-20). */

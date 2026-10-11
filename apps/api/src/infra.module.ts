@@ -1,4 +1,5 @@
 import { Global, Module, type DynamicModule } from '@nestjs/common';
+import type { WebhookRecorder } from './modules/integration/webhook-recorder.js';
 import type { Pool } from 'pg';
 import type { EventSender } from './events/outbox.js';
 import { ADMIN_ACCESS, type AdminAccess } from './ports/admin-access.js';
@@ -23,6 +24,8 @@ export interface IntegrationConfig {
   stateSecret: Buffer;
   /** Set the Secure flag on the state cookie. */
   secureCookies: boolean;
+  /** Dev-only: set when WEBHOOK_RECORD_DIR is configured (never in production). */
+  webhookRecorder?: WebhookRecorder;
 }
 
 export interface SessionConfig {

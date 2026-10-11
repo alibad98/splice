@@ -68,12 +68,15 @@ export const EnvSchema = z
   SALLA_WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().min(8).optional()),
   /** Domain attribute for the merchant session cookie (e.g. slips.app) so the dashboard host receives it. Host-only when unset. */
   SESSION_COOKIE_DOMAIN: z.preprocess(emptyToUndefined, z.string().regex(/^[a-z0-9.-]+$/i).optional()),
+  /** DEV ONLY (Story 1.13 / G6): directory where verified webhooks are written, PII-scrubbed, as test fixtures. Refused in production. */
+  WEBHOOK_RECORD_DIR: z.preprocess(emptyToUndefined, z.string().optional()),
   /** Where the merchant lands after install. */
   DASHBOARD_URL: z.url().default('http://localhost:3000'),
 })
   .refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' })
   .superRefine((e, ctx) => {
     if (e.NODE_ENV !== 'production') return;
+    if (e.WEBHOOK_RECORD_DIR) ctx.addIssue({ code: 'custom', path: ['WEBHOOK_RECORD_DIR'], message: 'must not be set in production (dev-only fixture recorder)' });
     for (const name of ['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI'] as const) {
       if (!e[name]) ctx.addIssue({ code: 'custom', path: [name], message: 'is required in production' });
     }

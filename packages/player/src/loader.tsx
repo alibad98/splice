@@ -2,6 +2,7 @@
 // Layout-shift contract (NFR1): nothing is inserted into the page unless the manifest has content,
 // and content is inserted only while the anchor is outside the viewport, so visible content never moves.
 import { h, render } from 'preact';
+import { readPageContext, readStoreLocator } from './platform/salla.js';
 
 export interface SlipsConfig {
   /** API origin the manifest is fetched from. */
@@ -60,9 +61,10 @@ function insertWhenOffscreen(anchor: Element, manifest: Manifest): void {
 
 export async function boot(cfg: SlipsConfig): Promise<void> {
   // The stub's timeout removes the script unless the loader reports ready.
-  const g = window as unknown as { __slips?: { ready?: boolean } };
+  const g = window as unknown as { __slips?: { ready?: boolean; page?: unknown; store?: unknown } };
   if (g.__slips) g.__slips.ready = true;
-  // TODO(Story 1.11): read salla.config here to derive the page context and store locator.
+  // Spike (Story 1.11): expose the page context and store locator for the gate snippets; not used for rendering yet.
+  if (g.__slips) Object.assign(g.__slips, { page: readPageContext(), store: readStoreLocator() });
   const anchor = document.querySelector(ANCHOR);
   if (!anchor) return;
   const manifest = await fetchManifest(cfg);

@@ -49,11 +49,14 @@ export class WebhookInbox {
     private readonly install: (tokens: TokenSet, profile: MerchantProfile) => Promise<unknown>,
     private readonly locate: (platformStoreId: string) => Promise<string | undefined>,
     private readonly now: () => number = Date.now,
+    /** Dev-only hook called with each VERIFIED request (the fixture recorder). */
+    private readonly onVerified?: (req: WebhookRequest) => void,
   ) {}
 
   /** Steps 1 and 2. Never logs or stores the raw body. */
   async receive(req: WebhookRequest): Promise<IntakeResult> {
     if (!this.platform.webhooks.verify(req)) return { status: 401 };
+    this.onVerified?.(req);
     const event = this.platform.webhooks.parse(req);
     if (!event) return { status: 400 };
     const id = uuidv7();

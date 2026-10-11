@@ -1,0 +1,90 @@
+/* Slips — "Studio" tokens. Tailwind v4 + shadcn/ui. Drop into apps/dashboard. Source: DESIGN.md */
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 1rem;
+  --background: #FFFFFF; --page: #FAF8F6; --foreground: #15110F;
+  --card: #FFFFFF; --card-foreground: #15110F;
+  --popover: #FFFFFF; --popover-foreground: #15110F;
+  --primary: #FF4A3D; --primary-foreground: #15110F;
+  --secondary: #F5F3F1; --secondary-foreground: #15110F;
+  --muted: #F5F3F1; --muted-foreground: #615954;
+  --accent: #FFC23D; --accent-foreground: #3A2600;
+  --destructive: #C0123C; --destructive-foreground: #FFFFFF; --destructive-text: #9C0E31;
+  --success: #1BAA5A; --success-foreground: #15110F; --success-text: #0E6E39;
+  --warning: #FFB547; --warning-foreground: #3D2500; --warning-text: #8A5300;
+  --info-text: #B8291A;
+  --delta-up: #0E6E39; --delta-down: #C0123C;
+  --border: #ECE8E4; --input: #8F8681; --input-border: #8F8681; --ring: #FF4A3D; --focus-ring-inner: #15110F;
+  --story-ring-seen: #D3CDC8;
+  --success-tint: #1BAA5A1F; --primary-tint: #FF4A3D14; --destructive-tint: #C0123C14; --warning-tint: #FFB54726;
+  --chart-1: #FF4A3D; --chart-2: #2B2523; --chart-3: #0F9D8A; --chart-4: #F5A300; --chart-5: #2E8FE0;
+  --sidebar: #FFFFFF; --sidebar-foreground: #15110F; --sidebar-primary: #FF4A3D; --sidebar-primary-foreground: #15110F;
+  --sidebar-accent: #F5F3F1; --sidebar-accent-foreground: #15110F; --sidebar-border: #ECE8E4; --sidebar-ring: #FF4A3D;
+  --shadow-card: 0 8px 24px -14px rgba(40, 24, 16, .16);
+}
+
+.dark {
+  --background: #100D0C; --page: #0B0908; --foreground: #F5F1EE;
+  --card: #1A1615; --card-foreground: #F5F1EE;
+  --popover: #1A1615; --popover-foreground: #F5F1EE;
+  --primary: #FF6A5C; --primary-foreground: #15110F;
+  --secondary: #241F1D; --secondary-foreground: #F5F1EE;
+  --muted: #241F1D; --muted-foreground: #A89F99;
+  --accent: #FFC23D; --accent-foreground: #3A2600;
+  --destructive: #FF5C80; --destructive-foreground: #1A0306; --destructive-text: #FFA3B5;
+  --success: #3FD27F; --success-foreground: #04230F; --success-text: #8AF0B5;
+  --warning: #FFC46B; --warning-foreground: #3D2500; --warning-text: #FFD699;
+  --info-text: #FFB3A8;
+  --delta-up: #3FD27F; --delta-down: #FF7A95;
+  --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #FF8A7E; --focus-ring-inner: #FFFFFF;
+  --story-ring-seen: #4A423E;
+  --success-tint: #3FD27F26; --primary-tint: #FF6A5C26; --destructive-tint: #FF5C8026; --warning-tint: #FFC46B26;
+  --chart-1: #FF6A5C; --chart-2: #D9D2CD; --chart-3: #2DD4BF; --chart-4: #FFC23D; --chart-5: #60B4FF;
+  --sidebar: #1A1615; --sidebar-foreground: #F5F1EE; --sidebar-primary: #FF6A5C; --sidebar-primary-foreground: #15110F;
+  --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #FF8A7E;
+  --shadow-card: 0 8px 24px -14px rgba(0, 0, 0, .6);
+}
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-arabic: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --radius-sm: calc(var(--radius) - 8px);  /* 8px */
+  --radius-md: calc(var(--radius) - 4px);  /* 12px */
+  --radius-lg: var(--radius);              /* 16px (base) */
+  --radius-xl: calc(var(--radius) + 6px);  /* 22px */
+  --radius-pill: 999px;
+  --shadow-card: var(--shadow-card);
+  --color-background: var(--background); --color-page: var(--page); --color-foreground: var(--foreground);
+  --color-card: var(--card); --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary); --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive); --color-destructive-foreground: var(--destructive-foreground); --color-destructive-text: var(--destructive-text);
+  --color-success: var(--success); --color-success-foreground: var(--success-foreground); --color-success-text: var(--success-text);
+  --color-warning: var(--warning); --color-warning-foreground: var(--warning-foreground); --color-warning-text: var(--warning-text);
+  --color-info-text: var(--info-text);
+  --color-delta-up: var(--delta-up); --color-delta-down: var(--delta-down);
+  --color-border: var(--border); --color-input: var(--input); --color-input-border: var(--input-border); --color-ring: var(--ring); --color-focus-ring-inner: var(--focus-ring-inner);
+  --color-story-ring-seen: var(--story-ring-seen);
+  --color-success-tint: var(--success-tint); --color-primary-tint: var(--primary-tint); --color-destructive-tint: var(--destructive-tint); --color-warning-tint: var(--warning-tint);
+  --color-chart-1: var(--chart-1); --color-chart-2: var(--chart-2); --color-chart-3: var(--chart-3); --color-chart-4: var(--chart-4); --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar); --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary); --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent); --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border); --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * { @apply border-border; }
+  /* Two-tone focus ring, full opacity: ink (dark: white) inner + coral outer; visible on coral fills */
+  :focus-visible { outline: 2px solid transparent; /* forced-colors fallback */ box-shadow: 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--ring); }
+  input, textarea, select, [role="combobox"], [role="checkbox"] { border-color: var(--input-border); }
+  body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; }
+  :lang(ar) body, body:lang(ar) { font-family: var(--font-arabic); letter-spacing: 0; }
+  .num, [data-num] { font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+}

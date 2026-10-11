@@ -1,0 +1,63 @@
+export const en = {
+  app: { name: 'Slips', logoAlt: 'Slips' },
+  shell: {
+    skipToContent: 'Skip to content',
+    primaryNav: 'Main navigation',
+    openMenu: 'Open menu',
+    closeMenu: 'Close menu',
+    menuTitle: 'Menu',
+    storeIdentity: 'Store',
+    storeFallback: 'Your store',
+    previewStore: 'Preview store',
+    previewUnavailable: 'Connect your store to preview it',
+    needHelp: 'Need help? Contact support',
+    language: 'Language',
+    switchTo: 'العربية',
+    switchToLabel: 'Switch to Arabic',
+    nav: {
+      overview: 'Overview',
+      content: 'Videos & Stories',
+      products: 'Products',
+      analytics: 'Analytics',
+      settings: 'Settings',
+    },
+    connection: {
+      connected: 'Connected to Salla',
+      notConnected: 'Not connected to Salla',
+      hintNotConnected: 'Connect your store to start',
+    },
+  },
+  session: {
+    signingIn: 'Signing you in...',
+    signInTitle: 'Sign in to Slips',
+    signInIntro: 'Continue with Salla to open your dashboard. No separate password needed.',
+    signInWithSalla: 'Sign in with Salla',
+    signInAgain: 'Sign in again',
+    expiredTitle: 'Your session ended',
+    expired: 'You were away for a while, so we signed you out to keep your store safe. Sign in again to pick up where you left off.',
+    signedOut: 'You are signed out. Sign in again whenever you are ready.',
+    signOut: 'Sign out',
+    openInSalla: 'Open in Salla',
+    errorTitle: 'We could not sign you in',
+    notInstalled: 'Slips is not installed on this store. Reinstall the app from the Salla App Store to continue.',
+    platformUnavailable: 'Salla could not be reached. Try again in a moment.',
+    invalidToken: 'Your sign-in link expired. Reload this page from your Salla dashboard.',
+    unknownError: 'Something went wrong while signing you in. Try again.',
+    retry: 'Try again',
+  },
+  home: {
+    title: 'Welcome to Slips',
+    intro: 'Turn your product videos into Stories that sell. Start by connecting your store.',
+    nextStep: 'Connect your store',
+    apiHealth: 'API health',
+    apiUnreachable: 'unreachable',
+  },
+  placeholder: {
+    title: 'Coming soon',
+    body: 'This page is being built. Head back to the overview for your next step.',
+    back: 'Back to overview',
+  },
+} as const;
+
+type Widen<T> = T extends string ? string : { [K in keyof T]: Widen<T[K]> };
+export type Messages = Widen<typeof en>;

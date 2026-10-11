@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PRD Validation: Slips PRD v0.1</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+
+    --grade-exc: #16a34a;
+    --grade-good: #65a30d;
+    --grade-fair: #d97706;
+    --grade-poor: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .grade {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: white;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .grade-excellent { background: var(--grade-exc); }
+  .grade-good { background: var(--grade-good); }
+  .grade-fair { background: var(--grade-fair); }
+  .grade-poor { background: var(--grade-poor); }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.92em; background: rgba(120,113,108,0.10); padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>Slips PRD v0.1 — Validation Report</h1>
+        <div class="subtitle">docs/prd.md</div>
+      </div>
+      <div class="grade grade-poor">Poor</div>
+    </header>
+
+    <div class="synthesis">
+      <p>The PRD gets the sequencing and most of the detail right. Epic 1 is a real de-risking spike: it puts the Salla install → inject → add-to-cart → order-webhook loop ahead of anything else. Most stories have testable ACs, and the performance and privacy NFRs come with real thresholds. What is at risk is the thesis itself. The PRD bets everything on "the app proves its own ROI", but it never defines what an attributed order is (click vs view, gross vs net of cancellations). It also has no success metrics or launch exit criteria, and it quietly drops roughly a third of the SRS's MVP non-functional baseline while still naming the SRS as "source of truth for detail". For a launch-stakes PRD, it is not ready to green-light build until it settles attribution semantics, carries over the SRS exit criteria, makes an honest scope reconciliation against SRS §10.1, and puts owners and deadlines on the launch-blocking open questions (Q-04 pricing, Q-05 residency).</p>
+      <p>The two extra reviewers make the picture worse, not different. The adversarial review raises the bar from "not ready to green-light" to "not ready to hand to UX, architecture, or story sharding": it adds critical defects the rubric did not surface — add-to-cart ships without product variants, "zero layout shift" cannot coexist with async, gracefully-failing rendering, PDPL is one bullet while order webhooks bring shopper PII into the attribution store, and the injector key is a public identifier dressed up as a secret, which also makes event ingestion spoofable. The SRS/stack consistency review confirms the silent de-scoping item by item (FR-NOT-03, NFR-OBS-02 admin console, NFR-COMP, NFR-DATA, NFR-COST, PERF-06/07, SCAL-01) and shows that PRD §4 is stale against docs/tech-stack.md, which leaves several architecture-shaping needs (CLS-safe Web Component, CDN purge vs scheduling, analytics partitioning, tenant isolation) with no home. After deduplication the three reviews come to 66 distinct findings: 8 critical, 20 high, 26 medium, 12 low (see validation-report.md).</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card">
+        <div class="dim-name">Decision-readiness</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Substance over theater</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Strategic coherence</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Done-ness clarity</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Scope honesty</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Downstream usability</div>
+        <div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div>
+      </div>
+      <div class="dim-card">
+        <div class="dim-name">Shape fit</div>
+        <div class="dim-verdict" style="color: var(--verdict-thin)">thin</div>
+      </div>
+    </div>
+
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Decision-readiness</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>The PRD makes some real decisions and states them as decisions: "use a managed video service (for example Mux or Cloudflare Stream) rather than a custom transcoding pipeline" (§4), "last-touch, default 7-day window" (FR13), and "deactivate-not-delete on downgrade" (FR19). Story 1.6 AC3 ("any change to FR13 is flagged to the PM") is a good conditional decision hook. But none of these decisions says what was given up. Last-touch vs multi-touch, click-through vs view-through, and the 7-day window are exactly where a merchant or Salla reviewer will push back (SRS R-02 "Attribution accuracy disputes"), and the PRD gives no rationale.</p>
+            <p>The bigger problem is §7 "Open Items". It lists six questions with no owner, no deadline and no statement of what each one blocks. Q-04 "Final plan names and prices" blocks Story 7.2 and the Salla listing (Story 7.6). Q-05 "Data residency" blocks hosting and PDPL sign-off (Story 7.5). Both are launch-blocking, yet they sit at the same weight as Q-02 and Q-03, which are Phase 2 questions. Q-06 "Social import timing" is not actually open: §5 already places social import in Epic 9 (Phase 3). The PRD has no <code>[NOTE FOR PM]</code> callouts at all, even where real tensions exist.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Launch-blocking open questions have no owner, deadline or "blocks" link</h3>
+              <span class="finding-location">§7, Q-04, Q-05 · merged as H1</span>
+            </header>
+            <div class="finding-note">Q-04 gates FR19/Story 7.2 plan limits ("content and placement limits") and the listing in Story 7.6, and Q-05 gates §4 "Hosting" and Story 7.5. As written, nobody can tell whether these must close before Epic 7 starts.</div>
+            <div class="finding-fix"><strong>Fix:</strong> For each Q, add an owner, a needed-by epic or story, and a default to assume if it is unresolved (e.g. "KSA region unless counsel says otherwise").</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">No contingency if the Salla spike fails</h3>
+              <span class="finding-location">§5 Epic 1, Story 1.5/1.6, Q-01 · merged as C2</span>
+            </header>
+            <div class="finding-note">The whole product depends on script injection, cart add from injected script, and order-to-session matching. Story 1.6 AC3 only says changes are "flagged to the PM". There is no stated fallback (e.g. coupon-code attribution, UTM/landing-param attribution, an App Snippet vs a manual theme paste) and no go/no-go criterion for the spike.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a <code>[NOTE FOR PM]</code> with explicit spike exit criteria and the pre-agreed fallback for each of injection, cart action and attribution.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Injector installation model undecided but presented as settled</h3>
+              <span class="finding-location">FR17, FR18, Story 5.1, Story 7.1 AC2 · merged as C7</span>
+            </header>
+            <div class="finding-note">Several screens imply a manual merchant install step ("installation guide", "installation instructions", "one script to enable Slips"). Whether Salla injects automatically or the merchant pastes a snippet decides onboarding friction, support load and activation rate, and it is never stated as a decision.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State the intended model (or both, with the spike choosing), and say what the merchant has to do.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Q-06 is rhetorical</h3>
+              <span class="finding-location">§7 item 6 vs §5 Epic 9 · merged as M1</span>
+            </header>
+            <div class="finding-note">It is already answered by the phasing.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Remove it or mark it resolved.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">SRS open questions silently dropped</h3>
+              <span class="finding-location">§7 · merged as M1</span>
+            </header>
+            <div class="finding-note">SRS Q-07 (multi-platform, "affects architecture"), Q-08 (non-video slides in v1), Q-09 (content moderation/abuse) and Q-10 (support model/SLAs) do not appear. Q-07 and Q-09 matter to the Architect and to Salla review.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Carry them over or mark them explicitly as closed or deferred.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Substance over theater</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>Most of the PRD is load-bearing. The Goals (§1) are product-specific ("≤ 50 KB initial, ~20 KB core", "attributed orders and revenue"), the NFRs mostly have thresholds (NFR1, NFR2, NFR7), and the PRD avoids persona padding by having no personas at all. The theater is concentrated in two places. The differentiation paragraph (§1 Background) claims "Slips differentiates with Stories + Reels, scheduling and visibility rules, order-level attribution, and (later) AI…" against Na3na3, but gives no evidence that the competitor lacks attribution or scheduling, and half the claimed differentiation ("later AI") is out of MVP scope. §3 UI Design Goals opens with an adjective list: "clean, modern, merchant-friendly dashboard".</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Differentiation claim unverified and partly out of scope</h3>
+              <span class="finding-location">§1 Background · merged as M2</span>
+            </header>
+            <div class="finding-note">"An existing competitor (Na3na3) offers shoppable video only." The MVP's real wedge vs the competitor is not stated in testable terms: is it attribution accuracy, player weight, or Stories format?</div>
+            <div class="finding-fix"><strong>Fix:</strong> Name the one or two MVP-deliverable differentiators, with evidence (e.g. a competitor's player size or attribution method), and drop "(later) AI" from the MVP pitch.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Adjective UI goals</h3>
+              <span class="finding-location">§3 "clean, modern, merchant-friendly" · merged as L1</span>
+            </header>
+            <div class="finding-note">These do no work. The demo reference (<code>slips-sage.vercel.app</code>) is the real spec.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace them with "match the demo, with the deviations listed in SRS Appendix B".</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Goal with no bound</h3>
+              <span class="finding-location">§1 Goals · merged as C1</span>
+            </header>
+            <div class="finding-note">"Reach a pilot-ready MVP quickly, then fund Phases 2-3 from pilot revenue": "quickly" has no date, and "fund from pilot revenue" has no pricing (Q-04 open) or revenue target.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Give a target date and a pilot revenue/merchant-count target, or remove the funding claim.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Strategic coherence</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>There is a clear thesis: a lightweight, shoppable Stories/Reels player whose attribution proves ROI, so merchants keep paying. Epic ordering follows it well. Epic 1 de-risks the loop, Epic 5 has the shopper purchase path, and Epic 6 closes the ROI loop. The MVP is a problem-solving plus revenue MVP, and the scope mostly matches. The deferrals to Epic 8/9 (AI, audience, roles) are thesis-consistent.</p>
+            <p>However, the PRD has no Success Metrics section and no counter-metrics. The SRS §10.1 already has concrete MVP exit criteria: "reconcile with Salla order data within an agreed tolerance (for example ±3%)", "At least [TBD, for example 10] pilot merchants live, each with published content and at least one attributed order", "zero measured layout shift on at least three representative themes". The PRD reduces this to Story 7.6 AC2 "within agreed tolerance". Nothing measures whether merchants actually see ROI (attributed revenue per store, retention past trial, publish rate), and nothing guards against the obvious harm. The counter-metric should be the store's Core Web Vitals (SRS NFR-PERF-07, dropped) or attribution disputes.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">No Success Metrics or launch exit criteria</h3>
+              <span class="finding-location">whole PRD; Story 7.6 AC2 · merged as C1</span>
+            </header>
+            <div class="finding-note">A launch-stakes PRD whose thesis is "the app proves its own ROI" has no measure of whether the thesis held and no definition of "ready to launch".</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an SM section. Import the SRS §10.1 exit criteria with numbers (±3% reconciliation, N pilots, 3 themes, 0 open critical/high). Add thesis metrics (e.g. % of installs that publish content within 7 days, % of active stores with ≥1 attributed order in 30 days, trial-to-paid). Add counter-metrics (store CWV delta vs baseline, attribution-dispute support tickets).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">The attribution definition, which is the core of the thesis, is underspecified</h3>
+              <span class="finding-location">FR13, Story 6.2 AC1–AC2, Story 1.6 · merged as C4</span>
+            </header>
+            <div class="finding-note">FR13 says "last-touch, default 7-day window, configurable". Story 6.2 says "matched to tagged sessions or clicks". It is unclear whether a view without a click counts, what "touch" means, whether cancelled or refunded orders reduce attributed revenue, whether revenue is gross or net of VAT/shipping, and who configures the window and within what range. Story 6.2 AC2 lists edge cases without expected outcomes.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an attribution spec block: qualifying touch types, window bounds (e.g. 1–30 days, merchant-configurable), the revenue basis, and the expected result for each listed edge case.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">"Fund Phases 2-3 from pilot revenue" has no revenue mechanics in MVP</h3>
+              <span class="finding-location">§1 Goals vs Q-04, FR19 · merged as H8</span>
+            </header>
+            <div class="finding-note">The revenue goal is asserted, but plan limits and prices are open. Story 7.2 AC4 "Trial period works if configured" leaves even the trial undecided.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Either state the MVP pricing hypothesis or demote the goal to "validate willingness to pay".</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Done-ness clarity</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>This is the strongest part of the PRD. Most stories carry specific, testable ACs: Story 1.2 AC1 "CI fails if the player's gzip size exceeds 50 KB", Story 2.2 AC1 "within one minute", Story 4.2 AC1 "in the store's time zone", Story 7.1 AC2 "regenerate (old key invalidated)", Story 6.3 AC1 with named date ranges. The weaker spots are the places where the PRD defers detail to the SRS or to "a check" that is never defined, and several of those land on high-traffic or launch-critical paths.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Undefined thresholds on upload, processing and quality-check paths</h3>
+              <span class="finding-location">FR5, Story 3.3 AC1, Story 3.4 AC2 · merged as H10</span>
+            </header>
+            <div class="finding-note">"unsupported type/size/duration is rejected" and "run a quality check" name no limits or criteria. SRS NFR-PERF-06 ("60-second video … within 5 minutes at P95") was dropped too.</div>
+            <div class="finding-fix"><strong>Fix:</strong> List the accepted formats, max size, max duration, the quality-check criteria (resolution/aspect/duration/bitrate) and a processing-time bound.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Behavior when multiple items match a placement is undefined</h3>
+              <span class="finding-location">FR8, FR9, Story 4.3 AC1 · merged as M3</span>
+            </header>
+            <div class="finding-note">SRS FR-VIS-06 (priority ordering) is deferred, but MVP still needs a rule (e.g. most-recent-first, cap N).</div>
+            <div class="finding-fix"><strong>Fix:</strong> State the MVP ordering rule and the per-placement cap.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Layout selection has no home</h3>
+              <span class="finding-location">Story 5.5 AC2 · merged as H18</span>
+            </header>
+            <div class="finding-note">Neither FR8 nor Story 4.1 includes a layout field. The relationship between content "format" (Story/Reels, FR4) and layout (strip/carousel/full-screen) is also unstated.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add layout to the placement rule in FR8/Story 4.1 and give the format × layout matrix.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Deleted-product handling points at an FR that doesn't define it</h3>
+              <span class="finding-location">Story 2.2 AC2 "handled per FR16" · merged as H13</span>
+            </header>
+            <div class="finding-note">FR16 covers out-of-stock only ("CTA disabled, 'Out of stock'"), not deletion.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define it: content auto-unpublished, or the CTA hidden, plus a merchant notice.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Vague bounds in places</h3>
+              <span class="finding-location">FR10; Story 2.1 AC3; Story 5.3 AC2; Story 1.2 AC2; Story 5.2 AC2; NFR2; Story 7.2 AC3; Story 7.5 AC2 · merged as M4</span>
+            </header>
+            <div class="finding-note">"fails gracefully", "clear error and are retried", "based on network quality", "any measurable shift", "iOS Safari and Android Chrome" with no versions, "typical 4G", "grace period" with no length, "retention rules implemented" with no rules. Most bounds already exist in the SRS (NFR-COMP-02 versions, NFR-DATA-01 30 days, FR-INJ-09).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Inline the numbers.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Metric definitions arrive after the screens that use them</h3>
+              <span class="finding-location">Story 6.5 after 6.3/6.4; FR15 · merged as H15</span>
+            </header>
+            <div class="finding-note">Analytics and Overview stories will be built before "View", "CTR" and "Engagement" are defined; the "four KPIs" are unnamed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Move the glossary into the PRD (or make 6.5 a prerequisite of 6.3) and name the four Overview KPIs.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Scope honesty</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>On the surface, scope looks honest. MVP vs Phase 2/3 is explicit (§5 "Later phases"), and "Audience arrives in Phase 2" (§3) is called out. Underneath, the PRD declares the SRS "source of truth for detail" but then drops SRS items silently. SRS §10.1 says the MVP includes "Non-functional: All of Section 5", yet NFR1–NFR8 leave out NFR-PERF-06/07 (CWV impact), NFR-SCAL-01 (10× seasonal peaks: Ramadan, White Friday), all of 5.6 compatibility (theme matrix, browser versions, Shadow DOM isolation), all of 5.8 cost and abuse, NFR-DATA-02/03 (analytics retention, merchant export/deletion — a PDPL obligation), and NFR-OBS-02 / NFR-REL-01.</p>
+            <p>The SRS MVP functional set also includes FR-CON-03, FR-CON-13, FR-CON-17 and FR-NOT-03 ("Need help? Contact support" on every page). None is cited, and FR-NOT-03 has no story. Nothing tells the reader whether these were de-scoped or overlooked.</p>
+            <p>Open-items density is low (6 Qs, 1 <code>[Assumption]</code>, 0 <code>[NOTE FOR PM]</code>, no Non-Goals section). That is low because tensions are unmarked, not because they are resolved. The SRS's own <code>[Assumption]</code> tags (30-day retention, content statuses, stock behavior) lose their tags when they pass into the PRD.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">Silent NFR de-scoping contradicts the SRS phasing rule</h3>
+              <span class="finding-location">§2 Non-Functional vs SRS §10.0 rule 2 / §10.1 · merged as C8</span>
+            </header>
+            <div class="finding-note">The 10× seasonal peak, browser and theme compatibility, the admin console and merchant data export/deletion are all launch-relevant for Salla review and PDPL. Because the §1 header calls the SRS "source of truth", a downstream reader cannot tell which document wins.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Either restore them as NFR9+ with thresholds, or list them in a Non-Goals/Deferred table with a reason. Also state the precedence rule between the PRD and the SRS.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">SRS MVP functional requirements dropped without a trace</h3>
+              <span class="finding-location">FR4–FR7 citations; no story for FR-NOT-03 · merged as H2, H3</span>
+            </header>
+            <div class="finding-note">FR-CON-03 (statuses including Archived/Processing/Failed), FR-CON-13 (CTA action types: add to cart / open product / open link), FR-CON-17 and FR-NOT-03 are in SRS MVP scope.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Cite them or explicitly de-scope them, and add a support-entry story to Epic 7.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Contradiction: RBAC cited in MVP while roles are deferred</h3>
+              <span class="finding-location">NFR3 "[NFR-SEC-01 to 07]"; §5 Epic 8 · merged as H6</span>
+            </header>
+            <div class="finding-note">NFR3's citation range includes NFR-SEC-04 RBAC, while team roles are deferred to Epic 8.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Exclude SEC-04 from NFR3, or state "single owner account in MVP" as a non-goal.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Contradiction: theme matching</h3>
+              <span class="finding-location">§3 vs SRS FR-INJ-08 · merged as M5</span>
+            </header>
+            <div class="finding-note">"storefront player inherits basic store theme colors", but SRS FR-INJ-08 is deferred to Phase 2.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Mark it as a <code>[NON-GOAL for MVP]</code> or bring a minimal version into scope with a story.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">No Non-Goals section or Assumptions index</h3>
+              <span class="finding-location">whole PRD · merged as M6</span>
+            </header>
+            <div class="finding-note">Plausible silent assumptions are not ruled out, e.g. one merchant user per store, single currency (SAR), no content moderation (SRS Q-09), no multi-product per content (FR-BUY-03 deferred).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a short Non-Goals list, and an Assumptions index that restores the SRS <code>[Assumption]</code> tags carried into FR2, FR6 and FR16.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">SRS Appendix B items 3–5 not addressed</h3>
+              <span class="finding-location">Story 6.5 AC2 · merged as L3</span>
+            </header>
+            <div class="finding-note">Story 6.5 resolves "items 1 and 2" only. Items 3–5 cover the out-of-stock guidance, step-to-step funnel rates, and the undesigned Visibility rules screen.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Assign each one or mark it deferred.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>Downstream usability</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>This PRD is chain-top: §8 names the Architect, UX and PO agents. On the plus side, IDs are contiguous (FR1–FR19, NFR1–NFR8, Stories 1.1–7.6), and every FR carries SRS trace IDs, which helps extraction a lot. Epics map cleanly to FRs. The problems are a missing glossary (deferred to Story 6.5 even though downstream agents need it first) and noticeable term drift on core nouns. The PRD also leans on the SRS without saying which document wins. A UX agent extracting §3 gets a screen list but no journeys or states, and the "Visibility rules" screen is a known gap (SRS Appendix B item 5).</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">No glossary while core terms drift</h3>
+              <span class="finding-location">whole PRD; Story 6.5 AC1 · merged as H16</span>
+            </header>
+            <div class="finding-note">The term pairs in Mechanical notes ("placement" vs "visibility rules", "injector" vs "player" vs "loader" vs "script", status sets) will produce inconsistent data models and UI copy downstream.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a Glossary section before §2 that defines Content item, Story, Reel, Format, Layout, Placement, Visibility rule, Injector, Player, Injector key, View, Unique viewer, CTR, Engagement, Completion, Touch, Attributed order and Attributed revenue.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">PRD/SRS precedence undefined</h3>
+              <span class="finding-location">header "Source of truth for detail" · merged as H4</span>
+            </header>
+            <div class="finding-note">When the PRD omits or alters SRS content (see Scope honesty), downstream agents get conflicting instructions.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State that "the PRD governs MVP scope and the SRS governs detail for cited IDs only", or the reverse.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Sections lean on cross-refs that don't resolve standalone</h3>
+              <span class="finding-location">Story 4.3 AC3, Story 2.2 AC2, Story 5.4 AC3 · merged as L4</span>
+            </header>
+            <div class="finding-note">"follows FR16", "per FR16", "per Story 1.6". Story 1.6's output is a doc that doesn't exist yet.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Acceptable for now. Once spike findings land, inline the tagging mechanism in Story 5.4.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details open>
+        <summary>
+          <h2>Shape fit</h2>
+          <span class="verdict-pill verdict-thin">thin</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>The document uses the classic BMAD v4 PRD shape (Goals → FR/NFR → UI goals → Tech assumptions → Epics and Stories). It fits story generation well. But this is a multi-stakeholder B2B2C product with three distinct experiences: the merchant dashboard, the shopper storefront player, and the Salla platform/reviewer. The SRS §2.3 already identifies five user classes (Merchant Owner, Content Staff, Analyst, Shopper, Slips Admin). The PRD has no user journeys and no named protagonists. Stories use a mix of "merchant", "shopper", "developer", "the team", "the system", "the player", "the business" and "product owner".</p>
+            <p>The end-to-end activation journey is exactly where the product will win or lose, and it exists only implicitly across six epics: install → product sync → injector live → first content → first add-to-cart → first attributed order. The Slips Admin class (support console, abuse) disappears entirely. The PRD is over-formalized on implementation (§4 stack candidates, Story 1.1 monorepo ACs) and under-formalized on user experience.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">No user journeys for a multi-stakeholder consumer-facing product</h3>
+              <span class="finding-location">whole PRD; §3 · merged as H20</span>
+            </header>
+            <div class="finding-note">The UX agent (§8) has nothing to build the onboarding flow, the empty states or the shopper's watch → card → cart → continue flow from.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add 3–4 UJs with named protagonists: Merchant Owner first-week activation (install to first attributed order), Content Staff creating and scheduling a campaign, a Shopper on mobile product page through add-to-cart, and Merchant Owner disputing or verifying attributed revenue.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Internal operator role dropped</h3>
+              <span class="finding-location">SRS user class "Slips Admin"; NFR-OBS-02 · merged as H5</span>
+            </header>
+            <div class="finding-note">Launch support and pilot onboarding (Story 7.6) need a way to look up store sync and job state.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an operator capability requirement or declare it a non-goal with a workaround (e.g. direct DB access for the pilot).</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Adversarial review</h2>
+          <span class="reviewer-source">review-adversarial-general.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>This PRD is not ready to hand to UX, architecture, or story sharding. It is a compressed index of the SRS that keeps the feature list but drops the parts that make a launch survivable: it has no success metrics or counter-metrics, it builds seven epics on Salla capabilities that are explicitly unverified while giving the spike no go/no-go gate, and its central value claim ("attributed orders and revenue, so the app proves its own ROI") rests on an attribution definition that is under-specified, self-inflating, and spoofable through a public injector key with bot filtering deferred to Phase 2.</p>
+            <p>Several requirements contradict each other in ways that will surface as soon as someone designs or builds them: zero layout shift vs. graceful failure, WCAG 2.1 AA vs. deferred captions, add-to-cart in MVP vs. variants in Phase 2, and a "secret" injector key that has to sit in public storefront HTML. PDPL handling is reduced to one bullet while the app ingests order webhooks full of shopper PII and the data residency decision is still open. Fix the critical items before any downstream agent starts. Otherwise architecture will be designed around assumptions the spike may disprove, and the stories will pass their acceptance criteria while the product fails in the field.</p>
+            <p>Reviewer counts: Critical 7 · High 11 · Medium 11 · Low 6 · Total 35.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C1. No success metrics, no counter-metrics, no definition of "launch"</h3>
+              <span class="finding-location">§1 Goals; whole document; SRS §10.1 exit criteria · merged as C1</span>
+            </header>
+            <div class="finding-note">The goals cannot be tested. "Reach a pilot-ready MVP quickly", "so the app proves its own ROI" and "fund Phases 2-3 from pilot revenue" have no numbers, no owners and no time box. The SRS exit criteria are missing, so nothing defines "done" for the MVP. There are no counter-metrics, so the team can hit "attributed revenue up" while hurting store Core Web Vitals, store conversion, merchant trust or uninstall rate, and nobody will notice.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a Success metrics table (activation, weekly active merchants, pilot count and paid conversion, 30/60-day retention and uninstall rate, attributed revenue per store) and explicit counter-metrics (storefront LCP/INP/CLS delta vs baseline, add-to-cart error rate, attribution dispute rate, share of attributed revenue from orders with no Slips product). Copy the SRS exit criteria in and fill in every [TBD].</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C2. The whole MVP depends on unverified Salla capabilities, and the spike has no go/no-go gate</h3>
+              <span class="finding-location">§4; Story 1.5; Story 1.6 AC3; §7 Q-01; §8 · merged as C2</span>
+            </header>
+            <div class="finding-note">The PRD admits that injection, cart actions, attribution tagging, webhooks and billing are assumptions, yet Epics 2-7 and FR9-FR14/FR19 are written as if every one of them works. Unverified: injection into every theme without merchant code edits; third-party add-to-cart incl. guest shoppers; a cart/order custom tag that the order webhook echoes back; metered/limit-based billing with trials; a storefront consent state. "Flagged to the PM" is a notification, not a decision.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Turn Epic 1 into a gate with written pass/fail criteria per capability and a named fallback for each failure (manual snippet / theme app block / no-go; SDK call / redirect / no-go; order note or thank-you beacon / demote FR13 to "assisted"). Epics 2-7 are not sharded until the gate passes; re-baseline §2 from <code>docs/spike-findings.md</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C3. In-content add to cart ships in the MVP, but product variants/options do not</h3>
+              <span class="finding-location">FR11, Story 5.4 AC1-AC2; FR3; SRS §10.2 FR-PRD-07/08 · merged as C3</span>
+            </header>
+            <div class="finding-note">A large share of Salla catalogs (fashion, cosmetics shades, sizes) have required options. There is no option picker and sync doesn't import options or per-variant stock/price. "Tapping adds to the Salla cart" will fail, add a variant the shopper didn't pick, or show a mismatched price/stock. This is the core purchase flow, and it breaks for the very merchants most likely to use short-form video.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Either bring a minimal option selector and per-variant sync into the MVP, or downgrade the CTA to "View options" for products with required options and never call add-to-cart. Sync option/variant presence in FR3 and add a multi-option test fixture.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C4. Attribution is under-defined and biased toward over-crediting Slips, so the ROI headline can be gamed</h3>
+              <span class="finding-location">Goal 3; FR13; Story 6.2; Story 7.6 AC2; SRS FR-ANA-03, FR-ANA-12 · merged as C4</span>
+            </header>
+            <div class="finding-note">"Last-touch" means nothing when Slips sees only its own touches — it becomes "any Slips touch within 7 days", which claims credit for organic purchases. Whole-order vs line-item, shipping/VAT/discounts/refunds and competing content items are unaddressed. "Configurable" has no bounds: a sales demo can set 90 days and inflate the numbers. Bot filtering is deferred, so views, CTR and the funnel are inflated from day one. The Story 7.6 reconciliation is circular: Salla has no attribution ground truth.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Specify the model in the PRD. Count only orders containing a product added via Slips as "attributed"; report click-through as "assisted". Credit Slips line items only (ex shipping/VAT). Cap the window (e.g. 1-14 days) and show it on every revenue figure; reverse on cancel/refund; bring basic bot/duplicate filtering into MVP; define reconciliation as attributed order IDs existing in Salla with matching line items (≥ 99%) plus a manual audit; add a holdout experiment to Phase 2.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C5. "Zero layout shift" contradicts "fails gracefully" and "renders only eligible content"</h3>
+              <span class="finding-location">Goal 4; NFR1; FR9; FR10; Story 5.1 AC2; Story 5.5 AC1; Story 1.2 AC2 · merged as C5</span>
+            </header>
+            <div class="finding-note">Until the content API answers, the player can't know whether there is eligible content. Reserve space up front and you show an empty hole when there's no content, the API fails, or the key is invalid — a visible break that violates Story 5.1 AC2. Insert on response and you shift the layout, violating NFR1. Nothing in the PRD resolves this, and both UX and architecture need the answer on day one.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Decide the mechanism: server-side eligibility via injection if Salla allows it; non-shifting placements only (overlay, floating bubble, below the fold); or a merchant-placed fixed-height container. Rewrite the AC as "CLS contribution = 0.00 on N reference themes for: content present, no content, API timeout, invalid key".</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C6. PDPL is reduced to one bullet while the product ingests shopper PII and residency is undecided</h3>
+              <span class="finding-location">NFR4; Story 6.1 AC2; Story 6.2; Story 7.5 AC2; §4 Q-05; Story 1.1 AC3; Story 7.6 · merged as C6</span>
+            </header>
+            <div class="finding-note">Salla order webhooks carry names, phones, emails and addresses; the attribution store will hold PII by default. Joining a pseudonymous session to an order re-identifies the shopper. "Consent-aware" names no consent source and no default when no signal exists. Q-05 is "pending" while pilots will process real Saudi shopper data. Retention and export/deletion are missing. Nothing covers controller/processor roles, a DPA, breach notification, IPs in logs, or data-subject requests.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a Data &amp; Privacy block: order data minimization, lawful basis and consent defaults, retention periods per data class, merchant export/delete, Slips-as-processor plus DPA, breach runbook. Make Q-05 a blocker for any production or pilot data. Legal sign-off gates Story 7.6.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-critical">critical</span>
+              <h3 class="finding-title">C7. The injector-key model is incoherent: a public identifier is treated as a secret</h3>
+              <span class="finding-location">FR9; FR17; NFR3; Story 7.1 AC2; Story 5.1 AC1; Story 4.3 AC1; FR2/Story 1.4 AC3 · merged as C7</span>
+            </header>
+            <div class="finding-note">Any key the storefront script uses is visible in page source to every visitor. Masking and encrypting it is security theater. If it protects the ingestion and content APIs, anyone can copy it and post fake events. "Copy" plus an "installation guide" implies a manual paste, contradicting Story 5.1 and Story 1.5. "Regenerate (old key invalidated)" instantly blanks a hand-installed storefront. After uninstall, "deactivate the injector" can only mean serving a no-op.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Reclassify the key as a public store identifier; drop "masked/encrypted". Protect the APIs with origin checks, signed short-lived tokens and rate limits. Define one install path from the spike outcome. Regenerate = rotate with an N-hour overlap; uninstall = server returns an empty, non-rendering response.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H1. How the merchant reaches the dashboard and who may access it is unspecified; RBAC is quietly dropped</h3>
+              <span class="finding-location">FR1; Story 1.3 AC3; §5 Epic 8; SRS NFR-SEC-04 · merged as H6</span>
+            </header>
+            <div class="finding-note">After OAuth install, how does the merchant sign in again — embedded iframe, SSO, or separate login? Can store staff reach it? The SRS demands RBAC in the MVP and the PRD defers roles. Session handling, logout and multi-store merchants are missing.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an FR for dashboard authentication (entry mechanism, session lifetime, re-auth, Salla-user mapping). State "MVP: single Owner role; NFR-SEC-04 deferred" as a risk acceptance.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H2. The WCAG 2.1 AA target contradicts the deferred captions and the autoplaying, time-based Stories</h3>
+              <span class="finding-location">NFR6; Story 7.4 AC2; FR10; Story 5.2; SRS FR-CON-16 · merged as H7</span>
+            </header>
+            <div class="finding-note">Prerecorded video with audio needs captions (SC 1.2.2, Level A). Auto-advancing Stories need pause/timing control (SC 2.2.1, 2.2.2). Swipe-only navigation needs an alternative (SC 2.5.1). "Target" is not a requirement. As written, the MVP fails its own AA claim.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Bring captions (uploaded VTT) and pause/keyboard/button alternatives into the MVP, or downgrade to "AA for the dashboard; player exceptions listed". Add ACs for pause, focus trap with Escape, swipe alternatives, and <code>prefers-reduced-motion</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H3. Billing and plan enforcement can't be tested: plans, limits, and "placement" are undefined</h3>
+              <span class="finding-location">FR19; Story 7.2; §7 Q-04; Goal 6 · merged as H8</span>
+            </header>
+            <div class="finding-note">Story 7.2 enforces limits that don't exist yet. "Placement" is never defined. No grace length, no deactivation order on downgrade, no statement of where limits are enforced, no rule for scheduled content exceeding limits. "Trial works if configured" can't be tested.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Close Q-04 before Epic 7 is sharded. Define "active content" and "placement". Specify deactivation order, grace length, and enforcement at publish time plus storefront check. Split Story 7.2.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H4. Cost and abuse controls were dropped while the product serves video at scale</h3>
+              <span class="finding-location">§4; FR5; SRS NFR-COST-01/02, FR-CON-08 · merged as H9</span>
+            </header>
+            <div class="finding-note">Managed video bills per minute stored and delivered. Muted autoplay on high-traffic stores during White Friday or Ramadan (10× peaks, also dropped) can cost more than a basic plan brings in. Upload limits per plan are absent.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add NFRs for per-store metering, a hard cost cap per plan with degradation behavior, numeric upload limits, and a per-plan cost model before pricing.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H5. Content moderation, copyright and takedown are absent</h3>
+              <span class="finding-location">FR4, FR5; Story 3.3; SRS Q-09; SRS FR-CON-13 · merged as H11</span>
+            </header>
+            <div class="finding-note">Slips hosts and serves merchant video from its own CDN. Copyrighted music, prohibited content and phishing links in CTAs all become Slips's liability. The "quality check" is undefined. An "open link" CTA to an arbitrary URL invites open-redirect and phishing abuse.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add Q-09 back. Require terms of use, an abuse-report channel, admin takedown with CDN invalidation within 1 minute, and CTA links restricted to the store's domain or an allowlist.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H6. SRS MVP requirements were silently dropped, and there are two "sources of truth"</h3>
+              <span class="finding-location">Header; §2 mappings · merged as C8, H2, H3, H4, H5</span>
+            </header>
+            <div class="finding-note">FR-NOT-03, FR-AUTH-03/04, FR-CON-03, FR-CON-13, FR-SET-06, NFR-PERF-06/07, NFR-SCAL-01, NFR-COMP-01..03, NFR-REL-01, NFR-OBS-02, NFR-COST, NFR-DATA-01..03 and NFR-AVAIL-02 have no FR or story. NFR8 has no story at all. The PRD gives no rule for which document wins.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Make the PRD the single source of truth for the MVP with a traceability table; add stories for observability/backup/rollback, support entry, admin console and data export/deletion.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H7. Scheduling, caching and price freshness don't fit together</h3>
+              <span class="finding-location">Story 4.2 AC1; Story 4.3 AC2; NFR7; Story 2.2 AC1; FR11 · merged as H12</span>
+            </header>
+            <div class="finding-note">A scheduled start/end is not a "change" event, so nothing triggers invalidation. Cached price/stock can differ from the cart price. Time budgets stack to 2+ minutes of unstated staleness.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Require a scheduler that emits invalidation at schedule boundaries; fetch price/stock live or state a staleness bound; write an end-to-end AC: "Salla change → visible in storefront ≤ 2 min P95".</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H8. Webhook and integration lifecycle edge cases are missing</h3>
+              <span class="finding-location">FR2, FR3, Story 1.3 AC2, Story 1.4, Story 2.1, Story 2.2, Story 6.2 AC2 · merged as H13</span>
+            </header>
+            <div class="finding-note">No backfill for missed webhooks; no out-of-order handling; no race protection on token refresh (single-use refresh tokens can lock a store out); no disconnected state; reinstall undefined; order status changes after attribution not a requirement; deleted products routed to FR16, which covers only out-of-stock.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add FRs for nightly reconciliation, event ordering, single-flight refresh, disconnected state with alert, reinstall semantics, attribution reversal, and deleted-product handling.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H9. Several stories are too big for "one dev agent in one session" or can't be completed by development work</h3>
+              <span class="finding-location">§6; Stories 1.6, 5.2, 5.3, 6.2, 7.2, 7.4, 7.5, 7.6 · merged as H14</span>
+            </header>
+            <div class="finding-note">Story 7.6 "Salla review passed" and "pilot merchants onboarded" are business outcomes. Story 7.5 includes legal work and an unbounded "no open findings". 7.4 is a cross-cutting audit. 6.2 packs the hardest logic into three ACs. 5.2/5.3 bundle gestures, media, cross-browser and RTL.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Split them: 7.6 into milestones, 7.5 into dev and legal tasks, 6.2 into ingestion/matching/reversal/methodology, 5.2/5.3 into core/gestures+RTL/renditions. Move i18n/a11y checks into each story's DoD.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H10. Metric definitions come after the screens that display them; Appendix B conflicts carry into stories</h3>
+              <span class="finding-location">Story 3.1 AC1; Story 6.4 AC1; FR15; Story 6.3 AC2; Story 6.5 · merged as H15</span>
+            </header>
+            <div class="finding-note">Epic 3 displays views and clicks before Epic 6 defines them. The four KPIs are never named. Funnel rate basis and "Engagement" vs "CTR" are unresolved. UX can't design these screens and QA can't test them.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Put the metric glossary into the PRD with exact formulas (view, unique viewer, completion, CTR denominator, funnel rates). Name the four KPIs. Make Story 6.5 a prerequisite.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H11. Event ingestion can be spoofed, and everything downstream inherits the inflation</h3>
+              <span class="finding-location">Story 6.1 AC1, AC3; FR12; C7 · merged as H17</span>
+            </header>
+            <div class="finding-note">The beacon endpoint is public and keyed by a public identifier. A competitor, a bot, or the merchant can inflate views and clicks or fake add-to-cart events to feed attribution. Client-side retry without idempotency keys will double-count.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Require event idempotency IDs, server-side dedup, per-session plausibility checks and origin checks. Accept add-to-cart for attribution only when backed by confirmable cart state. Bring FR-ANA-12 into the MVP.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M1. The performance budget is ambiguous and measured unreliably</h3>
+              <span class="finding-location">Goal 4; NFR1; Story 1.2; NFR2 · merged as H19</span>
+            </header>
+            <div class="finding-note">Gzip vs brotli unstated; "initial" scope unclear; ~20 KB core unchecked; "any measurable shift" will be flaky; "typical 4G" undefined; three-theme criterion dropped; merchant CSP not considered.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define the budget as compressed bytes before first interaction with a core loader ≤ 20 KB CI gate; measure CLS as a delta on named themes; define the network profile; add a CSP check to the spike.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M2. Scope creep and duplicate features in the MVP</h3>
+              <span class="finding-location">Story 3.5 vs Story 7.3/FR18; FR4/Story 3.3 AC3; FR5; FR6; FR13; Story 7.2 AC4; Story 6.3 AC1 · merged as M7</span>
+            </header>
+            <div class="finding-note">Two preview systems is twice the work for the same answer. External-link media, auto-publish, a configurable window and a trial each add edge cases to a launch already gated on a spike.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Merge 7.3 into 3.5 or use a real-storefront preview token. Cut external links, configurable windows and auto-publish unless pilots demanded them.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M3. External media links have two behaviors and no rules</h3>
+              <span class="finding-location">Story 3.3 AC3 · merged as M8</span>
+            </header>
+            <div class="finding-note">"Stored as references" means hotlinking, which bypasses transcoding, the size budget, moderation and CSP. The "or" leaves the choice to whoever builds it.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Always ingest with SSRF protections and limits, or remove external links from the MVP.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M4. Upload security details are missing</h3>
+              <span class="finding-location">Story 3.3 AC1-AC2; NFR3 · merged as M9</span>
+            </header>
+            <div class="finding-note">No EXIF/GPS stripping, SVG policy, magic-byte checks, scanning for direct uploads to the video service, signed-URL scoping, or quarantine before publish.</div>
+            <div class="finding-fix"><strong>Fix:</strong> List allowed MIME types and verification, strip metadata, ban SVG, scope direct-upload URLs, require scan-before-publish.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M5. The RTL interaction model for the player is undefined</h3>
+              <span class="finding-location">NFR5; §3; Story 5.2 AC2; Story 5.3 · merged as M10</span>
+            </header>
+            <div class="finding-note">Tap edges, progress-bar fill, story-ring order and swipe direction in RTL are undefined, as are numerals, SAR formatting (NFR-LOC-02 dropped) and bidi. Each developer will guess differently.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an RTL interaction table, numeral/currency policy and bidi rules as a required UX input.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M6. Story dependencies and ordering are broken</h3>
+              <span class="finding-location">Stories 3.1, 3.2, 3.4 AC3, 4.1 AC2, 2.2 AC2 · merged as M11</span>
+            </header>
+            <div class="finding-note">Agents working through epics in order will hit missing prerequisites, or will stub behavior that later contradicts the real version.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add "Depends on" fields per story; define auto-publish for content without a placement.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M7. The tech assumptions contradict the owner's stack and get ahead of open decisions</h3>
+              <span class="finding-location">§4; <code>docs/tech-stack.md</code>; Story 1.1 AC3 · merged as M12</span>
+            </header>
+            <div class="finding-note">The PRD never mentions NestJS, Drizzle or Shadow DOM, and "the demo is Vercel-hosted" is not a reason to pick a stack. Staging is built before residency (Q-05) is decided.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Point §4 at <code>docs/tech-stack.md</code>; make Q-05 an input to Story 1.1 or restrict staging to synthetic data.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M8. The availability NFR has no definition or error budget</h3>
+              <span class="finding-location">NFR7 · merged as M13</span>
+            </header>
+            <div class="finding-note">"Storefront services" and the measurement are undefined. The number that matters is the share of page views where content rendered.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define SLIs per service with targets and windows.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M9. Merchant token handling is under-specified</h3>
+              <span class="finding-location">FR1; NFR3 · merged as M14</span>
+            </header>
+            <div class="finding-note">OAuth scopes, key management, who can decrypt, audit logging and breach revocation are unstated.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an NFR covering scopes, KMS-backed encryption, no plaintext logs, access audit, revocation runbook.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M10. Currency, VAT and price display are unaddressed</h3>
+              <span class="finding-location">FR3; FR11; FR14 · merged as M15</span>
+            </header>
+            <div class="finding-note">Multi-currency, VAT inclusion and sale/compare-at display are unspecified; attributed revenue has no currency or tax basis.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Report in store base currency; card shows the price the cart will charge; revenue excludes VAT and shipping.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M11. The content status state machine is incomplete</h3>
+              <span class="finding-location">FR6; Story 3.4 AC2; Story 3.6; FR19 · merged as M16</span>
+            </header>
+            <div class="finding-note">Archived, Processing, Failed, Ready and plan-Deactivated exist but have no tab, no transitions, and no rule for which count toward plan limits.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a status diagram with transitions, storefront visibility, limit counting and list-filter behavior.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L1. The competitor claim is unverified and the differentiation is thin</h3>
+              <span class="finding-location">§1 Background · merged as M2</span>
+            </header>
+            <div class="finding-note">"Na3na3 offers shoppable video only" has no source.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Cite source and date; explain why Stories + scheduling beats a cheaper incumbent; point to attribution credibility as the real differentiator.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L2. A live demo URL is the UI specification of record</h3>
+              <span class="finding-location">§3 · merged as L2</span>
+            </header>
+            <div class="finding-note">The demo can change, and SRS Appendix B lists its known inconsistencies.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Snapshot the demo into the repo and treat it as a reference, not the spec.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L3. Open items dropped from the SRS</h3>
+              <span class="finding-location">§7 · merged as M1</span>
+            </header>
+            <div class="finding-note">Q-07 (multi-platform), Q-08 (non-video slides), Q-09 (moderation) are omitted.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Carry them over with owners and due dates; Q-07 needs a platform-adapter-seam decision.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L4. The store time zone is assumed to be available</h3>
+              <span class="finding-location">Story 4.2 AC1 · merged as L5</span>
+            </header>
+            <div class="finding-note">"In the store's time zone" assumes Salla exposes it.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Confirm in the spike; otherwise default to Asia/Riyadh with a merchant setting.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L5. The story sizing claim can't be tested</h3>
+              <span class="finding-location">§6 · merged as L6</span>
+            </header>
+            <div class="finding-note">"Sized to be completable by one dev agent in one focused session" has no heuristic.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace with a concrete heuristic (≤ 5 ACs, one deployable surface, no external-party dependency).</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L6. Weak acceptance criteria wording</h3>
+              <span class="finding-location">Story 2.1 AC3, Story 3.3 AC1, Story 2.3 AC3, Story 5.2 AC2 · merged as M4</span>
+            </header>
+            <div class="finding-note">"clear error", "visibly flagged", unversioned browsers (Samsung Internet dropped), "retried" with no count or backoff.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Concrete specs in every AC: error copy keys, retry policy, browser/version matrix.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>SRS / tech-stack consistency review</h2>
+          <span class="reviewer-source">review-srs-stack-consistency.md</span>
+        </summary>
+        <div class="dim-body">
+          <div class="dim-judgment">
+            <p>The PRD follows the SRS functional scope for the MVP closely. Every bracketed ID it cites exists in the SRS, and the epic/story breakdown is coherent. It is not yet a faithful derivative, though: it silently drops FR-NOT-03, the NFR-OBS-02 admin console, NFR-COMP-01 to 03, NFR-DATA-01 to 03, NFR-COST-01/02 and several performance, scalability and availability targets; several Must FRs (FR-AUTH-03/04, FR-CON-03/13/17) are uncited and only partly covered; embedding layouts have no configuration story; and the player budget wording clashes with on-demand modules and adaptive video.</p>
+            <p>PRD §4 is stale against <code>tech-stack.md</code>, and the stack doc does not address several architecture-shaping needs: zero CLS with an async Shadow DOM Web Component, theme colors across the shadow boundary, CDN caching vs scheduled publishing, the public-but-"secret" injector key, analytics partitioning, the admin console, and preview reuse of the player. No finding blocks the PRD outright; the high findings should be fixed before UX and architecture work starts.</p>
+            <p>Reviewer counts: Critical 0 · High 9 · Medium 15 · Low 11.</p>
+          </div>
+        </div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H1. FR-NOT-03 (support entry point) dropped entirely</h3>
+              <span class="finding-location">§2, §3, Epic 7; SRS FR-NOT-03 · merged as H3</span>
+            </header>
+            <div class="finding-note">SRS requires a "Need help? Contact support" entry point on every page. No FR, story or UI goal covers it, and it is likely to be checked in Salla review. Q-10 (support model) is also missing.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add FR20 [FR-NOT-03], an AC in Story 7.1 or a new story, list it in §3, and add Q-10 to §7.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H2. Section 5 NFRs silently dropped despite "All of Section 5" in MVP</h3>
+              <span class="finding-location">§2 Non-Functional; SRS §10.0 rule 2, §10.1 · merged as C8</span>
+            </header>
+            <div class="finding-note">NFR-COMP-01..03 (Story 5.2 AC2 drops Samsung Internet and desktop), NFR-DATA-01..03, NFR-COST-01/02, NFR-REL-01, NFR-PERF-06/07 and NFR-SCAL-01 have no PRD NFR, citation or story.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add NFR9 Compatibility, NFR10 Data retention, NFR11 Cost and abuse; extend NFR1/2/7; give each explicit ACs in Stories 1.2, 3.4, 7.5.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H3. Internal admin console (NFR-OBS-02) dropped, and the stack has no place for it</h3>
+              <span class="finding-location">NFR8; SRS NFR-OBS-02, §2.3; <code>tech-stack.md</code> layout · merged as H5</span>
+            </header>
+            <div class="finding-note">A whole user class and UI surface with its own auth model is gone, and the repo layout has no admin app. NFR-OBS-01 tracing and named signals are also missing.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an admin-console requirement and Epic 7 story; decide <code>apps/admin</code> vs a route group; expand NFR8 with NFR-OBS-01 signals.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H4. Embedding layout and display options have no merchant-facing configuration</h3>
+              <span class="finding-location">Story 5.5 AC2; Story 4.1; FR17/Story 7.1 AC2; SRS FR-INJ-10, FR-SET-02 · merged as H18</span>
+            </header>
+            <div class="finding-note">No story says where a merchant picks layout, position or width. UX will have no screen, and the data model will miss it.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add layout/options ACs to Story 4.1 and default display options to Story 7.1; flag the data-model addition.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H5. Player budget wording conflicts with the SRS and with adaptive video</h3>
+              <span class="finding-location">Goals; NFR1; Story 1.2 AC1; SRS NFR-PERF-01 · merged as H19</span>
+            </header>
+            <div class="finding-note">Story 1.2 measures the whole player, forbidding on-demand modules; HLS on Android/desktop needs an MSE library that can't fit in 50 KB next to Preact. The ~20 KB core target has no CI gate; gzip is assumed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Gate the initial payload at 50 KB gzip, warn at 20 KB core, per-chunk budgets for lazy chunks; decide progressive MP4 vs lazily loaded HLS.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H6. Zero layout shift with an async-loaded Shadow DOM Web Component is unaddressed</h3>
+              <span class="finding-location">NFR1; Story 5.1 AC1; Story 5.5 AC1; SRS NFR-PERF-02; <code>tech-stack.md</code> · merged as C5</span>
+            </header>
+            <div class="finding-note">Until <code>&lt;slips-player&gt;</code> is defined it has no size; space can only be reserved by injected markup/CSS set before the script runs, which depends on Q-01. The three-theme criterion is dropped.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a Story 1.5 AC on pre-script size reservation; add three themes to Story 1.2/7.6; add a CLS-safe placeholder decision to <code>tech-stack.md</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H7. Injector key is treated as a secret but is public by design</h3>
+              <span class="finding-location">FR17; NFR3; Story 4.3 AC1; Story 7.1 AC2; SRS NFR-SEC-02 · merged as C7</span>
+            </header>
+            <div class="finding-note">The key ships in every page and is a CDN cache key. Reversibly encrypted it cannot be indexed on the hot path. Regeneration needs CDN purge and possibly re-installation.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Open item for the architect: public identifier or secret, and storage (hashed lookup). Add a CDN purge AC to Story 7.1 AC2.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H8. Must FRs never cited and only partly covered</h3>
+              <span class="finding-location">§2; SRS FR-AUTH-03/04, FR-CON-03/13/17 · merged as H2</span>
+            </header>
+            <div class="finding-note">Onboarding checklist only in Story 6.4; FR-AUTH-04 only in Story 1.3; no status model and an invented "Ready" status; CTA actions not enumerated; FR-CON-17 uncited.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add the FRs and citations, the four checklist steps, a status-model FR, and the three CTA actions.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">H9. CDN caching vs scheduled publishing, stock changes and archive</h3>
+              <span class="finding-location">Story 4.2 AC1; Story 4.3 AC2; Story 3.6 AC2; FR16/Story 2.2 · merged as H12</span>
+            </header>
+            <div class="finding-note">Scheduled transitions have no triggering write, and product changes must purge every linked content item. The stack doc defers queues and CDN.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add ACs for scheduled transitions and product-driven purges within one minute; make scheduler/queue and CDN purge required capabilities.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M1. Data retention and uninstall: FR2 weakens FR-AUTH-05</h3>
+              <span class="finding-location">FR2; Story 1.4 AC3 · merged as M17</span>
+            </header>
+            <div class="finding-note">"Stop billing-related processing" is dropped and the 30-day retention policy is undefined.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Restate FR2; add a 30-day grace/restore/purge AC.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M2. NFR3 cites NFR-SEC-04 (RBAC), which the MVP cannot satisfy</h3>
+              <span class="finding-location">NFR3; SRS NFR-SEC-04 · merged as H6</span>
+            </header>
+            <div class="finding-note">The citation claims RBAC coverage that is out of MVP scope.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Cite SEC-01..03, 05..07 and note SEC-04 applies from Phase 2.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M3. NFR3 weakens at-rest encryption</h3>
+              <span class="finding-location">NFR3; SRS NFR-SEC-01 · merged as M18</span>
+            </header>
+            <div class="finding-note">TLS minimum version and at-rest encryption of all data are lost.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use the SRS wording.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M4. Out-of-stock behavior cites the wrong requirement</h3>
+              <span class="finding-location">FR16; Stories 2.2, 4.3; SRS FR-PRD-05 · merged as M19</span>
+            </header>
+            <div class="finding-note">FR-PRD-05 basic form is the real source; low-stock and three-state availability are dropped.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Cite FR-PRD-05; add three-state availability to Story 2.3; note Appendix B item 3.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M5. FR-INJ-04 and FR-INJ-07 weakened</h3>
+              <span class="finding-location">FR10; Stories 5.2, 5.3 · merged as M20</span>
+            </header>
+            <div class="finding-note">Data saver and reduced motion dropped from player behavior; no storefront-language detection AC.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add ACs to Stories 5.2/5.3.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M6. Phase 2 and Phase 3 epic outlines omit SRS-assigned requirements</h3>
+              <span class="finding-location">§5 Epics 8, 9 · merged as M21</span>
+            </header>
+            <div class="finding-note">Many SRS IDs are missing from both outlines, and "variants" is ambiguous.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use the SRS §10.2/§10.3 ID lists; rename to "product variants (FR-PRD-08)".</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M7. Open questions list truncated</h3>
+              <span class="finding-location">§7; SRS §9.3 · merged as M1</span>
+            </header>
+            <div class="finding-note">Q-07 to Q-10 missing; Q-06 already resolved.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add Q-07 to Q-10; mark Q-06 resolved.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M8. PRD §4 Technical Assumptions is stale against <code>tech-stack.md</code></h3>
+              <span class="finding-location">§4 · merged as M12</span>
+            </header>
+            <div class="finding-note">Downstream agents get a different and vaguer stack.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace the candidate-stack bullet with a pointer to <code>docs/tech-stack.md</code>; keep only constraints.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M9. Architecture sequencing conflicts with Epic 1</h3>
+              <span class="finding-location">§8; Stories 1.1-1.3 · merged as M22</span>
+            </header>
+            <div class="finding-note">Scaffolding, CI, data model and auth are built before any architecture exists. The PO "shard" step duplicates existing stories.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Architecture first, spikes in parallel, then an architecture update; clarify the PO step.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M10. "Inherits basic store theme colors" pulls deferred FR-INJ-08 into the MVP and conflicts with Shadow DOM</h3>
+              <span class="finding-location">§3; SRS FR-INJ-08 · merged as M5</span>
+            </header>
+            <div class="finding-note">Unannounced scope; Shadow DOM blocks theme rules, so only custom properties cross the boundary.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Remove it or make it an explicit MVP FR with a CSS-custom-property mechanism.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M11. Full-screen overlays, fonts and a11y inside Shadow DOM are not covered by the stack</h3>
+              <span class="finding-location">Stories 5.2, 5.3; NFR5/NFR6 · merged as M23</span>
+            </header>
+            <div class="finding-note">Ancestor transforms clip overlays; <code>@font-face</code> doesn't work in a shadow root; focus trap and ARIA across the boundary need handling.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Mount the full-screen viewer on <code>document.body</code>; declare fonts in light DOM; choose focus-trap/scroll-lock.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M12. Analytics at scale on Postgres/Drizzle is underspecified</h3>
+              <span class="finding-location">NFR2; §4; Story 6.1 · merged as M24</span>
+            </header>
+            <div class="finding-note">Partitioning, rollups and an ingest queue are needed; Drizzle Kit doesn't manage declarative partitioning.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add partitioning strategy, daily rollups, ingest queue and a columnar-store trigger to <code>tech-stack.md</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M13. Tenant isolation mechanism not chosen</h3>
+              <span class="finding-location">NFR3; Story 7.5 AC1; SRS NFR-SEC-03 · merged as M25</span>
+            </header>
+            <div class="finding-note">Listed as a test target but has no design.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Decide RLS vs a scoped repository layer.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M14. Preview surfaces should reuse the real player</h3>
+              <span class="finding-location">FR7/Story 3.5; FR18/Story 7.3 · merged as M26</span>
+            </header>
+            <div class="finding-note">A React reimplementation will drift from what shoppers see.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Embed <code>packages/player</code> in preview mode; add matching ACs.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">M15. Data residency vs hosted services</h3>
+              <span class="finding-location">§4 Q-05 · merged as C6</span>
+            </header>
+            <div class="finding-note">If Q-05 requires in-region storage, the video service, CDN and hosting choices may all be invalid.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add Q-05 to <code>tech-stack.md</code> as a constraint.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L1. Non-specific ID references</h3>
+              <span class="finding-location">NFR7; NFR8 · merged as L7</span>
+            </header>
+            <div class="finding-note">"NFR-AVAIL", "NFR-OBS", "NFR-MNT", "NFR-BKP" are not SRS IDs and hide drops.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Cite exact IDs.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L2. Availability and backup targets weakened</h3>
+              <span class="finding-location">NFR7; NFR8 · merged as M13</span>
+            </header>
+            <div class="finding-note">Dashboard 99.5%, PITR and quarterly restore tests dropped.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add them.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L3. FR10 cites FR-INJ-10 without stating it</h3>
+              <span class="finding-location">FR10 · merged as H18</span>
+            </header>
+            <div class="finding-note">The FR text doesn't mention embedding layouts.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add the three layouts to FR10.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L4. FR12 event list drops "share (if enabled)" and quartiles</h3>
+              <span class="finding-location">FR12 · merged as L8</span>
+            </header>
+            <div class="finding-note">SRS FR-ANA-01 specifies quartile progress and share.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Say "quartile progress" and include or exclude share.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L5. Upload validation drops resolution</h3>
+              <span class="finding-location">Story 3.3 AC1; SRS FR-CON-08 · merged as H10</span>
+            </header>
+            <div class="finding-note">Resolution missing; per-plan upload limits conflict with the MVP plan rule.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add resolution; state MVP upload limits are global.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L6. Settings details dropped</h3>
+              <span class="finding-location">Story 7.1 AC1; SRS FR-SET-01, FR-SET-06 · merged as L9</span>
+            </header>
+            <div class="finding-note">Disconnect and explicit save with confirmation have no AC.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add them as ACs.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L7. Dashboard KPI and list details</h3>
+              <span class="finding-location">Story 6.4 AC1; SRS FR-DASH-02, 04 · merged as H15</span>
+            </header>
+            <div class="finding-note">KPIs unnamed; no % change; columns unlisted.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Name the KPIs, add % change, list the columns.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L8. Appendix B items 3 to 5 unaddressed</h3>
+              <span class="finding-location">Story 6.5 AC2 · merged as L3</span>
+            </header>
+            <div class="finding-note">Out-of-stock guidance, funnel rate basis and the Visibility rules link are unassigned.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Assign each item or list it as open; hide or note the item-5 link.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L9. Shared Zod schemas must not leak into the player bundle</h3>
+              <span class="finding-location"><code>tech-stack.md</code>; NFR1 · merged as L10</span>
+            </header>
+            <div class="finding-note">Runtime Zod in the player would consume much of the budget.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add Turborepo boundaries: type-only imports for <code>packages/player</code>.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L10. Wording inconsistencies inside stories</h3>
+              <span class="finding-location">Story 3.6 AC2; Story 2.2 AC1; Goals · merged as L11</span>
+            </header>
+            <div class="finding-note">"immediately (≤ 1 minute)"; new targets and goals not in the SRS.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Use "within one minute" consistently; mark PRD-originated targets.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">L11. Story ordering dependencies</h3>
+              <span class="finding-location">Story 2.3 AC1; Story 3.1 AC1; Story 6.4 · merged as M11</span>
+            </header>
+            <div class="finding-note">Columns depend on Epic 6 data; the checklist depends on Epics 2, 3 and 5.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Show placeholders until Epic 6, or move the columns.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Implementation detail: vendor and stack choices in §4</h3>
+              <span class="finding-location">§4 managed video service; Next.js/Preact · merged as M12</span>
+            </header>
+            <div class="finding-note">Vendor and framework choices belong in architecture and are superseded by <code>tech-stack.md</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Keep the requirement (renditions, posters, NFR-PERF-06 SLA); move the choice to architecture.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Implementation detail: mechanisms stated in stories</h3>
+              <span class="finding-location">Story 3.3 AC2; Story 4.3 AC1; Story 6.1 AC1; Story 1.2 AC2; Story 1.1 AC1; §4 storage/queue · merged as L12</span>
+            </header>
+            <div class="finding-note">Tenant-scoped paths, injector-key cache keys, beacon endpoint, Playwright, monorepo layout and Postgres/ClickHouse are mechanisms, not outcomes.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State outcomes instead; reference <code>tech-stack.md</code> for the monorepo.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>Glossary drift: "placement" (Story 4.1, 5.5, 7.2, FR19) vs "visibility rules" (FR8, Epic 4) vs "Visibility rules" screen (SRS).</li>
+        <li>Glossary drift: "injector" (FR9, NFR1) vs "player" (FR10, Story 1.2) vs "loader" (Story 5.1) vs "script" (Story 1.5, 1.6). The size budget applies to "injector initial payload" in NFR1 but to "player's gzip size" in Story 1.2.</li>
+        <li>Glossary drift: content statuses — FR6 tabs "All, Published, Scheduled, Drafts", Story 3.4 "Processing/Failed/Ready", Story 3.6 "Archived". "Ready" vs "Published" is unreconciled.</li>
+        <li>Glossary drift: the screen name "Videos &amp; Stories" (§3) vs the product nouns "Stories and Reels"; "Engagement" vs "CTR" acknowledged as unresolved (Story 6.5); "tags the session" (Story 1.6 AC1) vs "tagged sessions or clicks" (Story 6.2 AC1).</li>
+        <li>ID continuity: FR1–19, NFR1–8, Epics 1–9 and Stories 1.1–7.6 are contiguous and unique. FR16 is cited for deletion behavior it does not define (Story 2.2 AC2). §4 "Q-05" resolves to §7. SRS FR-AUTH-03/04 are implemented in Story 6.4 AC2 and Story 1.3 AC3 but not cited by any FR. FR-CON-03/13/17 and FR-NOT-03 are cited nowhere.</li>
+        <li>Assumptions Index roundtrip: one inline tag ("Candidate stack [Assumption]", §4) and no index. The SRS <code>[Assumption]</code> items inherited by FR2 (30-day retention), FR6 (statuses) and FR16 (stock behavior) lost their tags.</li>
+        <li>UJ protagonist naming: there are no UJs. Story actors are inconsistent ("the team", "the business", "the player", "As a user" in Story 7.4).</li>
+        <li>Required sections for launch stakes: missing Success Metrics/counter-metrics, Non-Goals, Glossary, User Journeys, and a Risks section (SRS R-01–R-08 not carried over, although R-02 and R-04 drive Epic 1 and NFR1). The change log names "Product owner" rather than a person.</li>
+        <li>Minor: NFR2 drops the SRS qualifier "for a 30-day range" on the analytics P95. NFR7 drops the dashboard 99.5% target. Story 3.6 AC2 says "immediately" and "≤ 1 minute" in the same breath.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: .claude/skills/bmad-prd/assets/prd-validation-checklist.md</span>
+        <span>Generated: 2026-10-10</span>
+        <span>Twin: validation-report.md</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

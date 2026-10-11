@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "skills": {
+    "boneyard": {
+      "source": "0xGF/boneyard",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/boneyard/SKILL.md",
+      "computedHash": "fc1d23e863407312d64b0db2ad0003c2b13a2e2ffb642cc0c878ca77736ba0c8"
+    },
+    "drizzle-orm": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/drizzle-orm/SKILL.md",
+      "computedHash": "74887d7aeac98532ddc0e9fa9d83dcff2feccfeed599483822ccf781f8b12611"
+    },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "de7de6829490819b3c18cfdad2c93d002bd428c4b738d29b971ef3dc8f911d08"
+    },
+    "nestjs-best-practices": {
+      "source": "Kadajett/agent-nestjs-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-best-practices/SKILL.md",
+      "computedHash": "58f8a630637be3acce1f118c747d68160346ada8a43d76cb52a5b4c4edaa2d37"
+    },
+    "next-best-practices": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/next-best-practices/SKILL.md",
+      "computedHash": "a210bd17b5cfc616c80259615c6f1983b68f9c47c1eb260dc3f14b4442e25977"
+    },
+    "nuqs": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/nuqs/SKILL.md",
+      "computedHash": "c98fe30c596e574f90b36da41efce8e6c2104432b1d4b30f1c87e37761565c94"
+    },
+    "react-hook-form-zod": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/react-hook-form-zod/SKILL.md",
+      "computedHash": "380013431b2a7aa5fea47d167afc07109b5940058d3a181f1a4f0a3f20a55493"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "computedHash": "da388f632cd83783c02967446e21941c9ee8291ccb43ba74c23f7d4e9b7c298c"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "e14e276241805c97dbcfe40dcbea1a3035269cc7293cac4b1832dda41a835e60"
+    },
+    "tanstack-query": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/tanstack-query/SKILL.md",
+      "computedHash": "0c95f995689e36870444cd2fe12e29d06e24f689775e1d320e50680fc5aec0f5"
+    },
+    "tanstack-table": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/tanstack-table/SKILL.md",
+      "computedHash": "0adb1adb23d40f5212a4132de067d1a214190e8c826c7eb1d0ef0e6d71eba973"
+    },
+    "turborepo": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/turborepo/SKILL.md",
+      "computedHash": "68e816abf8eb83ffb866069179e8dc423c469179a45563428277e28051af846f"
+    },
+    "vercel-composition-patterns": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/composition-patterns/SKILL.md",
+      "computedHash": "f98931159fa9c7fed043bcd18a891a46dcf89ababa38df13a4c5b7b30dc0ce07"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "3219a1944e404ffc14d1d9d6aef6dd2e3855b81387ee0a044ccbfe14d34c2357"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
+    },
+    "zod": {
+      "source": "fellipeutaka/leon",
+      "sourceType": "github",
+      "skillPath": "skills/zod/SKILL.md",
+      "computedHash": "d33eed3542980cc3b386545a076b09e64affcf54b4a1ab651d9b9490d2395bb7"
+    }
+  }
+}

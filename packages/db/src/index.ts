@@ -1,0 +1,11 @@
+export * as schema from './schema/index.js';
+export { OWNERSHIP, findUnownedTables, schemaTableNames, tableOwners, type OwnerModule } from './ownership.js';
+export { MIGRATIONS_FOLDER, runMigrations } from './migrate.js';
+export { MissingStoreContextError, currentStoreContext, requireStoreContext, runOutsideStoreContext, withStoreContext, type StoreContext, type StoreDb } from './tenant/context.js';
+export { StoreScoped } from './tenant/store-scoped.js';
+export { findTenantViolations, tablesOwnedBy, tenantTableStatements, type TenantViolation } from './tenant/rls.js';
+export type { Queryable } from './tenant/queryable.js';
+export { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables, type TenantTableRegistration } from './testing/cross-tenant.js';
+export { ensureTestAppRole } from './testing/app-role.js';
+export { and, eq, gt, inArray, lt, sql } from 'drizzle-orm';
+export type { LifecycleState, SessionMode, StorePlatform } from './schema/integration.js';

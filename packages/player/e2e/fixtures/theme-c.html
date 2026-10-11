@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reference page, theme c</title>
+<style>
+  html, body { overflow-anchor: none; } /* keep Chrome scroll anchoring from masking shifts */
+  body { margin: 0; font-family: 'Courier New', monospace; background: #e8f0fa; color: #222; }
+  header { padding: 8px; background: #fff; border-bottom: 1px solid #ddd; }
+  .hero { height: 520px; padding: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px; }
+  .card { height: 260px; background: #eee; }
+  footer { padding: 8px; height: 1400px; background: #fff; }
+  [data-slips-root] ul { margin: 0; padding: 12px; }
+</style>
+</head>
+<body>
+<header><h1>Theme c</h1></header>
+<div class="hero"><h2>Hero</h2></div>
+<div class="grid"><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div></div>
+<div data-slips-anchor></div>
+<footer><p>Footer content that sits below the Slips anchor.</p></footer>
+<script type="module" src="/boot.js"></script>
+</body>
+</html>

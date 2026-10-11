@@ -1,0 +1,103 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Story Viewer</title><style>
+/* Governs: EXPERIENCE.md IA — Storefront player (Story ring row, Full-screen viewer, Product card, "View options" fallback FR23); Component Patterns — Story ring, Viewer, Product card + CTA; Player gestures; Flow UJ2 steps 1-7. DESIGN.md Components — Story ring, Player product card, Player CTA, Player rule (neutral, Shadow DOM, system font). */
+body{font-family:var(--player)}
+.phones{display:flex;gap:28px;flex-wrap:wrap;justify-content:center}
+.col{display:grid;gap:10px;justify-items:center}.cap{font-size:12.5px;color:var(--muted-foreground);max-width:270px;text-align:center}
+.store{position:absolute;inset:0;background:#fff;color:#1b1b1b;padding-top:24px}
+.shdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-weight:700;font-size:15px;border-bottom:1px solid #eee}.shdr span{font-size:16px;font-weight:400}
+.hero{margin:12px 14px;height:120px;border-radius:12px;background:linear-gradient(135deg,#3b2a20,#a3784a);color:#fff;padding:14px;font-weight:700;font-size:15px;display:flex;align-items:flex-end}
+.rings{display:flex;gap:12px;padding:6px 14px 12px;overflow:hidden}
+.ring{display:grid;justify-items:center;gap:5px;width:62px;flex:none}
+.ring i{width:62px;height:62px;border-radius:50%;padding:2.5px;background:conic-gradient(from 200deg,#FF4A3D,#FF7A2E,#FFC23D,#FF4A3D)}
+.ring.seen i{background:#D3CDC8}
+.ring i b{display:block;width:100%;height:100%;border-radius:50%;border:2.5px solid #fff}
+.ring small{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62px}
+.ring.seen small{color:#8a817b}
+.c1 b{background:linear-gradient(150deg,#e6c27a,#7a4a14)}.c2 b{background:linear-gradient(150deg,#d9cbbb,#4a3b33)}.c3 b{background:linear-gradient(150deg,#5fae7c,#0f4d3a)}.c4 b{background:linear-gradient(150deg,#c9a6a0,#5a2d2a)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px}.grid div{height:120px;border-radius:10px;background:#f2efec}
+.sect{font-size:13px;font-weight:700;padding:4px 14px}
+.opt{grid-column:1/-1;font-size:11.5px;color:#615954;text-align:center}
+.lng{display:block;width:100%}
+.screen .bars{top:26px}.screen .ptop{top:36px;white-space:nowrap}
+:root{--background:#FFFFFF;--page:#FAF8F6;--foreground:#15110F;--card:#FFFFFF;--primary:#FF4A3D;--primary-foreground:#15110F;--accent:#FFC23D;--accent-foreground:#3A2600;--muted:#F5F3F1;--muted-foreground:#615954;--border:#ECE8E4;--ring:#FF4A3D;--destructive:#C0123C;--destructive-text:#9C0E31;--success:#1BAA5A;--success-text:#0E6E39;--warning:#FFB547;--warning-text:#8A5300;--info-text:#B8291A;--elev:0 8px 24px -14px rgba(40,24,16,.16);--radius:16px;
+--font:"Plus Jakarta Sans","IBM Plex Sans Arabic","Noto Sans Arabic","Segoe UI",Tahoma,system-ui,sans-serif;--player:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Arabic",Tahoma,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}body{background:var(--page);color:var(--foreground);font-family:var(--font);line-height:1.5;-webkit-font-smoothing:antialiased;padding:32px 24px 64px}
+.num{font-variant-numeric:tabular-nums;unicode-bidi:isolate;direction:ltr;display:inline-block}
+.wrap{max-width:1232px;margin:0 auto;display:grid;gap:28px}
+.lbl{font-size:13px;font-weight:600;color:var(--muted-foreground)}
+.browser{background:var(--card);border-radius:22px;overflow:hidden;box-shadow:0 30px 60px -30px rgba(0,0,0,.35),0 0 0 1px var(--border)}
+.chrome{display:flex;align-items:center;gap:16px;padding:10px 14px;background:var(--muted);direction:ltr}
+.dots{display:flex;gap:6px}.dots i{width:10px;height:10px;border-radius:50%;background:var(--border)}
+.url{font-size:12px;color:var(--muted-foreground);background:var(--background);padding:4px 12px;border-radius:6px;flex:1;max-width:380px}
+.shell{display:grid;grid-template-columns:200px 1fr;min-height:640px}
+.nav{border-inline-end:1px solid var(--border);padding:18px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px;padding:0 8px 16px}
+.nav a{font-size:13px;padding:8px 10px;border-radius:10px;color:var(--muted-foreground);text-decoration:none}.nav a.on{background:var(--muted);color:var(--foreground);font-weight:600}.nav .bot{margin-top:auto}
+.main{min-width:0}
+.top{display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--border);font-size:13px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:var(--muted);font-size:12.5px;font-weight:600}
+.live{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 3px color-mix(in oklab,var(--success) 25%,transparent)}
+.dead{width:8px;height:8px;border-radius:50%;background:var(--destructive)}
+.sp{margin-inline-start:auto}
+.btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:600;padding:8px 16px;border-radius:999px;border:0;white-space:nowrap}
+.btn.primary{background:var(--primary);color:var(--primary-foreground);box-shadow:0 6px 16px -8px var(--primary)}
+.btn.ghost{background:transparent;color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border)}
+.btn.accent{background:var(--accent);color:var(--accent-foreground)}
+.btn.dis{opacity:.5}.btn.sm{padding:5px 11px;font-size:12px}
+.card{background:var(--card);border-radius:var(--radius);padding:22px;box-shadow:var(--elev),0 0 0 1px var(--border)}
+.card h2{font-size:15px;font-weight:700;margin-bottom:4px}.muted{color:var(--muted-foreground);font-size:12.5px}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px}.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.b-draft{background:var(--muted);color:var(--muted-foreground)}.b-pub{background:color-mix(in oklab,var(--success) 15%,transparent);color:var(--success-text)}.b-sch{background:color-mix(in oklab,var(--primary) 15%,transparent);color:var(--info-text)}
+.field{display:grid;gap:6px}.field>label{font-size:13px;font-weight:600}
+.input{height:36px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--border);padding:0 12px;display:flex;align-items:center;font-size:13px;gap:8px;background:var(--background)}
+.input.err{box-shadow:inset 0 0 0 1.5px var(--destructive)}.errmsg{color:var(--destructive-text);font-size:12px;font-weight:500}
+.seg{display:inline-flex;background:var(--muted);padding:3px;border-radius:12px;font-size:12.5px}.seg span{padding:5px 12px;border-radius:9px;color:var(--muted-foreground)}.seg .on{background:var(--card);color:var(--foreground);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.en{direction:ltr}
+.phone{width:270px;height:560px;border-radius:44px;padding:10px;background:#0b0b0d;box-shadow:0 30px 60px -25px rgba(0,0,0,.5);flex:none}
+.screen{position:relative;height:100%;border-radius:34px;overflow:hidden;color:#fff;font-family:var(--player)}
+.reel{position:absolute;inset:0;background:radial-gradient(120% 70% at 70% 30%,#c98d3e 0%,#6b3412 40%,#1d0d06 80%)}
+.reel.r2{background:radial-gradient(120% 70% at 30% 30%,#b9a48c 0%,#3d3029 45%,#110c0a 85%)}
+.reel::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45),transparent 22%,transparent 50%,rgba(0,0,0,.75))}
+.bars{position:absolute;top:14px;inset-inline:14px;display:flex;gap:4px;z-index:2}.bars i{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.35);position:relative;overflow:hidden}.bars .f{background:#fff}.bars .p::after{content:"";position:absolute;inset:0;inset-inline-end:45%;background:#fff}
+.ptop{position:absolute;top:26px;inset-inline:14px;display:flex;align-items:center;gap:8px;font-size:13px;z-index:2}
+.av{width:28px;height:28px;border-radius:50%;background:#2b2523;color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.ctl{margin-inline-start:auto;display:flex;gap:6px}.ctl span{width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.35);display:grid;place-items:center;font-size:13px}
+.pcard{position:absolute;inset-inline:10px;bottom:10px;background:#fff;color:#15110F;border-radius:22px;padding:10px;display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center;z-index:2}
+.pimg{width:56px;height:56px;border-radius:14px;background:linear-gradient(150deg,#e6c27a,#7a4a14)}.pimg.g2{background:linear-gradient(150deg,#d9cbbb,#4a3b33)}
+.pinfo b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;line-height:1.35}.pinfo span{font-size:13px;color:#615954}
+.pinfo small{display:block;font-size:11px;color:#615954}
+.add{grid-column:1/-1;display:flex;justify-content:center;align-items:center;height:48px;border-radius:999px;background:#15110F;color:#FFC23D;font-weight:700;font-size:14.5px}
+.sub{grid-column:1/-1;display:flex;justify-content:space-between;font-size:12px;color:#615954;padding:0 6px}
+.toast{position:absolute;inset-inline:24px;bottom:170px;text-align:center;background:rgba(15,15,18,.82);padding:8px 12px;border-radius:999px;font-size:12px;font-weight:600;z-index:3}
+.notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:90px;height:20px;background:#0b0b0d;border-radius:0 0 14px 14px;z-index:5}
+</style></head><body>
+<div class="wrap">
+<p class="lbl">مشغّل المتجر · تصميم Slips المحايد بخط النظام — Storefront player, neutral styling, system font</p>
+<div class="phones">
+<div class="col"><div class="phone"><div class="screen"><div class="notch"></div><div class="store">
+<div class="shdr"><span>☰</span>دار العود<span>🛍︎</span></div>
+<div class="hero">تشكيلة الخريف</div>
+<div class="sect">قصص</div>
+<div class="rings"><div class="ring c1"><i><b></b></i><small>عطور الخريف</small></div><div class="ring c2"><i><b></b></i><small>مباخر</small></div><div class="ring c3 seen"><i><b></b></i><small>دهن العود</small></div><div class="ring c4 seen"><i><b></b></i><small>هدايا</small></div></div>
+<div class="grid"><div></div><div></div><div></div><div></div></div>
+</div></div></div><p class="cap">1 · حلقات القصص في الصفحة الرئيسية: الحلقة الملوّنة لم تُشاهَد، والرمادية شوهدت. التمرير يتبع اتجاه النص.</p></div>
+
+<div class="col"><div class="phone"><div class="screen"><div class="reel"></div><div class="notch"></div>
+<div class="bars"><i class="f"></i><i class="p"></i><i></i></div>
+<div class="ptop"><span class="av">دع</span><b>دار العود</b><div class="ctl"><span>❚❚</span><span>🔇︎</span><span>✕</span></div></div>
+<div class="pcard"><div class="pimg"></div><div class="pinfo"><b>دهن عود كمبودي فاخر · 12 مل</b><span><span class="num">349</span> ر.س</span></div><div class="add">أضف إلى السلة</div><div class="sub"><span>عرض المنتج</span><span>السلة (<span class="num">2</span>)</span></div></div>
+</div></div><p class="cap">2 · العارض بملء الشاشة: أشرطة التقدم، والإيقاف وكتم الصوت والإغلاق ظاهرة دائمًا، وبطاقة المنتج بزر «أضف إلى السلة».</p></div>
+
+<div class="col"><div class="phone"><div class="screen"><div class="reel r2"></div><div class="notch"></div>
+<div class="bars"><i class="f"></i><i class="f"></i><i class="p"></i></div>
+<div class="ptop"><span class="av">دع</span><b>دار العود</b><div class="ctl"><span>❚❚</span><span>🔇︎</span><span>✕</span></div></div>
+<div class="pcard"><div class="pimg g2"></div><div class="pinfo"><b>مبخرة نحاسية مزخرفة</b><span><span class="num">189</span> ر.س</span><small>الحجم واللون مطلوبان</small></div><div class="add">اختر الخيارات</div><div class="opt">يفتح صفحة المنتج لاختيار الحجم واللون</div></div>
+</div></div><p class="cap">3 · منتج بخيارات إلزامية: الزر «اختر الخيارات» يفتح صفحة المنتج (نقرة منتج، دون احتساب إضافة للسلة).</p></div>
+
+<div class="col en" dir="ltr"><div class="phone"><div class="screen"><div class="reel r2"></div><div class="notch"></div>
+<div class="bars"><i class="f"></i><i class="f"></i><i class="p"></i></div>
+<div class="ptop"><span class="av">DA</span><b>Dar Al Oud</b><div class="ctl"><span>❚❚</span><span>🔇︎</span><span>✕</span></div></div>
+<div class="pcard"><div class="pimg g2"></div><div class="pinfo"><b>Engraved copper incense burner</b><span><span class="num">189</span> SAR</span><small>Size and color required</small></div><div class="add">View options</div><div class="opt">Opens the product page to choose options</div></div>
+</div></div><p class="cap">4 · English (LTR) storefront, same options state.</p></div>
+</div></div>
+</body></html>

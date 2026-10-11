@@ -17,6 +17,15 @@ const STORE_CONTEXT_MESSAGE = 'tenant-context-helper-only: set the store context
 
 const EMITTER_MESSAGE = 'no-in-process-emitter: cross-module reactions go through publishEvent() domain events (AD-17), not an in-process emitter';
 
+const EMITTER_PATHS = [
+  { name: 'node:events', importNames: ['EventEmitter', 'default'], message: EMITTER_MESSAGE },
+  { name: 'events', importNames: ['EventEmitter', 'default'], message: EMITTER_MESSAGE },
+  { name: 'eventemitter3', message: EMITTER_MESSAGE },
+  { name: 'mitt', message: EMITTER_MESSAGE },
+];
+const EMITTER_PATTERNS = [{ group: ['@nestjs/event-emitter', '@nestjs/event-emitter/*'], message: EMITTER_MESSAGE }];
+const DISPATCHER_PATTERN = { group: ['**/events/dispatcher*', '**/dispatcher', '**/dispatcher.js'], message: 'event-consumer-worker-only: only apps/api/src/worker may import the event dispatcher (AD-17: the http role never consumes events)' };
+
 /** Element types used by the boundary policies. Order matters: first match wins. */
 export const boundaryElements = [
   { type: 'api-adapter', pattern: 'apps/api/src/adapters/**' },
@@ -118,22 +127,13 @@ export function createConfig(options = {}) {
       },
     }),
     // AD-17: modules react to each other through transactional domain events, never an in-process emitter.
+    // Only the worker and the dispatcher itself may import the event consumer (the http role never consumes events).
     ...inPackage(pkgDir, ['apps/api/src/**/*.ts'], {
-      ignores: scoped(pkgDir, ['apps/api/src/adapters/**']),
-      rules: {
-        '@typescript-eslint/no-restricted-imports': [
-          'error',
-          {
-            paths: [
-              { name: 'node:events', importNames: ['EventEmitter', 'default'], message: EMITTER_MESSAGE },
-              { name: 'events', importNames: ['EventEmitter', 'default'], message: EMITTER_MESSAGE },
-              { name: 'eventemitter3', message: EMITTER_MESSAGE },
-              { name: 'mitt', message: EMITTER_MESSAGE },
-            ],
-            patterns: [{ group: ['@nestjs/event-emitter', '@nestjs/event-emitter/*'], message: EMITTER_MESSAGE }],
-          },
-        ],
-      },
+      ignores: scoped(pkgDir, ['apps/api/src/adapters/**', 'apps/api/src/worker/**', 'apps/api/src/events/dispatcher*', 'apps/api/src/**/*.test.ts']),
+      rules: { '@typescript-eslint/no-restricted-imports': ['error', { paths: EMITTER_PATHS, patterns: [...EMITTER_PATTERNS, DISPATCHER_PATTERN] }] },
+    }),
+    ...inPackage(pkgDir, ['apps/api/src/worker/**/*.ts', 'apps/api/src/events/dispatcher*.ts'], {
+      rules: { '@typescript-eslint/no-restricted-imports': ['error', { paths: EMITTER_PATHS, patterns: EMITTER_PATTERNS }] },
     }),
     // Salla is allowed in the salla adapter only, not in other adapters.
     ...inPackage(pkgDir, ['apps/api/src/adapters/!(salla)/**'], {

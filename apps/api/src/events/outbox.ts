@@ -45,9 +45,17 @@ export async function publishEvent<N extends EventName>(
   const def = EVENT_CATALOG[name];
   if (!def) throw new Error(`unknown domain event ${String(name)}`);
   const parsed = def.schema.parse(payload);
+  // A tenant event's envelope store is its payload store; a conflicting explicit or ambient store is a bug.
+  const payloadStore = (parsed as { store_id?: unknown } | null)?.store_id;
+  const ambient = telemetry.context().store_id;
+  let storeId = options.storeId;
+  if (typeof payloadStore === 'string') {
+    if ((storeId && storeId !== payloadStore) || (ambient && ambient !== payloadStore)) throw new Error(`publishEvent ${name}: payload store_id conflicts with the store in context`);
+    storeId = payloadStore;
+  }
   const event_id = uuidv7();
   const envelope: EventEnvelope = {
-    ...jobMeta(telemetry, options.storeId),
+    ...jobMeta(telemetry, storeId),
     event_id,
     name,
     occurred_at: new Date().toISOString(),

@@ -22,6 +22,13 @@
       "when": 1760313600000,
       "tag": "0002_event_deliveries",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1760400000000,
+      "tag": "0003_event_deliveries_no_delete",
+      "breakpoints": true
     }
   ]
 }

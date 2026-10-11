@@ -101,3 +101,15 @@ describe('no in-process emitters (AD-17)', () => {
     expect(msgs.filter((m) => m.includes('no-in-process-emitter'))).toEqual([]);
   });
 });
+
+describe('event consumer is worker-only (AD-17)', () => {
+  it.each(['apps/api/src/http.ts', 'apps/api/src/modules/catalog/x.ts', 'apps/api/src/events/outbox.ts'])('fails when %s imports the dispatcher', async (file) => {
+    const msgs = await lint(file, "import { eventDispatcher } from '../events/dispatcher.js';\nexport const d = eventDispatcher;\n");
+    expect(msgs.some((m) => m.includes('event-consumer-worker-only'))).toBe(true);
+  });
+
+  it.each(['apps/api/src/worker/worker.ts', 'apps/api/src/events/dispatcher.ts'])('allows %s', async (file) => {
+    const msgs = await lint(file, "import { eventDispatcher } from '../events/dispatcher.js';\nexport const d = eventDispatcher;\n");
+    expect(msgs.filter((m) => m.includes('event-consumer-worker-only'))).toEqual([]);
+  });
+});

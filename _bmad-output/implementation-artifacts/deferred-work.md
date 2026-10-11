@@ -22,3 +22,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-7-transactional-domain-event-transport.md`
   summary: The http role has no pg-boss producer yet; publishEvent needs a send-only PgBoss in the http infra when the first module publishes.
   evidence: events.dispatch is created by the worker at boot, so publishing before the first worker boot fails on the queue foreign key.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-7-transactional-domain-event-transport.md`
+  summary: event_deliveries is never pruned; slips_app has no DELETE on it.
+  evidence: Add a retention job (owner role or a granted function) deleting rows older than the pg-boss archive window (7 days) plus margin.

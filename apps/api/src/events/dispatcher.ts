@@ -36,15 +36,27 @@ export function eventDispatcher(pool: Pool, registry: EventHandlerRegistry): Job
     const env = EventEnvelope.parse(data);
     if (!isEventName(env.name)) throw new Error(`unknown domain event ${env.name}`);
     const payload: unknown = EVENT_CATALOG[env.name].schema.parse(env.payload);
-    for (const handler of registry.handlersFor(env.name)) {
+    const handlers = registry.handlersFor(env.name);
+    if (handlers.length === 0) throw new Error(`no handler registered for domain event ${env.name}`);
+    const payloadStore = (payload as { store_id?: unknown } | null)?.store_id;
+    if (payloadStore !== undefined && payloadStore !== env.store_id) throw new Error(`domain event ${env.name}: envelope store_id does not match payload store_id`);
+    // Every handler runs in its own transaction; one failing never starves the others. Only failures re-run on retry.
+    const failures: unknown[] = [];
+    for (const handler of handlers) {
       const deliver = async (tx: TxQueryable): Promise<void> => {
         const claimed = await tx.query('insert into event_deliveries (event_id, handler) values ($1, $2) on conflict do nothing returning event_id', [env.event_id, handler.id]);
         if (claimed.rows.length === 0) return;
         await handler.run({ id: env.event_id, name: env.name, payload } as never, tx);
       };
-      if (env.store_id) await withStoreContext(pool, env.store_id, deliver);
-      else await inTransaction(pool, deliver);
+      try {
+        if (env.store_id) await withStoreContext(pool, env.store_id, deliver);
+        else await inTransaction(pool, deliver);
+      } catch (err) {
+        failures.push(err);
+      }
     }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures, `${failures.length} handlers failed for domain event ${env.name}`);
   };
 }
 

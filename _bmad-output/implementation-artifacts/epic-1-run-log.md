@@ -39,3 +39,6 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - No error-tracking vendor yet; errors are only logged, redacted.
   - The alert rules aren't loaded into any alerting system.
   - The dashboard's request-success metric relies on a header that a client could fake.
+
+### CI fix (`961f771`)
+- The player CLS job failed on GitHub because it built only `@slips/player`, so `@slips/contracts` had no `dist` on a fresh runner. It now builds the player's dependencies first (`turbo run build --filter=@slips/player...`). From here on, each story runs its CI job commands against a clean checkout before finishing.

@@ -83,8 +83,15 @@ describe('SallaCommercePlatform auth', () => {
   it('reads the merchant profile, lower-casing the host and dropping unlisted fields', async () => {
     const p = platform((async () => json(USER_INFO_FIXTURE)) as unknown as typeof fetch);
     const profile = await p.auth.getMerchantProfile('AT');
-    expect(profile).toEqual({ platformStoreId: '123456', storeName: 'Demo Store', platformMerchantId: '99', ownerName: 'Owner Name', domains: ['demo-store.salla.sa'] });
-    expect(JSON.stringify(profile)).not.toMatch(/example\.com|0500/);
+    expect(profile).toEqual({
+      platformStoreId: '123456',
+      storeName: 'Demo Store',
+      platformMerchantId: '99',
+      ownerName: 'Owner Name',
+      ownerEmail: 'owner@example.com',
+      domains: ['demo-store.salla.sa'],
+    });
+    expect(JSON.stringify(profile)).not.toMatch(/0500/);
   });
 });
 

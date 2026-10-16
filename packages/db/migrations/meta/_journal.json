@@ -71,6 +71,20 @@
       "when": 1760918400000,
       "tag": "0009_lifecycle_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1761004800000,
+      "tag": "0010_merchant_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1761091200000,
+      "tag": "0011_merchant_logins",
+      "breakpoints": true
     }
   ]
 }

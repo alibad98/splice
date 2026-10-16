@@ -81,14 +81,17 @@ const UserInfo = z.object({
   data: z.object({
     id: z.union([z.string(), z.number()]).optional(),
     name: z.string().optional(),
+    email: z.string().optional(),
     merchant: z.object({
       id: z.union([z.string(), z.number()]),
       name: z.string().optional(),
       username: z.string().optional(),
       domain: z.string().optional(),
+      email: z.string().optional(),
     }),
   }),
 });
+
 const IntrospectResponse = z.object({
   success: z.boolean().optional(),
   data: z
@@ -164,15 +167,18 @@ export class SallaCommercePlatform implements CommercePlatform {
       if (!res.ok) throw new PlatformUnavailableError(`Salla user info failed (${res.status})`);
       const parsed = UserInfo.safeParse(await res.json().catch(() => null));
       if (!parsed.success) throw new PlatformUnavailableError('Salla user info response was not recognised');
-      const { merchant, name, id } = parsed.data.data;
+      const { merchant, name, id, email } = parsed.data.data;
       const host = hostOf(merchant.domain);
+      const ownerEmail = email ?? merchant.email;
       return {
         platformStoreId: String(merchant.id),
         storeName: merchant.name ?? merchant.username ?? String(merchant.id),
         platformMerchantId: String(id ?? merchant.id),
         ...(name ? { ownerName: name } : {}),
+        ...(ownerEmail ? { ownerEmail } : {}),
         domains: host ? [host] : [],
       };
+
     },
   };
 

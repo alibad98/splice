@@ -1,6 +1,7 @@
 import { PlatformUnavailableError, type CommercePlatform } from '../../ports/commerce-platform.js';
 
 export { SallaCommercePlatform, type SallaConfig } from './salla-platform.js';
+export { DevSallaCommercePlatform } from './dev-platform.js';
 
 /** Stand-in when Salla credentials are not configured (local dev, tests): every call fails closed and says why. */
 export function unconfiguredPlatform(): CommercePlatform {

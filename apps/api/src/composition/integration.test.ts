@@ -17,6 +17,11 @@ import { PlatformAuthRejectedError, PlatformUnavailableError, type CommercePlatf
 import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integration/errors.js';
 import { createInstallState } from '../modules/integration/install-state.js';
 import { IntegrationService } from '../modules/integration/integration.service.js';
+import { ownerInviteListener } from '../modules/auth/owner-invite.js';
+import type { OtpEmailPayload } from '../ports/mailer.js';
+import type { SessionConfig } from '../infra.module.js';
+import { CredentialsService } from '../modules/auth/credentials.service.js';
+import { SessionService } from '../modules/session/session.service.js';
 
 const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
 const APP_URL = 'postgres://slips_it_api:it_api_pw@127.0.0.1:5433/slips';
@@ -155,6 +160,127 @@ describe('install', () => {
     const ok = await s.completeInstall({ code: 'c1', state, cookieNonce: nonce });
     expect(ok).toMatchObject({ ok: true, created: true });
     expect(await s.getConnection((ok as { storeId: string }).storeId)).toEqual({ v: 1, state: 'connected', store_name: p.profile.storeName });
+  });
+});
+
+describe('owner invite and email/password sign-in', () => {
+  const sent: OtpEmailPayload[] = [];
+  const mailer = { sendOtp: async (m: OtpEmailPayload) => void sent.push(m) };
+  const invited = (p: FakePlatform, m: { sendOtp(m: OtpEmailPayload): Promise<void> } = mailer) =>
+    new IntegrationService(app, p, cipher, telemetry, boss, config, [], [ownerInviteListener({ mailer: m, telemetry, dashboardUrl: config.dashboardUrl })]);
+  const sessionConfig: SessionConfig = { secret: randomBytes(32), secureCookies: false, embeddedTtlMs: 15 * 60_000, directMaxAgeMs: 30 * 24 * 3_600_000, idleMs: 12 * 3_600_000 };
+  const credentials = () => new CredentialsService(app, sessionConfig, mailer, telemetry, new SessionService(app, sessionConfig));
+  const setupCodes = async (email: string) =>
+    (await admin.query("select o.used_at from login_otps o join merchant_logins l on l.id = o.login_id where l.email = $1 and o.purpose = 'setup'", [email])).rows;
+  const linked = async (email: string) =>
+    (await admin.query('select s.linked_store_id::text as id from merchant_login_stores s join merchant_logins l on l.id = s.login_id where l.email = $1', [email])).rows.map((r) => r.id as string).sort();
+  const owner = () => `Owner-${randomUUID()}@Example.com`;
+  const wrongCode = (code: string) => (code === '000000' ? '111111' : '000000');
+
+  it('emails the owner one setup code with a link on install, and none on a re-authorisation', async () => {
+    sent.length = 0;
+    const p = new FakePlatform();
+    const profile = { ...uniqueStore(), ownerEmail: owner() };
+    const email = profile.ownerEmail.toLowerCase();
+    const s = invited(p);
+    const { storeId } = await s.installAndNotify(p.issue('i1'), profile);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: email, purpose: 'setup', storeName: profile.storeName });
+    expect(sent[0]!.code).toMatch(/^\d{6}$/);
+    expect(sent[0]!.link).toBe(`https://dash.example.com/verify-otp?flow=setup&email=${encodeURIComponent(email)}`);
+    expect(sent[0]!.expiresAt.getTime()).toBeGreaterThan(Date.now() + 71 * 3_600_000);
+    await s.installAndNotify(p.issue('i2'), profile);
+    expect(sent).toHaveLength(1);
+    expect(await setupCodes(email)).toHaveLength(1);
+    expect(await linked(email)).toEqual([storeId]);
+  });
+
+  it('sends nothing when the profile has no email', async () => {
+    sent.length = 0;
+    const p = new FakePlatform();
+    await invited(p).installAndNotify(p.issue('n1'), uniqueStore());
+    expect(sent).toHaveLength(0);
+  });
+
+  it('a mail failure never fails the install and keeps the store linked; the next authorize sends the code', async () => {
+    const p = new FakePlatform();
+    const profile = { ...uniqueStore(), ownerEmail: owner() };
+    const email = profile.ownerEmail.toLowerCase();
+    const result = await invited(p, { sendOtp: async () => { throw new Error('smtp down'); } }).installAndNotify(p.issue('f1'), profile);
+    expect(result.created).toBe(true);
+    expect(await setupCodes(email)).toHaveLength(0);
+    expect(await linked(email)).toEqual([result.storeId]);
+    sent.length = 0;
+    await invited(p).installAndNotify(p.issue('f2'), profile);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('one owner, several stores: one invite, one password, and a store choice at sign-in', async () => {
+    sent.length = 0;
+    const p = new FakePlatform();
+    const email = owner().toLowerCase();
+    const s = invited(p);
+    const a = await s.installAndNotify(p.issue('m1'), { ...uniqueStore(), storeName: 'Alpha', ownerEmail: email });
+    const b = await s.installAndNotify(p.issue('m2'), { ...uniqueStore(), storeName: 'Beta', ownerEmail: email.toUpperCase() });
+    expect(sent).toHaveLength(1); // the second store joins the open invite
+    expect(await linked(email)).toEqual([a.storeId, b.storeId].sort());
+
+    const c = credentials();
+    await expect(c.verifyOtp({ email, code: wrongCode(sent[0]!.code), purpose: 'setup' })).rejects.toMatchObject({ response: { code: 'invalid_otp' } });
+    const { token } = await c.verifyOtp({ email, code: sent[0]!.code, purpose: 'setup' });
+    await expect(c.verifyOtp({ email, code: sent[0]!.code, purpose: 'setup' })).rejects.toMatchObject({ response: { code: 'invalid_otp' } }); // single use
+    const afterSetup = await c.setPassword({ setup_token: token, new_password: 'correct-horse-1' });
+    expect(afterSetup).toMatchObject({ kind: 'select', stores: [{ id: a.storeId, name: 'Alpha' }, { id: b.storeId, name: 'Beta' }] });
+
+    const login = await c.login({ email: email.toUpperCase(), password: 'correct-horse-1' });
+    if (login.kind !== 'select') throw new Error('expected a store choice');
+    const chosen = await c.selectStore({ selection_token: login.selectionToken, store_id: b.storeId });
+    expect(chosen).toMatchObject({ kind: 'session', session: { storeId: b.storeId, mode: 'direct' } });
+    await expect(c.selectStore({ selection_token: login.selectionToken, store_id: randomUUID() })).rejects.toMatchObject({ response: { code: 'store_inactive' } });
+    await expect(c.selectStore({ selection_token: 'forged', store_id: a.storeId })).rejects.toMatchObject({ response: { code: 'invalid_token' } });
+    await expect(c.login({ email, password: 'wrong-password' })).rejects.toMatchObject({ response: { code: 'invalid_credentials' } });
+
+    // A third store after the password exists: linked silently, no email, offered at sign-in.
+    sent.length = 0;
+    const third = await s.installAndNotify(p.issue('m3'), { ...uniqueStore(), storeName: 'Gamma', ownerEmail: email });
+    expect(sent).toHaveLength(0);
+    expect(await c.resendOtp(email, 'setup')).toMatchObject({ ok: true });
+    expect(sent).toHaveLength(0); // no setup code once a password is set
+    const three = await c.login({ email, password: 'correct-horse-1' });
+    expect(three.kind === 'select' && three.stores.map((x) => x.name)).toEqual(['Alpha', 'Beta', 'Gamma']);
+
+    // Uninstalled stores drop out; with one left, sign-in opens it directly.
+    await admin.query("update stores set lifecycle_state = 'uninstalled' where id = any($1::uuid[])", [[a.storeId, third.storeId]]);
+    expect(await c.login({ email, password: 'correct-horse-1' })).toMatchObject({ kind: 'session', session: { storeId: b.storeId } });
+  });
+
+  it('password reset changes the one password and signs out direct sessions of every linked store', async () => {
+    sent.length = 0;
+    const p = new FakePlatform();
+    const email = owner().toLowerCase();
+    const s = invited(p);
+    const a = await s.installAndNotify(p.issue('r1'), { ...uniqueStore(), ownerEmail: email });
+    const b = await s.installAndNotify(p.issue('r2'), { ...uniqueStore(), ownerEmail: email });
+    const c = credentials();
+    await c.setPassword({ setup_token: (await c.verifyOtp({ email, code: sent[0]!.code, purpose: 'setup' })).token, new_password: 'old-password-1' });
+    const login = await c.login({ email, password: 'old-password-1' });
+    if (login.kind !== 'select') throw new Error('expected a store choice');
+    await c.selectStore({ selection_token: login.selectionToken, store_id: a.storeId });
+    await c.selectStore({ selection_token: login.selectionToken, store_id: b.storeId });
+    const direct = async () => Number((await admin.query("select count(*) as n from merchant_sessions where store_id = any($1::uuid[]) and mode = 'direct'", [[a.storeId, b.storeId]])).rows[0].n);
+    expect(await direct()).toBe(2);
+
+    sent.length = 0;
+    await c.forgotPassword(email);
+    expect(sent).toMatchObject([{ to: email, purpose: 'reset' }]);
+    await c.resetPassword({ reset_token: (await c.verifyOtp({ email, code: sent[0]!.code, purpose: 'reset' })).token, new_password: 'new-password-1' });
+    expect(await direct()).toBe(0);
+    await expect(c.login({ email, password: 'old-password-1' })).rejects.toMatchObject({ response: { code: 'invalid_credentials' } });
+    expect((await c.login({ email, password: 'new-password-1' })).kind).toBe('select');
+
+    sent.length = 0;
+    await c.forgotPassword(`nobody-${randomUUID()}@example.com`);
+    expect(sent).toHaveLength(0);
   });
 });
 

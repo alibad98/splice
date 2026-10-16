@@ -17,9 +17,11 @@ export interface MerchantProfile {
   /** Platform account id of the store owner. */
   platformMerchantId: string;
   ownerName?: string;
+  ownerEmail?: string;
   /** Storefront hostnames, lower case. */
   domains: string[];
 }
+
 
 /** A call on behalf of one store. `storeId` keys per-store pacing; the token is never logged. */
 export interface PlatformSession {

@@ -1,9 +1,32 @@
 import 'reflect-metadata';
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 import { EnvError, parseEnv, type Env } from './config/env.js';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 function loadEnvOrExit(): Env {
   try {
+    try {
+      const envPath = fileURLToPath(new URL('../../../.env', import.meta.url));
+      if (existsSync(envPath)) {
+        const content = readFileSync(envPath, 'utf8');
+        for (const line of content.split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const match = trimmed.match(/^([\w.-]+)\s*=\s*(.*)$/);
+          const key = match?.[1];
+          if (key !== undefined) {
+            let value = (match?.[2] ?? '').trim();
+            if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+              value = value.slice(1, -1);
+            }
+            process.env[key] = value;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[boot] failed to reload .env:', e);
+    }
     return parseEnv(process.env);
   } catch (err) {
     if (err instanceof EnvError) {

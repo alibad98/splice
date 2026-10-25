@@ -40,11 +40,17 @@
     try { opts = await salla.product.api.fetchOptions([IDS.withOptions]); step('G3 fetchOptions', safe(opts)); } catch (e) { step('G3 fetchOptions FAILED', safe(e)); }
     try { var det = await salla.product.getDetails(IDS.withOptions, ['options']); step('G3 getDetails(options)', safe(det)); } catch (e) { step('G3 getDetails FAILED', safe(e)); }
     // Build a selection automatically: first value of every select/radio/colour option; a text for text options.
+    // fetchOptions returns { data: [ { id, options: [ { id, type, required, details: [ { id, name } ] } ] } ] } (verified 2026-10-25).
     var list = [];
-    try { var d = opts && (opts.data || opts); list = (Array.isArray(d) ? d : (d && (d[IDS.withOptions] || d.options))) || []; } catch (e) {}
+    try {
+      var d = opts && (opts.data || opts);
+      var prod = Array.isArray(d) ? d.filter(function (p) { return p && p.id === IDS.withOptions; })[0] : null;
+      list = (prod && prod.options) || [];
+    } catch (e) {}
     var selection = {};
     (Array.isArray(list) ? list : []).forEach(function (o) {
-      if (o.values && o.values.length) selection[o.id] = o.values[0].id; else if (o.type === 'text' || o.type === 'input') selection[o.id] = 'test';
+      var vals = o.details || o.values;
+      if (vals && vals.length) selection[o.id] = vals[0].id; else if (o.type === 'text' || o.type === 'input') selection[o.id] = 'test';
     });
     step('G3 selection built (CHECK it covers every required option; edit and re-run add if not)', selection);
     await add('G3 options without selection (expect validation failure)', { id: IDS.withOptions, quantity: 1 });

@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: slips
       POSTGRES_DB: slips
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -17,8 +17,7 @@ services:
       retries: 10
 
   minio:
-    # TODO: pin a verified MinIO release tag (could not be checked from the build sandbox).
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: slips

@@ -139,7 +139,7 @@ export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> 
     origin: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
     credentials: true,
     allowedHeaders: ['authorization', 'content-type', 'x-csrf-token', 'x-slips-client', 'x-request-id'],
-    exposedHeaders: ['x-request-id', 'x-trace-id'],
+    exposedHeaders: ['x-request-id', 'x-trace-id', 'retry-after'],
   });
   // The API is never framed (AD-12); merchant pages are framed by the dashboard app, whose policy allows only the platform origin.
   app.use((_req: unknown, res: { setHeader(n: string, v: string): void }, next: () => void) => {

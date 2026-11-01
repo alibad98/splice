@@ -79,3 +79,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-browse-products-page.md`
   summary: Product name search does not fold Arabic letter variants (أ/إ/آ→ا, ة/ه, ى/ي) or strip tashkeel, so "عبايه" does not find "عباية".
   evidence: `CatalogReadRepository.where` uses plain `ilike`; normalize both sides (e.g. translate + regexp_replace) with tests.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
+  summary: Wave-1 UI kit first-load budget is already used up (Button, Spinner, Toast add 15.2 KB to /products; Radix Toast ~20.8 KB); lazy-load the Toaster.
+  evidence: Story 2.3 build measurement against the UI-kit spec's 15 KB wave-1 budget.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
+  summary: Toast uses an inline close SVG and the "Last synced" exact-time hint is not Escape-dismissable; move `Icon` into packages/ui and use the wave-2 Tooltip.
+  evidence: UI-kit spec forbids a second icon set and requires WCAG 1.4.13 for hover content.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
+  summary: No test proves the merchant layout mounts the Toaster.
+  evidence: Tests render their own Toaster; the dashboard has no harness for async server layouts.

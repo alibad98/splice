@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { JobMeta } from '@slips/contracts';
 import { Metric } from '../../ports/telemetry.js';
-import { instrumentJob, jobMeta } from './jobs.js';
+import { instrumentJob, isFinalAttempt, jobMeta } from './jobs.js';
 import { PinoTelemetry } from './pino-telemetry.js';
 import { pollQueueStats } from './queue-stats.js';
 
 function silent() {
   return new PinoTelemetry({ role: 'worker', level: 'silent' });
 }
+
+describe('isFinalAttempt', () => {
+  it('is true only when the retries are used up; unknown metadata is never final', () => {
+    expect(isFinalAttempt({ id: 'j', data: {}, retryCount: 4, retryLimit: 4 })).toBe(true);
+    expect(isFinalAttempt({ id: 'j', data: {}, retryCount: 1, retryLimit: 4 })).toBe(false);
+    expect(isFinalAttempt({ id: 'j', data: {}, retryCount: 0, retryLimit: 0 })).toBe(true);
+    expect(isFinalAttempt({ id: 'j', data: {} })).toBe(false);
+  });
+});
 
 describe('instrumentJob', () => {
   it('runs the handler in a context with job_id, trace_id and store_id and counts completion', async () => {

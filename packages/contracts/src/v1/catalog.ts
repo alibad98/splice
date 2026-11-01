@@ -57,10 +57,21 @@ export const CategoryListResponse = z.object({
 });
 export type CategoryListResponse = z.infer<typeof CategoryListResponse>;
 
-/** `GET /v1/catalog/sync`: the latest sync run. `never` before the first one. */
+/** `never` before the first run; `queued` once a sync was requested and the worker has not started it yet. */
+export const CATALOG_SYNC_STATES = ['never', 'queued', 'running', 'succeeded', 'failed'] as const;
+
+/** Problem `type` of `POST /v1/catalog/sync` when the previous request was too recent (429 + `Retry-After`). */
+export const CATALOG_SYNC_RATE_LIMITED = 'sync-rate-limited';
+
+/**
+ * `GET /v1/catalog/sync` and `POST /v1/catalog/sync`: the latest sync run. `failed` is only reported after the run's
+ * last attempt (or a failure retrying cannot fix); `last_synced_at` is the last successful run and survives failures.
+ */
 export const CatalogSyncStatus = z.object({
   v: z.literal(1).default(1),
-  status: z.enum(['never', 'running', 'succeeded', 'failed']),
+  status: z.enum(CATALOG_SYNC_STATES),
+  /** Id of the latest run; null before the first one. */
+  run_id: z.uuid().nullable().default(null),
   reason: z.string().nullable(),
   last_synced_at: z.iso.datetime().nullable(),
 });

@@ -2,6 +2,8 @@ export * as v1 from './v1/index.js';
 export {
   AUTH_PROBLEM_CODES,
   Availability,
+  CATALOG_SYNC_RATE_LIMITED,
+  CATALOG_SYNC_STATES,
   CatalogSyncStatus,
   CategoryListResponse,
   PRODUCT_PAGE_SIZE,

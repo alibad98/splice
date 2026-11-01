@@ -39,6 +39,8 @@ export const EVENT_CATALOG = {
     'integration',
     z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),
   ),
+  /** A merchant asked for a sync (Story 2.3); the event id is the run id. The worker turns it into a full-sync job. */
+  'catalog.sync.requested': defineEvent('catalog', z.object({ v: z.literal(1), store_id: z.uuid(), run_id: z.uuid() })),
   'catalog.sync.completed': defineEvent(
     'catalog',
     z.object({

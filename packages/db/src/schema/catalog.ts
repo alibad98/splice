@@ -7,7 +7,8 @@ import type { StorePlatform } from './integration.js';
 export const AVAILABILITY_BUCKETS = ['available', 'low', 'out_of_stock'] as const;
 export type AvailabilityBucket = (typeof AVAILABILITY_BUCKETS)[number];
 
-export const CATALOG_SYNC_STATUSES = ['running', 'succeeded', 'failed'] as const;
+/** `queued`: requested by the merchant, waiting for the worker (Story 2.3). */
+export const CATALOG_SYNC_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const;
 export type CatalogSyncStatus = (typeof CATALOG_SYNC_STATUSES)[number];
 export const CATALOG_SYNC_REASONS = ['platform_unavailable', 'auth_rejected', 'store_inactive', 'unknown_currency', 'invalid_data', 'internal'] as const;
 export type CatalogSyncReason = (typeof CATALOG_SYNC_REASONS)[number];
@@ -60,5 +61,7 @@ export const catalogSyncState = pgTable('catalog_sync_state', {
   startedAt: ts('started_at').notNull().default(sql`now()`),
   finishedAt: ts('finished_at'),
   lastSyncedAt: ts('last_synced_at'),
+  /** When the merchant last asked for a manual sync (rate limit); null for install-triggered runs only. */
+  requestedAt: ts('requested_at'),
   updatedAt: ts('updated_at').notNull().default(sql`now()`),
 });

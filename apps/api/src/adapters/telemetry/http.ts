@@ -73,8 +73,10 @@ export class TelemetryExceptionFilter implements ExceptionFilter {
       const status = exception.getStatus();
       if (status >= 500) this.telemetry.captureError(exception);
       const body = exception.getResponse();
+      // A stable problem `type` slug when the handler gives one (e.g. `sync-rate-limited`), else `about:blank`.
+      const type = typeof body === 'object' && typeof (body as { type?: unknown }).type === 'string' ? (body as { type: string }).type : 'about:blank';
       res.status(status).type('application/problem+json').json({
-        type: 'about:blank',
+        type,
         title: exception.message,
         status,
         ...(status < 500 && typeof body === 'object' ? { detail: (body as { message?: unknown }).message } : {}),

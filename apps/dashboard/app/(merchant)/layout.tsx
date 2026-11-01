@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
+import { Toaster } from '@slips/ui';
 import { AppShell } from '../../components/shell/AppShell';
 import { SessionProvider } from '../../components/session/SessionProvider';
 import { DataProviders } from '../../components/providers/DataProviders';
-import { withLang } from '../../i18n/config';
+import { directionOf, withLang } from '../../i18n/config';
 import { getMessages } from '../../i18n/messages';
 import { getLocale } from '../../i18n/server';
 import { getShellContext } from '../../lib/shell-context';
@@ -19,6 +20,7 @@ export default async function MerchantLayout({ children }: { children: ReactNode
   }
 
   const apiBase = publicApiUrl();
+  const messages = getMessages(locale);
   return (
     <SessionProvider
       apiBase={apiBase}
@@ -27,9 +29,11 @@ export default async function MerchantLayout({ children }: { children: ReactNode
       framed={context.framed ?? false}
     >
       <DataProviders>
-        <AppShell locale={locale} messages={getMessages(locale)} context={context}>
+        <AppShell locale={locale} messages={messages} context={context}>
           {children}
         </AppShell>
+        {/* Mounted once, empty, so every toast is announced (EXPERIENCE.md). */}
+        <Toaster label={messages.toast.region} toastLabel={messages.toast.item} closeLabel={messages.toast.close} dir={directionOf(locale)} />
       </DataProviders>
     </SessionProvider>
   );

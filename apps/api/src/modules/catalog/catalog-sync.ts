@@ -69,36 +69,59 @@ export class CatalogSync {
   ) {}
 
   /**
-   * Run (or resume) one full sync. Retryable failures (platform unavailable, unexpected errors) mark the run
-   * `failed` and rethrow so pg-boss retries per AD-1; the next attempt flips it back to `running`. Final failures
-   * mark it `failed` with their reason and return.
+   * Run (or resume) one full sync. A retryable failure (platform unavailable, unexpected error) keeps the run `running`
+   * and rethrows so pg-boss retries per AD-1; only on the job's `finalAttempt` is it marked `failed` (Story 2.3: the
+   * merchant never sees a failure that a retry may still fix). Final failures (auth, inactive store, bad data) mark it
+   * `failed` with their reason at once and return.
    */
-  async run(storeId: string, runId: string): Promise<SyncOutcome> {
-    const begin = await withStoreContext(this.pool, storeId, async (): Promise<{ skip?: 'already_succeeded' | 'superseded'; page: number }> => {
-      const at = new Date(this.now());
-      const state = await this.repo.lockSyncState();
-      const idleMs = state ? at.getTime() - state.updatedAt.getTime() : Infinity;
-      if (state && state.runId === runId) {
-        if (state.status === 'succeeded') return { skip: 'already_succeeded', page: 0 };
-        // Another attempt of this run (e.g. pg-boss re-delivered an expired job) is still writing pages.
-        if (state.status === 'running' && idleMs < RUN_HEARTBEAT_MS) throw new RunBusyError();
-        await this.repo.resumeRun(at);
-        return { page: state.nextPage };
+  async run(storeId: string, runId: string, opts: { finalAttempt: boolean }): Promise<SyncOutcome> {
+    const begin = await this.begin(storeId, runId).catch(async (err: unknown) => {
+      // The last attempt failing before it even started (busy, database error) still ends the run as failed.
+      if (opts.finalAttempt) {
+        await this.markFailed(storeId, runId, 'internal');
+        this.telemetry.log.warn('catalog sync failed after its last attempt', { reason: 'internal', run_id: runId });
       }
-      // Run ids are event ids (UUIDv7, time-ordered): a retry of an older run never replaces a newer one.
-      if (state && state.runId > runId) return { skip: 'superseded', page: 0 };
-      if (state && state.status === 'running' && idleMs < STALE_RUN_MS) return { skip: 'superseded', page: 0 };
-      await this.repo.startRun(runId, at);
-      return { page: 1 };
+      throw err;
     });
     if (begin.skip) {
       this.telemetry.log.info('catalog sync skipped', { outcome: begin.skip, run_id: runId });
       return begin.skip;
     }
+    return this.importPages(storeId, runId, begin.page, opts);
+  }
 
+  /** Claim the run: start it, resume it, or skip it (already done / superseded). Throws `RunBusyError` while another attempt writes. */
+  private begin(storeId: string, runId: string): Promise<{ skip?: 'already_succeeded' | 'superseded'; page: number }> {
+    return withStoreContext(this.pool, storeId, async (): Promise<{ skip?: 'already_succeeded' | 'superseded'; page: number }> => {
+      const at = new Date(this.now());
+      const state = await this.repo.lockSyncState();
+      const idleMs = state ? at.getTime() - state.updatedAt.getTime() : Infinity;
+      if (state && state.runId === runId) {
+        if (state.status === 'succeeded') return { skip: 'already_succeeded', page: 0 };
+        // A requested run (Story 2.3) starts here, from page 1.
+        if (state.status === 'queued') {
+          await this.repo.startRun(runId, at);
+          return { page: 1 };
+        }
+        // Another attempt of this run (e.g. pg-boss re-delivered an expired job) is still writing pages. A run whose
+        // last attempt ended with a retryable error carries that `reason` and is resumed right away.
+        if (state.status === 'running' && state.reason === null && idleMs < RUN_HEARTBEAT_MS) throw new RunBusyError();
+        await this.repo.resumeRun(at);
+        return { page: state.nextPage };
+      }
+      // Run ids are event ids (UUIDv7, time-ordered): a retry of an older run never replaces a newer one.
+      if (state && state.runId > runId) return { skip: 'superseded', page: 0 };
+      // A live run of another id keeps the row; one waiting for its retry (reason set) yields to this newer run.
+      if (state && state.status === 'running' && state.reason === null && idleMs < STALE_RUN_MS) return { skip: 'superseded', page: 0 };
+      await this.repo.startRun(runId, at);
+      return { page: 1 };
+    });
+  }
+
+  private async importPages(storeId: string, runId: string, firstPage: number, opts: { finalAttempt: boolean }): Promise<SyncOutcome> {
     try {
       let unreportedStock = 0;
-      for (let page = begin.page; ; page++) {
+      for (let page = firstPage; ; page++) {
         if (page > MAX_PAGES) throw new FinalSyncFailure('invalid_data', new Error(`more than ${MAX_PAGES} pages`));
         const accessToken = await this.tokens.getAccessToken(storeId);
         const result = await this.platform.products.list({ storeId, accessToken }, page);
@@ -144,10 +167,17 @@ export class CatalogSync {
       return 'succeeded';
     } catch (err) {
       const reason = finalReason(err);
-      await this.markFailed(storeId, runId, reason ?? (err instanceof PlatformUnavailableError ? 'platform_unavailable' : 'internal'));
       if (reason) {
+        await this.markFailed(storeId, runId, reason);
         this.telemetry.log.warn('catalog sync failed', { reason, run_id: runId });
         return { failed: reason };
+      }
+      const retryable = err instanceof PlatformUnavailableError ? 'platform_unavailable' : 'internal';
+      if (opts.finalAttempt) {
+        await this.markFailed(storeId, runId, retryable);
+        this.telemetry.log.warn('catalog sync failed after its last attempt', { reason: retryable, run_id: runId });
+      } else {
+        await this.markRetrying(storeId, runId, retryable);
       }
       throw err;
     }
@@ -199,6 +229,19 @@ export class CatalogSync {
       for (const c of p.categories) categories.set(c.externalId, { platform: this.platform.platform, externalId: c.externalId, name: c.name, sourceUpdatedAt: fetchedAt });
     }
     return { products: [...products.values()], categories: [...categories.values()], rejected };
+  }
+
+  /** Keep the run `running` between attempts; record the attempt's error so the retry resumes it immediately. */
+  private async markRetrying(storeId: string, runId: string, reason: CatalogSyncReason): Promise<void> {
+    try {
+      await withStoreContext(this.pool, storeId, async () => {
+        const state = await this.repo.lockSyncState();
+        if (state?.runId !== runId) return; // a newer run owns the row
+        await this.repo.awaitRetry(reason, new Date(this.now()));
+      });
+    } catch (err) {
+      this.telemetry.captureError(err, { component: 'catalog-sync', note: 'could not record the retrying run' });
+    }
   }
 
   private async markFailed(storeId: string, runId: string, reason: CatalogSyncReason): Promise<void> {

@@ -96,6 +96,16 @@ describe('API docs', () => {
     expect(((products.responses['200']!.content as Json)['application/json'] as Json).example).toBeTruthy();
   });
 
+  it('documents the manual sync: 202 with the sync status, 401/403/429, and the problem type slug', () => {
+    const sync = op('/v1/catalog/sync', 'post');
+    expect(jsonSchema(sync.responses['202']!).$ref).toBe('#/components/schemas/CatalogSyncStatus');
+    expect(Object.keys(sync.responses).sort()).toEqual(['202', '401', '403', '429']);
+    expect(String(sync.description)).toContain('sync-rate-limited');
+    expect(String(sync.description)).toContain('Retry-After');
+    expect(JSON.stringify(doc.components.schemas.CatalogSyncStatus)).toContain('queued');
+    expect(JSON.stringify(doc.components.schemas.Problem)).toContain('sync-rate-limited');
+  });
+
   it('describes the flows: intro sections, tags with descriptions, and a summary on every operation', () => {
     const info = doc.info as Json;
     for (const heading of ['## Signing in', '## Conventions', '## Errors']) expect(info.description).toContain(heading);

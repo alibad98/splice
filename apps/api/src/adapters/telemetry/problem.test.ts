@@ -17,3 +17,16 @@ describe('problem+json detail', () => {
     expect(run(400).detail).toBe('internal db detail');
   });
 });
+
+describe('problem+json type', () => {
+  const catchBody = (body: Record<string, unknown>, status: number) => {
+    let out: Record<string, unknown> = {};
+    const res = { status: () => res, type: () => res, json: (b: Record<string, unknown>) => { out = b; } };
+    new TelemetryExceptionFilter(new PinoTelemetry({ role: 'http', level: 'silent' })).catch(new HttpException(body, status), { switchToHttp: () => ({ getResponse: () => res }) } as never);
+    return out;
+  };
+  it('uses the type slug the handler gives and defaults to about:blank', () => {
+    expect(catchBody({ message: 'slow down', code: 'sync_rate_limited', type: 'sync-rate-limited' }, 429)).toMatchObject({ type: 'sync-rate-limited', status: 429, code: 'sync_rate_limited' });
+    expect(catchBody({ message: 'bad' }, 400).type).toBe('about:blank');
+  });
+});

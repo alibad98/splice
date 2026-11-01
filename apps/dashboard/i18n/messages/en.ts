@@ -57,6 +57,11 @@ export const en = {
     body: 'This page is being built. Head back to the overview for your next step.',
     back: 'Back to overview',
   },
+  toast: {
+    region: 'Notifications ({hotkey})',
+    item: 'Notification',
+    close: 'Close notification',
+  },
   products: {
     title: 'Products',
     intro: 'Your Salla products, ready to feature in Stories and Reels.',
@@ -97,6 +102,16 @@ export const en = {
       openSalla: 'Open Salla products',
       filtered: 'No products match these filters.',
       showAll: 'Show all',
+    },
+    sync: {
+      lastSynced: 'Last synced {time}',
+      notSynced: 'Not synced yet',
+      button: 'Sync products',
+      updated: 'Products updated',
+      tooSoon: 'A sync was requested moments ago. Try again in {seconds} seconds.',
+      failed: "We couldn't sync your products. Your current list is still here.",
+      retry: 'Retry',
+      requestFailed: "We couldn't start the sync. Check your connection and try again.",
     },
     error: {
       title: 'We could not load your products',

@@ -39,6 +39,25 @@ export class CatalogRepository extends StoreScoped {
     return (await this.db.select().from(catalogSyncState).where(eq(catalogSyncState.storeId, this.storeId)).for('update').limit(1))[0];
   }
 
+  /**
+   * Serialize sync requests of this store for the rest of the transaction, also before its first sync-state row exists
+   * (a row lock cannot cover an insert). Transaction-scoped advisory lock, released at commit/rollback.
+   */
+  async lockSyncRequests(): Promise<void> {
+    await this.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`catalog-sync:${this.storeId}`}, 0))`);
+  }
+
+  /** A run the merchant requested (Story 2.3): `queued` from page 1 until the worker starts it. Keeps `last_synced_at`. */
+  async queueRun(runId: string, at: Date): Promise<SyncStateRow> {
+    const queued = { runId, status: 'queued' as const, reason: null, nextPage: 1, createdCount: 0, updatedCount: 0, startedAt: at, finishedAt: null, requestedAt: at, updatedAt: at };
+    const rows = await this.db
+      .insert(catalogSyncState)
+      .values({ storeId: this.storeId, ...queued })
+      .onConflictDoUpdate({ target: catalogSyncState.storeId, set: queued })
+      .returning();
+    return rows[0]!;
+  }
+
   /** Begin a new run from page 1 with zero counts. */
   async startRun(runId: string, at: Date): Promise<void> {
     const fresh = { runId, status: 'running' as const, reason: null, nextPage: 1, createdCount: 0, updatedCount: 0, startedAt: at, finishedAt: null, updatedAt: at };
@@ -67,6 +86,14 @@ export class CatalogRepository extends StoreScoped {
       .where(eq(catalogSyncState.storeId, this.storeId))
       .returning();
     return rows[0]!;
+  }
+
+  /**
+   * An attempt ended with a retryable error and pg-boss will retry it: the run stays `running` (the merchant is not told
+   * it failed yet); `reason` records the attempt's error and marks the run as waiting, so the retry resumes it at once.
+   */
+  async awaitRetry(reason: CatalogSyncReason, at: Date): Promise<void> {
+    await this.db.update(catalogSyncState).set({ status: 'running', reason, updatedAt: at }).where(eq(catalogSyncState.storeId, this.storeId));
   }
 
   async failRun(runId: string, reason: CatalogSyncReason, at: Date): Promise<void> {

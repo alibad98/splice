@@ -37,6 +37,8 @@ const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 4 });
 /** Run ids are event ids: time-ordered UUIDv7, strictly increasing here. */
 let runClock = Date.now();
 const nextRun = (): string => uuidv7(++runClock);
+/** Any attempt but the job's last. */
+const NOT_LAST = { finalAttempt: false };
 let app: pg.Pool;
 let boss: PgBoss;
 
@@ -190,8 +192,8 @@ describe('full sync', () => {
 
     // Unlimited or unreported stock counts as available, and the run logs how many products had it.
     expect(lines.some((l) => l.includes('catalog sync succeeded') && l.includes('"stock_unreported":1'))).toBe(true);
-    expect(await new CatalogService(app).getSyncState(storeId)).toMatchObject({ status: 'succeeded', reason: null, created: 4, updated: 0 });
-    expect((await new CatalogService(app).getSyncState(randomUUID())).status).toBe('never');
+    expect(await new CatalogService(app, boss, telemetry).getSyncState(storeId)).toMatchObject({ status: 'succeeded', reason: null, created: 4, updated: 0 });
+    expect((await new CatalogService(app, boss, telemetry).getSyncState(randomUUID())).status).toBe('never');
   });
 
   it('is idempotent: the same run again is skipped; a new run (reinstall) updates rows without duplicating them', async () => {
@@ -199,13 +201,13 @@ describe('full sync', () => {
     const runId = nextRun();
     const platform = new FakePlatform([[product('a'), product('b')]]);
     const { sync } = syncFor(platform);
-    expect(await sync.run(storeId, runId)).toBe('succeeded');
-    expect(await sync.run(storeId, runId)).toBe('already_succeeded');
+    expect(await sync.run(storeId, runId, NOT_LAST)).toBe('succeeded');
+    expect(await sync.run(storeId, runId, NOT_LAST)).toBe('already_succeeded');
     expect(platform.calls).toEqual([1]);
 
     platform.pages = [[product('a', { price: '15.00' }), product('b'), product('c')]];
     const rerun = nextRun();
-    expect(await sync.run(storeId, rerun)).toBe('succeeded');
+    expect(await sync.run(storeId, rerun, NOT_LAST)).toBe('succeeded');
     const rows = await productsOf(storeId);
     expect(rows.map((r) => r.external_id)).toEqual(['a', 'b', 'c']);
     expect(rows[0]!.price_minor).toBe('1500');
@@ -219,34 +221,56 @@ describe('full sync', () => {
   it('deduplicates a product repeated on one page (last wins)', async () => {
     const storeId = randomUUID();
     const { sync } = syncFor(new FakePlatform([[product('d', { name: 'old' }), product('d', { name: 'new' })]]));
-    expect(await sync.run(storeId, nextRun())).toBe('succeeded');
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toBe('succeeded');
     expect((await productsOf(storeId)).map((r) => r.name)).toEqual(['new']);
   });
 
-  it('a transient platform error fails the attempt for retry (state failed, platform_unavailable); the retry resumes from the next page', async () => {
+  it('a transient platform error before the last attempt keeps the run running (not failed) for the retry; the retry resumes from the next page at once', async () => {
     const storeId = randomUUID();
     const runId = nextRun();
     const platform = new FakePlatform([[product('r1')], [product('r2')], [product('r3')]]);
     platform.fail.set(2, new PlatformUnavailableError('rate limited', 30));
     const { sync } = syncFor(platform);
-    await expect(sync.run(storeId, runId)).rejects.toBeInstanceOf(PlatformUnavailableError);
-    expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason: 'platform_unavailable', next_page: 2, created_count: 1 });
-    expect(await new CatalogService(app).getSyncState(storeId)).toMatchObject({ status: 'failed', reason: 'platform_unavailable' });
+    await expect(sync.run(storeId, runId, { finalAttempt: false })).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(await stateOf(storeId)).toMatchObject({ status: 'running', reason: 'platform_unavailable', next_page: 2, created_count: 1 });
+    // The merchant sees a run in progress, never the attempt's error.
+    expect(await new CatalogService(app, boss, telemetry).getSyncState(storeId)).toMatchObject({ status: 'running', reason: null, runId });
     expect(await completedEvents(storeId)).toHaveLength(0);
 
-    expect(await sync.run(storeId, runId)).toBe('succeeded');
+    // The retry comes well inside the heartbeat window and is not mistaken for a busy attempt.
+    expect(await sync.run(storeId, runId, NOT_LAST)).toBe('succeeded');
     expect(platform.calls).toEqual([1, 2, 2, 3]);
     expect(await stateOf(storeId)).toMatchObject({ status: 'succeeded', reason: null, created_count: 3 });
     expect(await completedEvents(storeId)).toHaveLength(1);
   });
 
-  it('an unexpected error is retried too, recorded as internal', async () => {
+  it('an unexpected error is retried too; only the last attempt records failed (internal)', async () => {
     const storeId = randomUUID();
+    const runId = nextRun();
     const platform = new FakePlatform([[product('x')]]);
     platform.fail.set(1, new Error('boom'));
     const { sync } = syncFor(platform);
-    await expect(sync.run(storeId, nextRun())).rejects.toThrow('boom');
+    await expect(sync.run(storeId, runId, NOT_LAST)).rejects.toThrow('boom');
+    expect(await stateOf(storeId)).toMatchObject({ status: 'running', reason: 'internal' });
+    platform.fail.set(1, new Error('boom again'));
+    await expect(sync.run(storeId, runId, { finalAttempt: true })).rejects.toThrow('boom again');
     expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason: 'internal' });
+    expect(await new CatalogService(app, boss, telemetry).getSyncState(storeId)).toMatchObject({ status: 'failed', reason: 'internal' });
+  });
+
+  it('the last of 5 attempts failing with a 503 records failed + platform_unavailable and keeps the imported catalog', async () => {
+    const storeId = randomUUID();
+    const runId = nextRun();
+    const platform = new FakePlatform([[product('l1')], [product('l2')]]);
+    const handler = catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
+    const job = { v: 1, trace_id: 't', store_id: storeId, run_id: runId };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      platform.fail.set(2, new PlatformUnavailableError('down'));
+      await expect(handler(job, { id: 'j', data: job, retryCount: attempt, retryLimit: queueOptions('batch').retryLimit })).rejects.toBeInstanceOf(PlatformUnavailableError);
+      expect((await stateOf(storeId))!.status, `attempt ${attempt + 1}`).toBe(attempt < 4 ? 'running' : 'failed');
+    }
+    expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason: 'platform_unavailable' });
+    expect((await productsOf(storeId)).map((r) => r.external_id)).toEqual(['l1']);
   });
 
   it.each([
@@ -260,7 +284,7 @@ describe('full sync', () => {
     if (where === 'platform') platform.fail.set(1, makeErr());
     else tokens.failOn.set(1, makeErr());
     const { sync } = syncFor(platform, tokens);
-    expect(await sync.run(storeId, nextRun())).toEqual({ failed: reason });
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toEqual({ failed: reason });
     expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason });
     expect(await completedEvents(storeId)).toHaveLength(0);
   });
@@ -271,7 +295,7 @@ describe('full sync', () => {
     tokens.failOn.set(2, new StoreDisconnectedError());
     const platform = new FakePlatform([[product('u1')], [product('u2')]]);
     const { sync } = syncFor(platform, tokens);
-    expect(await sync.run(storeId, nextRun())).toEqual({ failed: 'store_inactive' });
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toEqual({ failed: 'store_inactive' });
     expect(platform.calls).toEqual([1]);
     expect((await productsOf(storeId)).map((r) => r.external_id)).toEqual(['u1']);
   });
@@ -279,7 +303,7 @@ describe('full sync', () => {
   it('an unknown store currency (every product on the page) fails the run as unknown_currency without a retry and stores nothing', async () => {
     const storeId = randomUUID();
     const { sync } = syncFor(new FakePlatform([[product('m1', { currency: 'XYZ' }), product('m2', { currency: 'XYZ' })]]));
-    expect(await sync.run(storeId, nextRun())).toEqual({ failed: 'unknown_currency' });
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toEqual({ failed: 'unknown_currency' });
     expect(await productsOf(storeId)).toEqual([]);
   });
 
@@ -289,7 +313,7 @@ describe('full sync', () => {
     const { sync } = syncFor(
       new FakePlatform([[product('k1'), product('k2', { currency: 'XYZ' }), product('k3', { price: '1,5' }), product('k4', { price: '-2.00' }), product('k5', { price: '10.00', salePrice: '9.999' })]]),
     );
-    expect(await sync.run(storeId, runId)).toBe('succeeded');
+    expect(await sync.run(storeId, runId, NOT_LAST)).toBe('succeeded');
     const rows = await productsOf(storeId);
     expect(rows.map((r) => r.external_id)).toEqual(['k1', 'k5']);
     expect(rows[1]!.sale_price_minor).toBeNull(); // 9.999 rounds to the regular price: no sale
@@ -305,7 +329,7 @@ describe('full sync', () => {
       if (page === 2) await admin.query(`update catalog_sync_state set run_id = $2, status = 'running', created_count = 0 where store_id = $1`, [storeId, newer]);
     };
     const { sync } = syncFor(platform);
-    expect(await sync.run(storeId, runId)).toBe('superseded');
+    expect(await sync.run(storeId, runId, NOT_LAST)).toBe('superseded');
     expect(platform.calls).toEqual([1, 2]);
     expect((await productsOf(storeId)).map((r) => r.external_id)).toEqual(['v1']);
     expect(await stateOf(storeId)).toMatchObject({ run_id: newer, status: 'running', created_count: 0 });
@@ -319,13 +343,13 @@ describe('full sync', () => {
     const platform = new FakePlatform([[product('o1')]]);
     platform.fail.set(1, new PlatformUnavailableError('down'));
     const { sync } = syncFor(platform);
-    await expect(sync.run(storeId, older)).rejects.toBeInstanceOf(PlatformUnavailableError);
-    expect(await sync.run(storeId, newer)).toBe('succeeded');
-    expect(await sync.run(storeId, older)).toBe('superseded');
+    await expect(sync.run(storeId, older, NOT_LAST)).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(await sync.run(storeId, newer, NOT_LAST)).toBe('succeeded');
+    expect(await sync.run(storeId, older, NOT_LAST)).toBe('superseded');
     expect(await stateOf(storeId)).toMatchObject({ run_id: newer, status: 'succeeded' });
     // A failed newer run is not taken over either; markFailed of the older run leaves it alone.
     await admin.query(`update catalog_sync_state set status = 'failed', reason = 'platform_unavailable' where store_id = $1`, [storeId]);
-    expect(await sync.run(storeId, older)).toBe('superseded');
+    expect(await sync.run(storeId, older, NOT_LAST)).toBe('superseded');
     expect(await stateOf(storeId)).toMatchObject({ run_id: newer, status: 'failed', reason: 'platform_unavailable' });
   });
 
@@ -338,12 +362,23 @@ describe('full sync', () => {
     );
     const platform = new FakePlatform([[product('h1')], [product('h2')]]);
     const { sync } = syncFor(platform, new FakeTokens(), () => clock);
-    await expect(sync.run(storeId, runId)).rejects.toBeInstanceOf(RunBusyError);
+    await expect(sync.run(storeId, runId, NOT_LAST)).rejects.toBeInstanceOf(RunBusyError);
     expect(await stateOf(storeId)).toMatchObject({ status: 'running', next_page: 2 }); // not marked failed
     clock += RUN_HEARTBEAT_MS + 1;
-    expect(await sync.run(storeId, runId)).toBe('succeeded');
+    expect(await sync.run(storeId, runId, NOT_LAST)).toBe('succeeded');
     expect(platform.calls).toEqual([2]);
     expect(await stateOf(storeId)).toMatchObject({ status: 'succeeded', created_count: 2 });
+  });
+
+  it('on the last attempt, a failure before the import starts (busy run) still records failed', async () => {
+    const storeId = randomUUID();
+    const runId = nextRun();
+    await withStoreContext(app, storeId, (ctx) => ctx.query(`insert into catalog_sync_state (store_id, run_id, status, next_page) values ($1, $2, 'running', 2)`, [storeId, runId]));
+    const { sync } = syncFor(new FakePlatform([[product('b1')]]));
+    await expect(sync.run(storeId, runId, NOT_LAST)).rejects.toBeInstanceOf(RunBusyError);
+    expect(await stateOf(storeId)).toMatchObject({ status: 'running' });
+    await expect(sync.run(storeId, runId, { finalAttempt: true })).rejects.toBeInstanceOf(RunBusyError);
+    expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason: 'internal' });
   });
 
   it('a second run while another is fresh and running is superseded; a stale running run is replaced', async () => {
@@ -352,17 +387,17 @@ describe('full sync', () => {
     await withStoreContext(app, storeId, (ctx) => ctx.query(`insert into catalog_sync_state (store_id, run_id, status, updated_at) values ($1, $2, 'running', $3)`, [storeId, nextRun(), new Date(clock)]));
     const platform = new FakePlatform([[product('s1')]]);
     const { sync } = syncFor(platform, new FakeTokens(), () => clock);
-    expect(await sync.run(storeId, nextRun())).toBe('superseded');
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toBe('superseded');
     expect(platform.calls).toEqual([]);
     clock += STALE_RUN_MS + 1;
-    expect(await sync.run(storeId, nextRun())).toBe('succeeded');
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toBe('succeeded');
   });
 
   it('does not limit product count by plan and reads no billing data (AD-14)', async () => {
     const storeId = randomUUID();
     const many = Array.from({ length: 120 }, (_, i) => product(`n${String(i).padStart(3, '0')}`));
     const { sync } = syncFor(new FakePlatform([many.slice(0, 60), many.slice(60)]));
-    expect(await sync.run(storeId, nextRun())).toBe('succeeded');
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toBe('succeeded');
     expect(await productsOf(storeId)).toHaveLength(120);
     const dir = fileURLToPath(new URL('../modules/catalog/', import.meta.url));
     for (const file of readdirSync(dir)) expect(readFileSync(`${dir}${file}`, 'utf8')).not.toMatch(/billing|entitlement|subscriptions/i);
@@ -373,7 +408,7 @@ describe('catalog purge', () => {
   it('removes products in batches, then categories and sync state', async () => {
     const storeId = randomUUID();
     const { sync } = syncFor(new FakePlatform([[product('g1'), product('g2'), product('g3')]]));
-    await sync.run(storeId, nextRun());
+    await sync.run(storeId, nextRun(), NOT_LAST);
     const purge = () => withStoreContext(app, storeId, (tx) => catalogStoreData.purge({ storeId, installEpoch: 1, tx, batchLimit: 2 }));
     expect(await purge()).toEqual({ done: false });
     expect(await productsOf(storeId)).toHaveLength(1);
@@ -423,7 +458,7 @@ describe('products read API', () => {
     const pages: CanonicalProduct[][] = [];
     for (let i = 0; i < items.length; i += 60) pages.push(items.slice(i, i + 60));
     const { sync } = syncFor(new FakePlatform(pages));
-    expect(await sync.run(storeId, nextRun())).toBe('succeeded');
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toBe('succeeded');
     return { storeId, token: await bearerFor(storeId) };
   }
 
@@ -530,5 +565,227 @@ describe('products read API', () => {
     const synced = CatalogSyncStatus.parse((await get(token, '/v1/catalog/sync')).body);
     expect(synced.status).toBe('succeeded');
     expect(synced.last_synced_at).not.toBeNull();
+  });
+});
+
+// Story 2.3: manual sync over HTTP (single-flight, rate limit, CSRF), the requested event -> full-sync job, outcomes.
+describe('manual sync', () => {
+  let nest: INestApplication;
+  let base: string;
+  const sessionConfig: SessionConfig = { secret: randomBytes(32), secureCookies: true, embeddedTtlMs: 15 * 60_000, directMaxAgeMs: 3_600_000, idleMs: 3_600_000 };
+
+  beforeAll(async () => {
+    const httpPool = new pg.Pool({ connectionString: APP_URL, max: 4 });
+    nest = await createHttpApp({ CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' }, { pool: httpPool, events: boss, telemetry, session: sessionConfig });
+    await nest.listen(0);
+    base = await nest.getUrl();
+  });
+  afterAll(async () => {
+    await nest?.close();
+  });
+
+  const installedStore = async (): Promise<{ storeId: string; token: string }> => {
+    const storeId = randomUUID();
+    await admin.query(`insert into stores (id, store_id, platform, platform_store_id, name) values ($1, $1, 'salla', $2, 'Sync Store') on conflict do nothing`, [storeId, `sync-${storeId}`]);
+    return { storeId, token: (await nest.get(SessionService).create(storeId, 'embedded')).token };
+  };
+  const requestSync = async (token: string) => {
+    const res = await fetch(`${base}/v1/catalog/sync`, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+    return { res, body: (await res.json()) as Record<string, unknown> };
+  };
+  const statusOf = async (token: string) => CatalogSyncStatus.parse(await (await fetch(`${base}/v1/catalog/sync`, { headers: { authorization: `Bearer ${token}` } })).json());
+  const requestedEvents = async (storeId: string) =>
+    (
+      await admin.query<{ id: string; data: EventEnvelope }>(
+        `select id::text, data from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2 and data->>'name' = 'catalog.sync.requested' order by created_on`,
+        [EVENT_QUEUE, storeId],
+      )
+    ).rows;
+  /** Move the stored request time (and the row's last touch) into the past. */
+  const age = (storeId: string, ms: { requested?: number; touched?: number }) =>
+    admin.query(
+      `update catalog_sync_state set requested_at = coalesce(requested_at, now()) - make_interval(secs => $2::float8 / 1000), updated_at = updated_at - make_interval(secs => $3::float8 / 1000) where store_id = $1`,
+      [storeId, ms.requested ?? 0, ms.touched ?? 0],
+    );
+
+  /** The worker side: dispatch the outbox events, capture the full-sync jobs they send, then run those jobs. */
+  async function work(storeId: string, platform: FakePlatform, attempt = { retryCount: 0, retryLimit: 4 }) {
+    const sent: Array<{ data: FullSyncJob; options?: Record<string, unknown> }> = [];
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, { send: async (_q: string, data: object, options?: Record<string, unknown>) => (sent.push({ data: data as FullSyncJob, options }), 'job') }, telemetry);
+    const dispatch = eventDispatcher(app, registry);
+    for (const { data } of await requestedEvents(storeId)) await dispatch(data, { id: data.event_id, data });
+    const handler = catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
+    for (const job of sent) await handler(job.data, { id: 'j', data: job.data, ...attempt });
+    return sent;
+  }
+
+  it('first manual sync (never): 202 queued + event in the same transaction; the worker imports; then succeeded with last_synced_at and products listed', async () => {
+    const { storeId, token } = await installedStore();
+    expect((await statusOf(token)).status).toBe('never');
+    const { res, body } = await requestSync(token);
+    expect(res.status).toBe(202);
+    const queued = CatalogSyncStatus.parse(body);
+    expect(queued).toMatchObject({ status: 'queued', reason: null, last_synced_at: null });
+    expect(queued.run_id).toBeTruthy();
+    expect(await stateOf(storeId)).toMatchObject({ status: 'queued', run_id: queued.run_id, requested_at: expect.any(Date) });
+    // The event id is the run id; the HTTP role enqueued no full-sync job itself.
+    const events = await requestedEvents(storeId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.id).toBe(queued.run_id);
+    expect(events[0]!.data.payload).toEqual({ v: 1, store_id: storeId, run_id: queued.run_id });
+    expect((await admin.query(`select 1 from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2`, [CATALOG_FULL_SYNC_QUEUE, storeId])).rowCount).toBe(0);
+
+    const sent = await work(storeId, new FakePlatform([[product('m1'), product('m2')]]));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ data: { store_id: storeId, run_id: queued.run_id }, options: { singletonKey: storeId, singletonSeconds: FULL_SYNC_SINGLETON_SECONDS, singletonNextSlot: true } });
+    const done = await statusOf(token);
+    expect(done).toMatchObject({ status: 'succeeded', run_id: queued.run_id, reason: null });
+    expect(done.last_synced_at).not.toBeNull();
+    const page = ProductListResponse.parse(await (await fetch(`${base}/v1/products`, { headers: { authorization: `Bearer ${token}` } })).json());
+    expect(page.items.map((i) => i.external_id)).toEqual(['m1', 'm2']);
+  });
+
+  it('while queued or running (fresh): 202 with that run and nothing new is enqueued', async () => {
+    const { storeId, token } = await installedStore();
+    const first = CatalogSyncStatus.parse((await requestSync(token)).body);
+    const again = await requestSync(token);
+    expect(again.res.status).toBe(202);
+    expect(CatalogSyncStatus.parse(again.body)).toMatchObject({ status: 'queued', run_id: first.run_id });
+    await admin.query(`update catalog_sync_state set status = 'running' where store_id = $1`, [storeId]);
+    await age(storeId, { requested: 120_000 }); // past the rate limit: single-flight still wins
+    expect(CatalogSyncStatus.parse((await requestSync(token)).body)).toMatchObject({ status: 'running', run_id: first.run_id });
+    expect(await requestedEvents(storeId)).toHaveLength(1);
+  });
+
+  it('a stale running run (untouched > 15 min) is treated as idle: a new run is queued', async () => {
+    const { storeId, token } = await installedStore();
+    const first = CatalogSyncStatus.parse((await requestSync(token)).body);
+    await admin.query(`update catalog_sync_state set status = 'running' where store_id = $1`, [storeId]);
+    await age(storeId, { requested: STALE_RUN_MS + 60_000, touched: STALE_RUN_MS + 60_000 });
+    const { res, body } = await requestSync(token);
+    expect(res.status).toBe(202);
+    const second = CatalogSyncStatus.parse(body);
+    expect(second.status).toBe('queued');
+    expect(second.run_id).not.toBe(first.run_id);
+    expect(await requestedEvents(storeId)).toHaveLength(2);
+  });
+
+  it('too soon (< 60 s after the previous request, idle): 429 sync-rate-limited problem+json with Retry-After; nothing enqueued', async () => {
+    const { storeId, token } = await installedStore();
+    await requestSync(token);
+    await work(storeId, new FakePlatform([[product('t1')]]));
+    expect((await statusOf(token)).status).toBe('succeeded');
+    const { res, body } = await requestSync(token);
+    expect(res.status).toBe(429);
+    expect(res.headers.get('content-type')).toContain('application/problem+json');
+    expect(body).toMatchObject({ type: 'sync-rate-limited', status: 429, code: 'sync_rate_limited' });
+    const retryAfter = Number(res.headers.get('retry-after'));
+    expect(retryAfter).toBeGreaterThanOrEqual(1);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+    expect(await requestedEvents(storeId)).toHaveLength(1);
+  });
+
+  it('after a success more than 60 s ago: 202 queued with a new run id, keeping the last sync time', async () => {
+    const { storeId, token } = await installedStore();
+    const first = CatalogSyncStatus.parse((await requestSync(token)).body);
+    await work(storeId, new FakePlatform([[product('a1')]]));
+    const synced = (await statusOf(token)).last_synced_at;
+    await age(storeId, { requested: 61_000 });
+    const { res, body } = await requestSync(token);
+    expect(res.status).toBe(202);
+    const next = CatalogSyncStatus.parse(body);
+    expect(next).toMatchObject({ status: 'queued', last_synced_at: synced });
+    expect(next.run_id).not.toBe(first.run_id);
+  });
+
+  it('a final failure (auth_rejected) is failed at once without a retry; the previous catalog and sync time stay', async () => {
+    const { storeId, token } = await installedStore();
+    await requestSync(token);
+    await work(storeId, new FakePlatform([[product('k1')]]));
+    const synced = (await statusOf(token)).last_synced_at;
+    await age(storeId, { requested: 61_000 });
+    await requestSync(token);
+    const platform = new FakePlatform([[product('k2')]]);
+    platform.fail.set(1, new PlatformAuthRejectedError());
+    await work(storeId, platform); // resolves: no retry
+    expect(await statusOf(token)).toMatchObject({ status: 'failed', reason: 'auth_rejected', last_synced_at: synced });
+    expect((await productsOf(storeId)).map((r) => r.external_id)).toEqual(['k1']);
+  });
+
+  it('a transient failure before the last attempt reads running; a request meanwhile joins it; the last attempt reports failed', async () => {
+    const { storeId, token } = await installedStore();
+    await requestSync(token);
+    const platform = new FakePlatform([[product('x1')]]);
+    platform.fail.set(1, new PlatformUnavailableError('503'));
+    await expect(work(storeId, platform, { retryCount: 1, retryLimit: 4 })).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(await statusOf(token)).toMatchObject({ status: 'running', reason: null });
+    await age(storeId, { requested: 61_000 });
+    expect((await requestSync(token)).body).toMatchObject({ status: 'running' });
+    expect(await requestedEvents(storeId)).toHaveLength(1);
+    const job: FullSyncJob = { v: 1, trace_id: 't', store_id: storeId, run_id: (await statusOf(token)).run_id! };
+    platform.fail.set(1, new PlatformUnavailableError('503'));
+    await expect(catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!(job, { id: 'j', data: job, retryCount: 4, retryLimit: 4 })).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(await statusOf(token)).toMatchObject({ status: 'failed', reason: 'platform_unavailable' });
+  });
+
+  it('a redelivered requested event queues no second job', async () => {
+    const { storeId, token } = await installedStore();
+    await requestSync(token);
+    const sent: unknown[] = [];
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, { send: async (_q: string, data: object) => (sent.push(data), 'job') }, telemetry);
+    const dispatch = eventDispatcher(app, registry);
+    const [first] = await requestedEvents(storeId);
+    await dispatch(first!.data, { id: 'a', data: first!.data });
+    await dispatch(first!.data, { id: 'a', data: first!.data });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('cookie sessions need the CSRF token: 403 csrf_invalid without it, 202 with it', async () => {
+    const { storeId } = await installedStore();
+    const sessions = nest.get(SessionService);
+    const { token, session } = await sessions.create(storeId, 'direct');
+    const cookie = `slips_session=${token}`;
+    const without = await fetch(`${base}/v1/catalog/sync`, { method: 'POST', headers: { cookie } });
+    expect(without.status).toBe(403);
+    expect(await without.json()).toMatchObject({ code: 'csrf_invalid' });
+    expect(await requestedEvents(storeId)).toHaveLength(0);
+    const ok = await fetch(`${base}/v1/catalog/sync`, { method: 'POST', headers: { cookie, 'x-csrf-token': sessions.csrfToken(session.id) } });
+    expect(ok.status).toBe(202);
+  });
+
+  it('a stranded queued or running run (untouched > 15 min) reads failed/internal, keeping the last sync time', async () => {
+    const { storeId, token } = await installedStore();
+    await requestSync(token);
+    await work(storeId, new FakePlatform([[product('s1')]]));
+    const synced = (await statusOf(token)).last_synced_at;
+    await age(storeId, { requested: 61_000 });
+    const queued = CatalogSyncStatus.parse((await requestSync(token)).body);
+    await age(storeId, { touched: STALE_RUN_MS + 1000 });
+    expect(await statusOf(token)).toMatchObject({ status: 'failed', reason: 'internal', run_id: queued.run_id, last_synced_at: synced });
+    await admin.query(`update catalog_sync_state set status = 'running' where store_id = $1`, [storeId]);
+    expect(await statusOf(token)).toMatchObject({ status: 'failed', reason: 'internal' });
+  });
+
+  it('two concurrent first requests on a fresh store yield one run and exactly one requested event', async () => {
+    const { storeId, token } = await installedStore();
+    const [a, b] = await Promise.all([requestSync(token), requestSync(token)]);
+    expect([a.res.status, b.res.status]).toEqual([202, 202]);
+    expect(CatalogSyncStatus.parse(a.body).run_id).toBe(CatalogSyncStatus.parse(b.body).run_id);
+    expect(await requestedEvents(storeId)).toHaveLength(1);
+  });
+
+  it('a requested event whose job could not be queued fails the delivery so it is retried', async () => {
+    const { storeId, token } = await installedStore();
+    await requestSync(token);
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, { send: async () => null }, telemetry);
+    const [first] = await requestedEvents(storeId);
+    await expect(eventDispatcher(app, registry)(first!.data, { id: 'a', data: first!.data })).rejects.toThrow(/not queued/);
+  });
+
+  it('needs a merchant session', async () => {
+    expect((await fetch(`${base}/v1/catalog/sync`, { method: 'POST' })).status).toBe(401);
   });
 });

@@ -29,7 +29,9 @@ export function proxy(request: NextRequest) {
     !hasSessionCookie &&
     !isAuthPath(pathname) &&
     !isAdminPath(pathname) &&
-    !pathname.startsWith('/api/')
+    !pathname.startsWith('/api/') &&
+    // The dev-only UI gallery needs no session (the page itself 404s in production).
+    !(pathname === '/ui' && process.env.NODE_ENV !== 'production')
   ) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';

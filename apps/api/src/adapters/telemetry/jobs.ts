@@ -6,7 +6,14 @@ import { Metric, type Telemetry } from '../../ports/telemetry.js';
 export interface JobLike {
   id: string;
   data: unknown;
+  /** Retries so far (0 on the first attempt); present when the queue is worked with `includeMetadata`. */
+  retryCount?: number;
+  /** Retries allowed; the attempt with `retryCount >= retryLimit` is the last one. */
+  retryLimit?: number;
 }
+
+/** True on a job's last attempt (no retry follows a failure). Unknown metadata counts as not last. */
+export const isFinalAttempt = (job: JobLike): boolean => job.retryCount !== undefined && job.retryLimit !== undefined && job.retryCount >= job.retryLimit;
 
 export type JobHandler = (data: unknown, job: JobLike) => Promise<void>;
 

@@ -31,7 +31,7 @@ const row = (over: Partial<ProductRow> = {}): ProductRow => ({
   ...over,
 });
 const page = (items: ProductRow[], over: Partial<ProductListResponse> = {}): ProductListResponse => ({ v: 1, items, total: items.length, page: 1, page_size: 50, ...over });
-const sync = (status: CatalogSyncStatus['status']): CatalogSyncStatus => ({ v: 1, status, reason: null, last_synced_at: null });
+const sync = (status: CatalogSyncStatus['status']): CatalogSyncStatus => ({ v: 1, status, run_id: null, reason: null, last_synced_at: null });
 const DEFAULT: ProductListQuery = { sort: 'name', page: 1 };
 
 /** The signed-in session the data hooks use; null (default) means nothing is fetched and seeded data is shown. */
@@ -147,7 +147,7 @@ describe('Products page', () => {
       await act(async () => void vi.advanceTimersByTime(250));
       expect(onUrlUpdate).not.toHaveBeenCalled();
       await act(async () => void vi.advanceTimersByTime(100));
-      await act(async () => void vi.runAllTimers());
+      await act(async () => void vi.runOnlyPendingTimers());
       expect(onUrlUpdate).toHaveBeenCalledTimes(1);
       const qs = new URLSearchParams(onUrlUpdate.mock.lastCall![0].queryString);
       expect(qs.get('q')).toBe('عباية');

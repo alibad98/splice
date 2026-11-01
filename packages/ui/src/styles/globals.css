@@ -131,6 +131,14 @@
   --color-sidebar-border: var(--sidebar-border); --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Motion (UI kit): enter 200 ms ease-out, exit 180 ms ease-in; stopped by the reduced-motion rule below. */
+@theme {
+  --animate-toast-in: toast-in 200ms ease-out;
+  --animate-toast-out: toast-out 180ms ease-in forwards;
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+  @keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
+}
+
 @layer base {
   * { @apply border-border; }
   /* Two-tone focus ring, full opacity: ink (dark: white) inner + coral outer; visible on coral fills */

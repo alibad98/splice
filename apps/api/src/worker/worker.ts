@@ -21,7 +21,7 @@ import { GROUP_POLICY, QUEUES, deadLetterName, queueOptions, queuesFor, type Que
 /** The slice of PgBoss queue registration used, so it can be tested with a fake. */
 export interface QueueRegistrar {
   createQueue(name: string, options?: Record<string, unknown>): Promise<unknown>;
-  work(name: string, options: { localConcurrency: number }, handler: (jobs: Array<{ id: string; data: unknown }>) => Promise<void>): Promise<unknown>;
+  work(name: string, options: { localConcurrency: number; includeMetadata: true }, handler: (jobs: Array<{ id: string; data: unknown; retryCount: number; retryLimit: number }>) => Promise<void>): Promise<unknown>;
 }
 
 /**
@@ -40,7 +40,8 @@ export async function registerQueues(
     const dead = deadLetterName(queue.name);
     await boss.createQueue(dead);
     await boss.createQueue(queue.name, { ...queueOptions(queue.group), deadLetter: dead });
-    await boss.work(queue.name, { localConcurrency: GROUP_POLICY[queue.group].concurrency }, instrumentJob(telemetry, queue.name, handler));
+    // With metadata, handlers see retryCount/retryLimit and can tell the last attempt (e.g. catalog sync failures).
+    await boss.work(queue.name, { localConcurrency: GROUP_POLICY[queue.group].concurrency, includeMetadata: true }, instrumentJob(telemetry, queue.name, handler));
   }
 }
 

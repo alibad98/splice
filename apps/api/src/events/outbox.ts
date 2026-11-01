@@ -26,6 +26,8 @@ export function uuidv7(now = Date.now()): string {
 export interface PublishOptions {
   /** Tenant events carry the store so the worker handler runs in that store's context. */
   storeId?: string;
+  /** A UUIDv7 the caller already minted and recorded in the same transaction (e.g. a run id = event id). */
+  eventId?: string;
 }
 
 /**
@@ -53,7 +55,7 @@ export async function publishEvent<N extends EventName>(
     if ((storeId && storeId !== payloadStore) || (ambient && ambient !== payloadStore)) throw new Error(`publishEvent ${name}: payload store_id conflicts with the store in context`);
     storeId = payloadStore;
   }
-  const event_id = uuidv7();
+  const event_id = options.eventId ?? uuidv7();
   const envelope: EventEnvelope = {
     ...jobMeta(telemetry, storeId),
     event_id,

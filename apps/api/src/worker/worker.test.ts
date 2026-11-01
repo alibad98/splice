@@ -12,7 +12,7 @@ describe('registerQueues', () => {
     const worked: Array<[string, number]> = [];
     const boss = {
       createQueue: async (name: string, options?: Record<string, unknown>) => void created.push([name, options]),
-      work: async (name: string, o: { localConcurrency: number }) => void worked.push([name, o.localConcurrency]),
+      work: async (name: string, o: { localConcurrency: number; includeMetadata: true }) => void worked.push([name, o.includeMetadata ? o.localConcurrency : -1]),
     };
     const t = new PinoTelemetry({ role: 'worker', level: 'silent' });
     await registerQueues(boss, t, [{ name: 'media.transcode', group: 'media' }, { name: 'integration.webhook', group: 'realtime' }], {

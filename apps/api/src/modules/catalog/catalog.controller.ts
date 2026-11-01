@@ -1,8 +1,11 @@
-import { BadRequestException, Controller, Get, Inject, Query, Req } from '@nestjs/common';
-import { PRODUCT_PAGE_SIZE, ProductListQuery, type CatalogSyncStatus, type CategoryListResponse, type ProductListResponse } from '@slips/contracts';
+import { BadRequestException, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Query, Req, Res } from '@nestjs/common';
+import { CATALOG_SYNC_RATE_LIMITED, PRODUCT_PAGE_SIZE, ProductListQuery, type CatalogSyncStatus, type CategoryListResponse, type ProductListResponse } from '@slips/contracts';
+import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../session/access.guard.js';
 import { ContentService } from '../content/content.service.js';
-import { CatalogService } from './catalog.service.js';
+import { CatalogService, type CatalogSyncView } from './catalog.service.js';
+
+const syncStatus = (s: CatalogSyncView): CatalogSyncStatus => ({ v: 1, status: s.status, run_id: s.runId, reason: s.reason, last_synced_at: s.lastSyncedAt?.toISOString() ?? null });
 
 /** Products page reads (Story 2.2). The store always comes from the merchant session, never from the request. */
 @Controller('v1')
@@ -52,7 +55,22 @@ export class CatalogController {
 
   @Get('catalog/sync')
   async sync(@Req() req: AuthenticatedRequest): Promise<CatalogSyncStatus> {
-    const s = await this.catalog.getSyncState(req.merchantSession!.storeId);
-    return { v: 1, status: s.status, reason: s.reason, last_synced_at: s.lastSyncedAt?.toISOString() ?? null };
+    return syncStatus(await this.catalog.getSyncState(req.merchantSession!.storeId));
+  }
+
+  /**
+   * Manual sync (Story 2.3): 202 with the queued run, or with the run already queued/running (nothing new is queued).
+   * Too soon after the previous request: 429 `sync-rate-limited` with `Retry-After`. Cookie sessions need the CSRF
+   * token (AccessGuard). The sync itself runs in the worker.
+   */
+  @Post('catalog/sync')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async requestSync(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response): Promise<CatalogSyncStatus> {
+    const outcome = await this.catalog.requestSync(req.merchantSession!.storeId);
+    if (outcome.kind === 'rate_limited') {
+      res.setHeader('Retry-After', String(outcome.retryAfterSeconds));
+      throw new HttpException({ message: 'A sync was requested moments ago. Try again shortly', code: 'sync_rate_limited', type: CATALOG_SYNC_RATE_LIMITED }, HttpStatus.TOO_MANY_REQUESTS);
+    }
+    return syncStatus(outcome.view);
   }
 }

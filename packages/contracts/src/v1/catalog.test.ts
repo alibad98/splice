@@ -37,6 +37,12 @@ describe('catalog contracts', () => {
     expect(ProductListResponse.safeParse({ items: [{ ...row, price_minor: 1.5 }], total: 1, page: 1, page_size: 50 }).success).toBe(false);
   });
   it('parses sync status including never', () => {
-    expect(CatalogSyncStatus.parse({ status: 'never', reason: null, last_synced_at: null }).v).toBe(1);
+    expect(CatalogSyncStatus.parse({ status: 'never', reason: null, last_synced_at: null })).toMatchObject({ v: 1, run_id: null });
+  });
+  it('parses a queued run with its id and rejects an unknown status', () => {
+    const run = '01a1974e-2656-76b1-b0fd-3032c36f0c07';
+    expect(CatalogSyncStatus.parse({ status: 'queued', run_id: run, reason: null, last_synced_at: '2026-11-01T10:00:00.000Z' }).run_id).toBe(run);
+    expect(CatalogSyncStatus.safeParse({ status: 'paused', reason: null, last_synced_at: null }).success).toBe(false);
+    expect(CatalogSyncStatus.safeParse({ status: 'queued', run_id: 'nope', reason: null, last_synced_at: null }).success).toBe(false);
   });
 });

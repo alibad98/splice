@@ -1,16 +1,21 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CatalogSyncStatus, CategoryListResponse, ProductListResponse, type ProductListQuery } from '@slips/contracts';
 import { useSession } from '../../components/session/SessionProvider';
-import { getJson } from './fetch';
+import { ApiError, getJson, postJson } from './fetch';
 import { queryKeys } from './query-keys';
 
-/** How often to look again while the first catalog import is still running. */
+/** How often to look again while a sync is queued or running (or the first import has not started yet). */
 export const SYNC_POLL_MS = 5_000;
 
-const syncInProgress = (s: CatalogSyncStatus | undefined): boolean => s?.status === 'running' || s?.status === 'never';
+type SyncState = CatalogSyncStatus['status'];
+/** A run is under way: requested and waiting, or importing. */
+export const isSyncActive = (s: SyncState | undefined): boolean => s === 'queued' || s === 'running';
+/** Still waiting for products: a run under way, or the install import has not started yet. */
+const isAwaitingSync = (s: SyncState | undefined): boolean => isSyncActive(s) || s === 'never';
+const syncInProgress = (s: CatalogSyncStatus | undefined): boolean => isAwaitingSync(s?.status);
 
 /** Query string for `GET /v1/products`; defaults are left out so the URL stays short. */
 export function productsPath(query: ProductListQuery): string {
@@ -57,28 +62,41 @@ export function useCategories() {
 }
 
 /**
- * The latest catalog sync run; polled while it is running (or has not started yet). When a run ends, every products
- * page and the categories are refetched, so a stale empty page never outlives the import.
+ * The latest catalog sync run; polled while it is queued or running (or has not started yet). When a run ends, every
+ * products page and the categories are refetched, so the list never outlives the import. Use one instance per page.
  */
-export function useCatalogSync(options: { enabled?: boolean } = {}) {
+export function useCatalogSync() {
   const { client, enabled } = useClient();
   const queryClient = useQueryClient();
   const result = useQuery({
     queryKey: queryKeys.catalog.sync(),
     queryFn: () => getJson(client!, '/v1/catalog/sync', CatalogSyncStatus),
-    enabled: enabled && (options.enabled ?? true),
+    enabled,
     refetchInterval: (q) => (syncInProgress(q.state.data) ? SYNC_POLL_MS : false),
   });
-  const status = result.data?.status;
-  const previous = useRef(status);
+  const data = result.data;
+  const previous = useRef(data?.status);
   useEffect(() => {
     const was = previous.current;
-    previous.current = status;
-    const inProgress = (s: typeof status) => s === 'running' || s === 'never';
-    if (status && inProgress(was) && !inProgress(status)) {
+    previous.current = data?.status;
+    if (data && isAwaitingSync(was) && !isAwaitingSync(data.status)) {
       void queryClient.invalidateQueries({ queryKey: queryKeys.catalog.productsAll() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.catalog.categories() });
     }
-  }, [status, queryClient]);
+  }, [data, queryClient]);
   return result;
+}
+
+/**
+ * Ask the API for a sync now (`POST /v1/catalog/sync`). The answer (the queued run, or the run already under way) goes
+ * straight into the sync query, which then polls until the run ends. The API decides single-flight and the rate limit:
+ * a 429 rejects with an `ApiError` whose status is 429.
+ */
+export function useRequestSync() {
+  const { client } = useClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => (client ? postJson(client, '/v1/catalog/sync', CatalogSyncStatus) : Promise.reject(new ApiError(0))),
+    onSuccess: (sync) => queryClient.setQueryData(queryKeys.catalog.sync(), sync),
+  });
 }

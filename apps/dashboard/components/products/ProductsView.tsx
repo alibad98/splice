@@ -3,10 +3,11 @@
 import { useCallback } from 'react';
 import { Card } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
-import { useCatalogSync, useCategories, useProducts } from '../../lib/api/catalog';
+import { isSyncActive, useCatalogSync, useCategories, useProducts } from '../../lib/api/catalog';
 import { fill, pageRange } from './format';
 import { ProductFilters } from './ProductFilters';
 import { ProductsTable } from './ProductsTable';
+import { SyncHeader } from './SyncHeader';
 import { EmptyProducts, FilteredEmpty, ProductsError, ProductsSkeleton, useDelayed } from './ProductStates';
 import { toListQuery, useProductParams } from './url-state';
 
@@ -25,8 +26,9 @@ export function ProductsView() {
   // A placeholder (the previous query's page) says nothing about this query, e.g. right after "Show all".
   const placeholderEmpty = products.isPlaceholderData && products.data?.total === 0;
   const nothingYet = !products.isPlaceholderData && products.data?.total === 0 && !filtered;
-  const sync = useCatalogSync({ enabled: nothingYet });
-  const syncing = nothingYet && (sync.data?.status === 'running' || sync.data?.status === 'never');
+  // Always on: the header shows the last sync time, and a run under way is polled until it ends.
+  const sync = useCatalogSync();
+  const syncing = nothingYet && (isSyncActive(sync.data?.status) || sync.data?.status === 'never');
 
   // Search pauses replace the current entry (no history entry per pause); category, sort and page push one.
   const onSearch = useCallback((q: string) => void setParams({ q: q || null, page: null }, { history: 'replace' }), [setParams]);
@@ -71,9 +73,12 @@ export function ProductsView() {
 
   return (
     <section className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-h1">{m.title}</h1>
-        <p className="text-body text-muted-foreground">{m.intro}</p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-h1">{m.title}</h1>
+          <p className="text-body text-muted-foreground">{m.intro}</p>
+        </div>
+        <SyncHeader sync={sync.data} />
       </header>
       <Card>
         <ProductFilters q={params.q} category={params.category} categories={categories.data?.items ?? []} onSearch={onSearch} onCategory={onCategory} />

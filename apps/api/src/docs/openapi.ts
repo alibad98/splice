@@ -36,7 +36,7 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------------------------------------------
 
 const Problem = z.object({
-  type: z.string().describe('Always `about:blank` today.'),
+  type: z.string().describe('A stable problem type slug when the error has one (e.g. `sync-rate-limited`), else `about:blank`.'),
   title: z.string().describe('Short human-readable summary (English; the dashboard shows its own localized copy).'),
   status: z.number().int().describe('HTTP status code.'),
   detail: z.string().optional().describe('More detail, for 4xx responses.'),
@@ -74,7 +74,7 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [ProductRow, 'Product', 'One product row. Money is integer minor units of `currency` (e.g. SAR 120.50 = 12050).'],
   [ProductListResponse, 'ProductPage', `One page of products: \`items\` (at most ${PRODUCT_PAGE_SIZE}), \`total\` matching products, \`page\` (1-based) and \`page_size\`.`],
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
-  [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one starts.'],
+  [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
 ];
 
 const inputs: Array<[z.ZodType, string, string]> = [
@@ -210,7 +210,18 @@ export const ROUTES: RouteDoc[] = [
     errors: [400, 401],
   },
   { method: 'get', path: '/v1/products/categories', tag: 'Catalog', summary: 'List categories', description: 'For the category filter, sorted by name.', auth: 'merchant', success: { status: 200, description: 'Categories', body: CategoryListResponse }, errors: [401] },
-  { method: 'get', path: '/v1/catalog/sync', tag: 'Catalog', summary: 'Catalog sync status', description: 'Poll while `running` (or `never`) to know when the first import has finished; `failed` carries a `reason`.', auth: 'merchant', success: { status: 200, description: 'Sync status', body: CatalogSyncStatus }, errors: [401] },
+  { method: 'get', path: '/v1/catalog/sync', tag: 'Catalog', summary: 'Catalog sync status', description: 'Poll while `queued` or `running` (or `never`) to know when a sync has finished. `failed` is reported only after the last retry and carries a `reason`; `last_synced_at` is the last successful sync and survives failures.', auth: 'merchant', success: { status: 200, description: 'Sync status', body: CatalogSyncStatus }, errors: [401] },
+  {
+    method: 'post',
+    path: '/v1/catalog/sync',
+    tag: 'Catalog',
+    summary: 'Sync products now',
+    description:
+      'Asks for a full import of the store\'s products from Salla and returns at once (the worker does the import). While a run is `queued` or `running` the same run is returned and nothing new is queued. A request less than a minute after the previous one answers 429 with problem `type` `sync-rate-limited` and a `Retry-After` header (seconds). Then poll `GET /v1/catalog/sync`. Cookie sessions need `x-csrf-token`.',
+    auth: 'merchant',
+    success: { status: 202, description: 'Run queued, or the run already in progress', body: CatalogSyncStatus },
+    errors: [401, 403, 429],
+  },
 
   { method: 'post', path: '/v1/admin/sign-in', tag: 'Admin', summary: 'Slips Admin sign-in (not available yet)', description: 'Placeholder: always 403 until the admin identity provider is chosen.', auth: 'public', success: { status: 200, description: 'Signed in' }, errors: [403] },
   { method: 'get', path: '/v1/admin/session', tag: 'Admin', summary: 'Slips Admin session (not available yet)', auth: 'admin', success: { status: 200, description: 'Admin session' }, errors: [403] },
@@ -251,14 +262,15 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 
 - Session: ${SESSION_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Password sign-in: ${AUTH_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
-- Queries: \`invalid_query\``;
+- Queries: \`invalid_query\`
+- Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)`;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',
   401: 'Not signed in, session expired, or wrong credentials',
   403: 'Forbidden: missing/invalid CSRF token, store not installed, or admin only',
   404: 'Not found',
-  429: 'Too many attempts; try again later',
+  429: 'Too many attempts; try again later (after `Retry-After` seconds when the header is sent)',
   503: 'A dependency (database or Salla) is unavailable',
 };
 

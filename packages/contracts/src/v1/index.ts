@@ -21,3 +21,4 @@ export {
 } from './auth.js';
 export type { AuthProblemCode } from './auth.js';
 
+export { CURRENCY_EXPONENTS, InvalidAmountError, UnknownCurrencyError, currencyExponent, toMinorUnits } from './money.js';

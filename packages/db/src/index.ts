@@ -10,3 +10,4 @@ export { ensureTestAppRole } from './testing/app-role.js';
 export { and, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 export type { LifecycleState, SessionMode, StorePlatform } from './schema/integration.js';
+export type { AvailabilityBucket, CatalogSyncReason, CatalogSyncStatus } from './schema/catalog.js';

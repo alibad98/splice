@@ -5,7 +5,7 @@ import { PgTable } from 'drizzle-orm/pg-core';
 export const OWNERSHIP = {
   session: ['merchant_sessions', 'merchant_logins', 'merchant_login_stores', 'login_otps'],
   integration: ['stores', 'store_settings', 'store_settings_history', 'platform_tokens', 'token_access_log', 'store_locator', 'merchant_accounts', 'webhook_inbox', 'orders', 'order_lines', 'store_data_jobs', 'lifecycle_audit', 'store_purge_schedule', 'lifecycle_event_ledger'],
-  catalog: ['products', 'categories'],
+  catalog: ['products', 'categories', 'catalog_sync_state'],
   content: ['content_items', 'slides', 'placements', 'schedules', 'content_product_links'],
   media: ['media_assets', 'renditions'],
   publishing: ['store_manifests', 'store_keys'],

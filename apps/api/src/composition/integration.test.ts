@@ -488,4 +488,9 @@ describe('security review fixes', () => {
     const d = buildInfra({ CORS_ORIGINS: 'x', LOG_LEVEL: 'silent' }, 'http', { pool: app, events: boss });
     expect(c.integration.stateSecret.equals(d.integration.stateSecret)).toBe(false); // dev fallback only
   });
+
+  it('the default store-data lifecycles purge session and catalog data (integration is added last by the service)', () => {
+    const infra = buildInfra({ CORS_ORIGINS: 'x', LOG_LEVEL: 'silent' }, 'worker', { pool: app, events: boss });
+    expect(infra.lifecycles.map((l) => l.module)).toEqual(['session', 'catalog']);
+  });
 });

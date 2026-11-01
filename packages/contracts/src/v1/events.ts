@@ -39,6 +39,17 @@ export const EVENT_CATALOG = {
     'integration',
     z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),
   ),
+  'catalog.sync.completed': defineEvent(
+    'catalog',
+    z.object({
+      v: z.literal(1),
+      store_id: z.uuid(),
+      run_id: z.uuid(),
+      created: z.number().int().nonnegative(),
+      updated: z.number().int().nonnegative(),
+      finished_at: z.iso.datetime(),
+    }),
+  ),
 } as const;
 
 export type EventName = keyof typeof EVENT_CATALOG;

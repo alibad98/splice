@@ -29,12 +29,40 @@ export interface PlatformSession {
   accessToken: string;
 }
 
+export interface CanonicalCategory {
+  externalId: string;
+  name: string;
+}
+
+/** A product as the platform reports it, in platform-neutral terms. Money stays a decimal string here; `catalog` converts it to minor units. */
 export interface CanonicalProduct {
   externalId: string;
   name: string;
-  price: number;
+  imageUrl: string | null;
+  categories: CanonicalCategory[];
+  /** Regular price, decimal major units (e.g. "12.50"). */
+  price: string;
+  /** Discounted price when a sale is on and lower than `price`; otherwise null. */
+  salePrice: string | null;
+  /** ISO 4217 code, upper case. */
   currency: string;
-  status: string;
+  /** Whether `price` already includes VAT. */
+  taxInclusive: boolean;
+  /** Units in stock; null when unlimited or not reported. 0 when the platform marks it unavailable. */
+  stock: number | null;
+  /** True when the shopper must choose an option before adding to cart (FR23). */
+  hasRequiredOptions: boolean;
+  /** False for products hidden from the storefront. */
+  visible: boolean;
+  /** When the platform last changed the product; undefined when not reported. */
+  sourceUpdatedAt?: Date;
+}
+
+export interface ProductPage {
+  items: CanonicalProduct[];
+  /** Products on the page the adapter could not read (malformed); never stored. */
+  skipped?: number;
+  hasMore: boolean;
 }
 
 export interface CanonicalOrderLine {
@@ -120,7 +148,10 @@ export interface CommercePlatform {
     /** Where the merchant opens Slips inside the platform dashboard ("Open in Salla"); undefined when not configured. */
     openUrl(): string | undefined;
   };
-  readonly products: { list(session: PlatformSession, page: number): Promise<{ items: CanonicalProduct[]; hasMore: boolean }> };
+  readonly products: {
+    /** One page (1-based) of the store's products. Throws PlatformUnavailableError when the platform can not answer. */
+    list(session: PlatformSession, page: number): Promise<ProductPage>;
+  };
   readonly orders: { get(session: PlatformSession, externalId: string): Promise<CanonicalOrder> };
   readonly subscriptions: { list(session: PlatformSession): Promise<CanonicalSubscription[]> };
   readonly webhooks: {

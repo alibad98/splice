@@ -85,6 +85,13 @@
       "when": 1761091200000,
       "tag": "0011_merchant_logins",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1761177600000,
+      "tag": "0012_catalog",
+      "breakpoints": true
     }
   ]
 }

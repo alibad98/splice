@@ -12,6 +12,7 @@ import {
   type EmbeddedIdentity,
   type MerchantProfile,
   type PlatformSession,
+  type ProductPage,
   type TokenSet,
   type WebhookRequest,
 } from '../../ports/commerce-platform.js';
@@ -109,9 +110,77 @@ const IntrospectResponse = z.object({
 // Unknown keys (names, phones, addresses...) are dropped by the schemas: AD-5, only whitelisted fields survive.
 const Money = z.object({ amount: z.coerce.number(), currency: z.string() });
 const ProductsPage = z.object({
-  data: z.array(z.object({ id: z.union([z.string(), z.number()]), name: z.string(), price: Money, status: z.string().optional() })),
-  pagination: z.object({ currentPage: z.number(), totalPages: z.number() }).optional(),
+  data: z.array(z.unknown()),
+  pagination: z.object({ currentPage: z.coerce.number(), totalPages: z.coerce.number() }).optional(),
 });
+/** Decimal amount kept as text so no float rounding happens before `catalog` converts it to minor units. */
+const DecimalMoney = z.object({
+  amount: z.union([z.string(), z.number()]).transform((v) => (typeof v === 'number' ? String(v) : v.trim())),
+  currency: z.string().min(3),
+});
+const SallaId = z.union([z.string(), z.number()]).transform(String);
+/**
+ * Admin API v2 product, allow-listed. Field names from Salla's product resource; the full shape is unverified
+ * against a live store (Story 2.1 deferred: record a fixture from the demo store).
+ */
+const SallaProduct = z.object({
+  id: SallaId,
+  name: z.string().min(1),
+  price: DecimalMoney,
+  sale_price: DecimalMoney.nullish(),
+  taxed_price: DecimalMoney.nullish(),
+  with_tax: z.boolean().nullish(),
+  quantity: z.coerce.number().int().nullish(),
+  unlimited_quantity: z.boolean().nullish(),
+  is_available: z.boolean().nullish(),
+  status: z.string().nullish(),
+  main_image: z.string().nullish(),
+  thumbnail: z.string().nullish(),
+  images: z.array(z.object({ url: z.string(), main: z.boolean().nullish() })).nullish(),
+  categories: z.array(z.object({ id: SallaId, name: z.string() })).nullish(),
+  options: z.array(z.object({ required: z.boolean().nullish() })).nullish(),
+  updated_at: z.union([z.string(), z.number()]).nullish(),
+});
+type SallaProduct = z.infer<typeof SallaProduct>;
+
+const HIDDEN_STATUSES = new Set(['hidden', 'deleted']);
+/** Only http(s) image URLs are kept; anything else (javascript:, data:, relative) becomes no image. */
+const HTTP_URL = /^https?:\/\/\S+$/i;
+
+/** Salla product (raw JSON shape) -> canonical product; throws on a product it can not read. */
+export function toCanonicalProduct(raw: z.input<typeof SallaProduct>): CanonicalProduct {
+  return mapProduct(SallaProduct.parse(raw));
+}
+
+/** Salla field semantics stop here (AD-4). */
+function mapProduct(p: SallaProduct): CanonicalProduct {
+  const price = p.price.amount;
+  const sale = p.sale_price && Number(p.sale_price.amount) > 0 && Number(p.sale_price.amount) < Number(price) ? p.sale_price.amount : null;
+  // `with_tax` when Salla sends it; else a taxed price equal to the price means the price already includes VAT.
+  const taxInclusive = p.with_tax ?? (p.taxed_price ? Number(p.taxed_price.amount) === Number(price) : true);
+  let stock: number | null = p.unlimited_quantity ? null : (p.quantity ?? null);
+  const status = (p.status ?? '').trim().toLowerCase();
+  if (p.is_available === false || status === 'out') stock = 0;
+  if (stock !== null && stock < 0) stock = 0;
+  const image = [p.main_image, p.images?.find((i) => i.main)?.url, p.images?.[0]?.url, p.thumbnail].find((u): u is string => !!u && HTTP_URL.test(u)) ?? null;
+  // Any option Salla does not mark optional is treated as required, so the player never adds an incomplete item.
+  const hasRequiredOptions = (p.options ?? []).some((o) => o.required !== false);
+  const sourceUpdatedAt = p.updated_at == null ? undefined : parseEventTime(p.updated_at);
+  return {
+    externalId: p.id,
+    name: p.name,
+    imageUrl: image,
+    categories: (p.categories ?? []).map((c) => ({ externalId: c.id, name: c.name })),
+    price,
+    salePrice: sale,
+    currency: p.price.currency.trim().toUpperCase(),
+    taxInclusive,
+    stock,
+    hasRequiredOptions,
+    visible: !HIDDEN_STATUSES.has(status),
+    ...(sourceUpdatedAt ? { sourceUpdatedAt } : {}),
+  };
+}
 const OrderResponse = z.object({
   data: z.object({
     id: z.union([z.string(), z.number()]),
@@ -214,12 +283,17 @@ export class SallaCommercePlatform implements CommercePlatform {
   };
 
   readonly products = {
-    list: async (session: PlatformSession, page: number): Promise<{ items: CanonicalProduct[]; hasMore: boolean }> => {
-      const body = ProductsPage.parse(await this.admin(session, `/products?page=${page}`));
-      return {
-        items: body.data.map((p) => ({ externalId: String(p.id), name: p.name, price: p.price.amount, currency: p.price.currency, status: p.status ?? 'unknown' })),
-        hasMore: body.pagination ? body.pagination.currentPage < body.pagination.totalPages : false,
-      };
+    list: async (session: PlatformSession, page: number): Promise<ProductPage> => {
+      const parsed = ProductsPage.safeParse(await this.admin(session, `/products?page=${page}`));
+      if (!parsed.success) throw new PlatformUnavailableError('Salla products response was not recognised');
+      const items: CanonicalProduct[] = [];
+      let skipped = 0;
+      for (const raw of parsed.data.data) {
+        const p = SallaProduct.safeParse(raw);
+        if (p.success) items.push(mapProduct(p.data));
+        else skipped++;
+      }
+      return { items, skipped, hasMore: parsed.data.pagination ? parsed.data.pagination.currentPage < parsed.data.pagination.totalPages : false };
     },
   };
 

@@ -8,3 +8,12 @@ allowBuilds:
   es5-ext: false
   utf-8-validate: false
   unrs-resolver: false
+
+# Security floors for transitive dependencies (pnpm audit, 2026-11-01).
+overrides:
+  handlebars: ^4.7.10
+  body-parser: ^2.4.0
+  multer: ^2.5.0
+  fast-uri: ^3.1.9
+  qs: ^6.16.1
+  follow-redirects: ^1.16.2

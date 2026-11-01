@@ -18,6 +18,7 @@ import { denyAllAdminAccess } from './ports/admin-access.js';
 
 import type { TokenCipher } from './ports/token-cipher.js';
 import { AppModule } from './app.module.js';
+import { buildOpenApi, docsPage } from './docs/openapi.js';
 import type { Env } from './config/env.js';
 import { createWebhookRecorder } from './modules/integration/webhook-recorder.js';
 import type { InfraDeps } from './infra.module.js';
@@ -32,6 +33,7 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'FEATURE_FLAGS'
       | 'METRICS_TOKEN'
       | 'NODE_ENV'
+      | 'API_DOCS'
       | 'WEBHOOK_RECORD_DIR'
       | 'TOKEN_ENCRYPTION_KEY'
       | 'TOKEN_ENCRYPTION_KEY_ID'
@@ -144,6 +146,12 @@ export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> 
     res.setHeader('content-security-policy', "frame-ancestors 'none'");
     next();
   });
+  // API docs (OpenAPI from the Zod contracts + Swagger UI). Public, read-only; off in production unless API_DOCS=true.
+  if (env.API_DOCS ?? env.NODE_ENV !== 'production') {
+    const http = app.getHttpAdapter().getInstance();
+    http.get('/v1/openapi.json', (req: { protocol: string; get(h: string): string | undefined }, res: { json(b: unknown): void }) => res.json(buildOpenApi(`${req.protocol}://${req.get('host') ?? 'localhost'}`, deps.info.version)));
+    http.get('/docs', (_req: unknown, res: { type(t: string): { send(b: string): void } }) => res.type('html').send(docsPage()));
+  }
   app.enableShutdownHooks();
   app.getHttpAdapter().getInstance().set('x-powered-by', false);
   // Routes match case-exactly, so /V1/Admin/... is a 404, never an unguarded alias of an admin route (the guard also lower-cases).

@@ -70,6 +70,8 @@ export const EnvSchema = z
   SESSION_COOKIE_DOMAIN: z.preprocess(emptyToUndefined, z.string().regex(/^[a-z0-9.-]+$/i).optional()),
   /** DEV ONLY (Story 1.13 / G6): directory where verified webhooks are written, PII-scrubbed, as test fixtures. Refused in production. */
   WEBHOOK_RECORD_DIR: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** Serve OpenAPI at /v1/openapi.json and Swagger UI at /docs. Default: on outside production. */
+  API_DOCS: z.preprocess(emptyToUndefined, z.stringbool().optional()),
   /** Where the merchant lands after install. */
   DASHBOARD_URL: z.url().default('http://localhost:3000'),
 })

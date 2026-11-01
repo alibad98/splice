@@ -58,3 +58,18 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-9-sign-in-embedded-and-direct.md`
   summary: Owner to confirm staff access: any Salla user who can open the app in a store's dashboard gets that store's merchant session (one merchant account per store, no team roles in the MVP).
   evidence: platform_user_id is stored on the session row and logged for audit.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
+  summary: A full catalog sync only upserts; products and categories deleted in Salla keep their rows (visible, in stock) until Stories 2.5/2.6 remove or hide them.
+  evidence: CatalogSync never deletes; a reinstall resync leaves rows for products removed on the platform. Review 2026-11-01 (blind-hunter, edge-case-hunter).
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
+  summary: Page-number paging can skip or repeat products when the merchant edits the catalog during a sync or between a failure and its resumed retry.
+  evidence: Salla /products is offset-paged; resume uses next_page. The Story 2.6 daily reconcile should catch misses (or page by updated_at).
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
+  summary: A catalog sync that exhausts its 5 attempts stays `failed` with no automatic resync, the state reads `failed` between retries, and skipped-product counts are only logged.
+  evidence: Story 2.3 (manual sync, last sync time) should add the resync trigger and show retrying vs given up and skipped counts.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
+  summary: UNVERIFIED (would be medium) -- if Salla's /products omits `pagination` on a multi-page store, the sync stops after page 1 and reports success.
+  evidence: Settle with the Task 1 recorded products page; if pagination can be absent, fall back to "has more while the page is non-empty".
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
+  summary: startWorker's handler and event wiring (integration and catalog) has no test; dropping registerCatalogEventHandlers would pass CI.
+  evidence: Extract a buildWorkerHandlers(pool, infra, boss, events) and assert the registry has the catalog triggers and the queue handlers.

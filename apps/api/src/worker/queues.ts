@@ -48,6 +48,7 @@ export const QUEUES: readonly QueueDefinition[] = [
   { name: EVENT_QUEUE, group: 'realtime' },
   { name: 'integration.webhook.sweep', group: 'realtime' },
   { name: 'integration.store.purge', group: 'batch' },
+  { name: 'catalog.full-sync', group: 'batch' },
 ];
 
 export function queuesFor(groups: readonly QueueGroup[], queues: readonly QueueDefinition[] = QUEUES): QueueDefinition[] {

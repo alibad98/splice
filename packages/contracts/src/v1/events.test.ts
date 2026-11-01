@@ -51,3 +51,14 @@ describe('store lifecycle events', () => {
     }
   });
 });
+
+describe('catalog events', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const run = '22222222-2222-4222-8222-222222222222';
+  it('sync.completed carries the run and the created/updated counts', () => {
+    const schema = EVENT_CATALOG['catalog.sync.completed'].schema;
+    expect(schema.safeParse({ v: 1, store_id: id, run_id: run, created: 3, updated: 0, finished_at: '2026-11-01T10:00:00.000Z' }).success).toBe(true);
+    expect(schema.safeParse({ v: 1, store_id: id, run_id: run, created: -1, updated: 0, finished_at: '2026-11-01T10:00:00.000Z' }).success).toBe(false);
+    expect(schema.safeParse({ v: 1, store_id: id, run_id: run, created: 1, finished_at: '2026-11-01T10:00:00.000Z' }).success).toBe(false);
+  });
+});

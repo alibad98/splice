@@ -10,6 +10,8 @@ import { instrumentJob, type JobHandler } from '../adapters/telemetry/jobs.js';
 import { startQueueStatsPoller } from '../adapters/telemetry/queue-stats.js';
 import { IntegrationService } from '../modules/integration/integration.service.js';
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
+import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
+import { CatalogSync } from '../modules/catalog/catalog-sync.js';
 import { buildInfra } from '../http.js';
 import type { Env } from '../config/env.js';
 import type { DatabaseProbe } from '../ports/database-probe.js';
@@ -110,7 +112,9 @@ export async function startWorker(
   // The worker publishes through its own pg-boss; the integration service runs on the worker's pool.
   const integration = new IntegrationService(pool, infra.platform, infra.cipher, telemetry, boss, infra.integration, infra.lifecycles, infra.installListeners);
   registerIntegrationEventHandlers(events, telemetry);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...handlers };
+  registerCatalogEventHandlers(events, boss, telemetry);
+  const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync), ...handlers };
   let stopPoller = () => {};
   try {
     await boss.start();

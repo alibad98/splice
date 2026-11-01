@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PlatformAuthRejectedError, PlatformUnavailableError } from '../../ports/commerce-platform.js';
 import { Metric } from '../../ports/telemetry.js';
 import { PinoTelemetry } from '../telemetry/pino-telemetry.js';
-import { parseEventTime, SallaCommercePlatform } from './salla-platform.js';
+import { parseEventTime, SallaCommercePlatform, toCanonicalProduct } from './salla-platform.js';
 import { parseRetryAfter, SallaHttp } from './salla-http.js';
 
 // Fixtures follow docs/salla-desk-research.md (verify in Story 1.11-1.13 against a real store).
@@ -106,11 +106,16 @@ describe('SallaCommercePlatform data', () => {
   it('lists products with paging and subscriptions', async () => {
     const f = vi
       .fn()
-      .mockResolvedValueOnce(json({ data: [{ id: 1, name: 'P', price: { amount: 10, currency: 'SAR' }, status: 'sale' }], pagination: { currentPage: 1, totalPages: 2 } }))
+      .mockResolvedValueOnce(json({ data: [{ id: 1, name: 'P', price: { amount: 10, currency: 'SAR' }, status: 'sale' }, { id: 2 }], pagination: { currentPage: 1, totalPages: 2 } }))
       .mockResolvedValueOnce(json({ data: [{ id: 9, plan_name: 'Pro', plan_type: 'recurring', status: 'active' }] }));
     const p = platform(f as unknown as typeof fetch);
     const session = { storeId: 's1', accessToken: 'AT' };
-    expect(await p.products.list(session, 1)).toEqual({ items: [{ externalId: '1', name: 'P', price: 10, currency: 'SAR', status: 'sale' }], hasMore: true });
+    expect(await p.products.list(session, 1)).toEqual({
+      items: [{ externalId: '1', name: 'P', imageUrl: null, categories: [], price: '10', salePrice: null, currency: 'SAR', taxInclusive: true, stock: null, hasRequiredOptions: false, visible: true }],
+      skipped: 1,
+      hasMore: true,
+    });
+    expect(String((f.mock.calls[0] as unknown[])[0])).toContain('/products?page=1');
     expect(await p.subscriptions.list(session)).toEqual([{ externalId: '9', planName: 'Pro', planType: 'recurring', status: 'active' }]);
     expect(String((f.mock.calls[1] as unknown[])[0])).toContain('/apps/app-1/subscriptions');
   });
@@ -278,5 +283,75 @@ describe('SallaCommercePlatform embedded', () => {
   it('builds the Open in Salla URL from the app id and none without one', () => {
     expect(platform(vi.fn()).embedded.openUrl()).toBe('https://s.salla.sa/embedded/app/app-1');
     expect(new SallaCommercePlatform({ ...config, appId: undefined }, telemetry()).embedded.openUrl()).toBeUndefined();
+  });
+});
+
+describe('product mapping', () => {
+  const base = { id: 490238898, name: 'Abaya', price: { amount: '250.00', currency: 'sar' } };
+
+  it('maps a full product: sale price, tax flag, stock, image, categories, options, updated time', () => {
+    const p = toCanonicalProduct({
+      ...base,
+      sale_price: { amount: 199.5, currency: 'SAR' },
+      with_tax: false,
+      quantity: 4,
+      status: 'sale',
+      images: [{ url: 'https://cdn.example.com/b.jpg' }, { url: 'https://cdn.example.com/a.jpg', main: true }],
+      categories: [{ id: 1479324463, name: 'Abayas' }],
+      options: [{ required: true }],
+      updated_at: '2026-10-25 13:28:00',
+    });
+    expect(p).toEqual({
+      externalId: '490238898',
+      name: 'Abaya',
+      imageUrl: 'https://cdn.example.com/a.jpg',
+      categories: [{ externalId: '1479324463', name: 'Abayas' }],
+      price: '250.00',
+      salePrice: '199.5',
+      currency: 'SAR',
+      taxInclusive: false,
+      stock: 4,
+      hasRequiredOptions: true,
+      visible: true,
+      sourceUpdatedAt: new Date('2026-10-25T10:28:00.000Z'),
+    });
+  });
+
+  it('ignores a zero or non-discount sale price and reads tax-inclusive from the taxed price', () => {
+    expect(toCanonicalProduct({ ...base, sale_price: { amount: 0, currency: 'SAR' } }).salePrice).toBeNull();
+    expect(toCanonicalProduct({ ...base, sale_price: { amount: '300', currency: 'SAR' } }).salePrice).toBeNull();
+    expect(toCanonicalProduct({ ...base, taxed_price: { amount: '250.00', currency: 'SAR' } }).taxInclusive).toBe(true);
+    expect(toCanonicalProduct({ ...base, taxed_price: { amount: '287.50', currency: 'SAR' } }).taxInclusive).toBe(false);
+  });
+
+  it('reads stock: unlimited is null, unavailable or out is 0, negative is 0', () => {
+    expect(toCanonicalProduct({ ...base, quantity: 10, unlimited_quantity: true }).stock).toBeNull();
+    expect(toCanonicalProduct({ ...base, quantity: 10, is_available: false }).stock).toBe(0);
+    expect(toCanonicalProduct({ ...base, quantity: 10, status: 'out' }).stock).toBe(0);
+    expect(toCanonicalProduct({ ...base, quantity: -2 }).stock).toBe(0);
+  });
+
+  it('treats options without required:false as required and hidden or deleted products as not visible', () => {
+    expect(toCanonicalProduct({ ...base, options: [{}] }).hasRequiredOptions).toBe(true);
+    expect(toCanonicalProduct({ ...base, options: [{ required: false }] }).hasRequiredOptions).toBe(false);
+    expect(toCanonicalProduct({ ...base, status: 'hidden' }).visible).toBe(false);
+    expect(toCanonicalProduct({ ...base, status: 'deleted' }).visible).toBe(false);
+    expect(toCanonicalProduct({ ...base, status: 'Hidden' }).visible).toBe(false);
+    expect(toCanonicalProduct({ ...base, quantity: 9, status: 'OUT' }).stock).toBe(0);
+  });
+
+  it('keeps only http(s) image URLs and trims the currency code', () => {
+    expect(toCanonicalProduct({ ...base, main_image: 'javascript:alert(1)', thumbnail: 'https://cdn.example.com/t.jpg' }).imageUrl).toBe('https://cdn.example.com/t.jpg');
+    expect(toCanonicalProduct({ ...base, main_image: 'data:image/png;base64,AAAA' }).imageUrl).toBeNull();
+    expect(toCanonicalProduct({ ...base, images: [{ url: '/relative.jpg' }] }).imageUrl).toBeNull();
+    expect(toCanonicalProduct({ ...base, price: { amount: '1', currency: ' sar ' } }).currency).toBe('SAR');
+  });
+
+  it('fails a page it can not read as unavailable, without leaking the body', async () => {
+    const f = vi.fn(async () => json({ unexpected: 'SECRET-BODY-MARKER' }));
+    const p = platform(f as unknown as typeof fetch);
+    const err = await p.products.list({ storeId: 's1', accessToken: 'AT' }, 1).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PlatformUnavailableError);
+    expect(String((err as Error).message)).not.toContain('SECRET-BODY-MARKER');
   });
 });

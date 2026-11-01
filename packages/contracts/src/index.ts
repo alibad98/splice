@@ -1,6 +1,11 @@
 export * as v1 from './v1/index.js';
 export {
   AUTH_PROBLEM_CODES,
+  CURRENCY_EXPONENTS,
+  InvalidAmountError,
+  UnknownCurrencyError,
+  currencyExponent,
+  toMinorUnits,
   ConnectionStatus,
   EVENT_CATALOG,
   EVENT_NAME_PATTERN,

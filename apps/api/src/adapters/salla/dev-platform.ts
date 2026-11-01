@@ -1,6 +1,6 @@
 import type {
   CanonicalOrder,
-  CanonicalProduct,
+  ProductPage,
   CanonicalSubscription,
   CanonicalWebhook,
   CommercePlatform,
@@ -79,7 +79,7 @@ export class DevSallaCommercePlatform implements CommercePlatform {
   };
 
   readonly products = {
-    list: async (): Promise<{ items: CanonicalProduct[]; hasMore: boolean }> => ({
+    list: async (): Promise<ProductPage> => ({
       items: [],
       hasMore: false,
     }),

@@ -1,0 +1,137 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 10-25-2026 19:00
+last_updated: 10-25-2026 19:00
+project: splice
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: done
+  1-1-scaffold-the-turborepo-monorepo-and-ci-pipeline: done
+  1-2-gate-the-player-stub-and-bundle-budget-plus-cls-in-ci: done
+  1-3-establish-the-observability-baseline: done
+  1-4-build-the-design-system-foundation-tokens: done
+  1-5-set-up-arabic-first-i18n-rtl-ltr-and-the-branded-app-shell: done
+  1-6-enforce-tenant-isolation-with-rls-and-the-storescoped-reposi: done
+  1-7-provide-the-transactional-domain-event-transport: done
+  1-8-install-slips-through-salla-oauth-and-store-tokens-securely: done
+  1-9-sign-merchants-in-from-the-salla-iframe-and-the-direct-link: done
+  1-10-receive-install-and-uninstall-webhooks-and-run-the-store-lif: done
+  1-11-verify-storefront-injection-and-store-time-zone-on-a-salla-d: done
+  1-12-verify-add-to-cart-and-cart-tagging-on-a-salla-demo-store-ga: done
+  1-13-verify-webhooks-billing-events-and-dashboard-re-entry-on-a-s: done
+  1-14-record-the-salla-go-no-go-decision: done
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-import-the-full-product-catalog-on-first-install: backlog
+  2-2-browse-products-on-the-products-page: backlog
+  2-3-sync-products-manually-and-see-last-sync-time: backlog
+  2-4-apply-product-webhooks-in-near-real-time: backlog
+  2-5-handle-products-deleted-in-salla: backlog
+  2-6-reconcile-the-catalog-daily: backlog
+  2-7-pause-sync-when-disconnected-and-resume-on-reconnect: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-model-content-items-and-their-status-lifecycle: backlog
+  3-2-list-and-filter-content-with-status-tabs: backlog
+  3-3-create-a-story-or-reel-with-title-format-and-cta: backlog
+  3-4-link-a-product-with-the-product-picker: backlog
+  3-5-upload-media-directly-to-storage-safely: backlog
+  3-6-add-slides-with-the-media-uploader-and-reorder-them: backlog
+  3-7-import-media-from-an-external-link: backlog
+  3-8-process-videos-into-renditions-and-posters: backlog
+  3-9-run-quality-checks-retry-failures-and-auto-publish: backlog
+  3-10-serve-a-preview-manifest-for-one-content-item: backlog
+  3-11-render-content-in-the-player-s-preview-mode: backlog
+  3-12-show-the-live-preview-panel-in-the-editor: backlog
+  3-13-edit-duplicate-archive-restore-and-delete-content: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-choose-placements-and-targets-for-a-content-item: backlog
+  4-2-pick-a-layout-per-placement-with-settings-defaults: backlog
+  4-3-schedule-start-and-end-in-the-store-time-zone: backlog
+  4-4-compile-the-per-store-manifest-of-eligible-content: backlog
+  4-5-serve-the-manifest-from-the-cdn-and-purge-on-change: backlog
+  4-6-refresh-the-storefront-on-product-price-and-stock-changes: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-ship-the-app-snippet-stub-and-release-channel-loader: backlog
+  5-2-render-only-eligible-content-for-the-page-and-fail-invisibly: backlog
+  5-3-show-the-story-ring-entry-with-floating-bubble-fallback-with: backlog
+  5-4-open-the-full-screen-viewer-with-accessible-controls: backlog
+  5-5-play-stories-with-segmented-progress-and-auto-advance: backlog
+  5-6-apply-rtl-ltr-gestures-keyboard-map-and-reduced-motion: backlog
+  5-7-play-reels-as-a-vertical-swipe-feed-with-lazy-loading: backlog
+  5-8-pick-an-adaptive-rendition-for-a-fast-first-frame: backlog
+  5-9-show-the-product-card-and-add-to-the-salla-cart-in-place: backlog
+  5-10-handle-required-options-and-out-of-stock-products: backlog
+  5-11-render-product-page-strip-and-home-category-carousel-layouts: backlog
+  5-12-verify-the-player-across-browsers-and-themes: backlog
+  5-13-measure-storefront-impact-on-core-web-vitals: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-ingest-player-events-into-an-append-only-store: backlog
+  6-2-reject-untrusted-duplicate-and-abusive-events: backlog
+  6-3-store-orders-without-shopper-pii: backlog
+  6-4-record-confirmed-slips-adds-to-cart-and-the-thank-you-beacon: backlog
+  6-5-attribute-order-lines-with-the-fr13-rules: backlog
+  6-6-reverse-credit-on-cancellations-refunds-and-late-data: backlog
+  6-7-build-daily-rollups-and-the-single-metrics-service: backlog
+  6-8-show-attribution-captions-and-the-methodology-page: backlog
+  6-9-overview-dashboard-with-kpis-7-day-chart-and-latest-content: backlog
+  6-10-analytics-page-with-ranges-funnel-and-per-content-table: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-settings-connection-and-language-tabs-with-explicit-save: backlog
+  7-2-injector-display-defaults-and-attribution-window-settings: backlog
+  7-3-derive-plan-from-salla-subscription-events: backlog
+  7-4-enforce-plan-limits-and-show-usage: backlog
+  7-5-deactivate-over-limit-content-on-downgrade-or-expiry: backlog
+  7-6-store-preview-page: backlog
+  7-7-support-entry-point: backlog
+  7-8-onboarding-checklist-on-first-install: backlog
+  7-9-slips-admin-sign-in-read-only-role-and-audit-log: backlog
+  7-10-slips-admin-store-lookup: backlog
+  7-11-cost-metering-and-upload-throttling: backlog
+  7-12-store-data-export-and-deletion-on-request: backlog
+  7-13-verify-uninstall-grace-restore-and-purge: backlog
+  7-14-final-internationalization-and-accessibility-check: backlog
+  7-15-security-test-suite: backlog
+  7-16-peak-load-test: backlog
+  7-17-attribution-reconciler-and-exit-criteria-report: backlog
+  epic-7-retrospective: optional

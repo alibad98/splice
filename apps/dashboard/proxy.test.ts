@@ -41,7 +41,8 @@ describe('proxy security headers', () => {
     expect(res.headers.get('location')).toBe('https://app.example.com/login');
   });
 
-  it('redirects authenticated top-level document navigation on /login to /', () => {
+  it('lets /login render when a session cookie is present (the page checks it with the API)', () => {
+    // A stale cookie must not bounce /login -> / while the merchant layout bounces / -> /login (redirect loop).
     const req = new NextRequest('https://app.example.com/login', {
       headers: {
         'sec-fetch-dest': 'document',
@@ -49,7 +50,7 @@ describe('proxy security headers', () => {
       },
     });
     const res = proxy(req);
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toBe('https://app.example.com/');
+    expect(res.headers.get('location')).toBeNull();
+    expect(res.status).toBe(200);
   });
 });

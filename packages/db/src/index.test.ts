@@ -4,7 +4,7 @@ import * as db from './index.js';
 describe('@slips/db', () => {
   it('exports the integration tables in the schema namespace', () => {
     expect(Object.keys(db.schema).sort()).toEqual(
-      ['LIFECYCLE_STATES', 'SESSION_MODES', 'STORE_PLATFORMS', 'WEBHOOK_STATUSES', 'lifecycleAudit', 'lifecycleEventLedger', 'storeDataJobs', 'storePurgeSchedule', 'webhookInbox', 'merchantAccounts', 'merchantSessions', 'platformTokens', 'storeLocator', 'stores', 'tokenAccessLog'].sort(),
+      ['LIFECYCLE_STATES', 'OTP_PURPOSES', 'SESSION_MODES', 'STORE_PLATFORMS', 'WEBHOOK_STATUSES', 'lifecycleAudit', 'lifecycleEventLedger', 'loginOtps', 'merchantAccounts', 'merchantLoginStores', 'merchantLogins', 'merchantSessions', 'platformTokens', 'storeDataJobs', 'storeLocator', 'storePurgeSchedule', 'stores', 'tokenAccessLog', 'webhookInbox'].sort(),
     );
   });
 });

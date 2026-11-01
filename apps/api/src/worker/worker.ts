@@ -108,7 +108,7 @@ export async function startWorker(
   const boss = new PgBoss({ connectionString: env.DATABASE_URL, persistQueueStats: true });
   boss.on('error', (err) => telemetry.captureError(err, { component: 'pg-boss' }));
   // The worker publishes through its own pg-boss; the integration service runs on the worker's pool.
-  const integration = new IntegrationService(pool, infra.platform, infra.cipher, telemetry, boss, infra.integration, infra.lifecycles);
+  const integration = new IntegrationService(pool, infra.platform, infra.cipher, telemetry, boss, infra.integration, infra.lifecycles, infra.installListeners);
   registerIntegrationEventHandlers(events, telemetry);
   const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...handlers };
   let stopPoller = () => {};

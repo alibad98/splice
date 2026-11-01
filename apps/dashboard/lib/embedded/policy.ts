@@ -13,7 +13,11 @@ export function embedOrigin(env: Record<string, string | undefined> = process.en
 
 export const isAdminPath = (pathname: string): boolean => pathname === '/admin' || pathname.startsWith('/admin/');
 
+export const AUTH_PATHS = new Set(['/login', '/forgot-password', '/verify-otp', '/reset-password', '/set-password']);
+export const isAuthPath = (pathname: string): boolean => AUTH_PATHS.has(pathname);
+
 /** The `frame-ancestors` directive for a request path. */
 export function frameAncestors(pathname: string, origin: string = embedOrigin()): string {
-  return isAdminPath(pathname) ? "frame-ancestors 'none'" : `frame-ancestors ${origin}`;
+  return isAdminPath(pathname) || isAuthPath(pathname) ? "frame-ancestors 'none'" : `frame-ancestors ${origin}`;
 }
+

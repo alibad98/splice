@@ -174,7 +174,7 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
   - Purging media and CDN copies, which arrives with those modules.
   - A replay procedure in the dead-letter runbook.
 
-### Stories 1.11–1.14: Salla go/no-go gate (G1–G8). **Blocked: needs a Salla Partners app and demo store** (prep `ba3404b`)
+### Stories 1.11–1.14: Salla go/no-go gate (G1–G8). **Done: conditional go, signed off by Ali on 2026-10-25** (prep `ba3404b`; results in `docs/spike-findings.md`)
 - Prepared:
   - **Storefront page context:** the player now reads `window.salla.config` into page type, target ID, language and direction, plus the Salla store ID. It's tested with a fake `salla` object.
   - **Browser-console snippets** in `tools/salla-gate/` for G1 (page context, CSP, layout shift) and G2/G3 (add to cart, including products with options).
@@ -185,7 +185,7 @@ Owner asked (2026-10-11) to finish Epic 1 unattended. Subagents run on Sonnet at
 
 ## Summary for the owner
 
-**Epic 1 status:** Stories 1.1–1.10 are built. Each one went through BMAD build-auto, an independent review, fixes, a full pipeline check under Node 24 against Postgres, and a push to PR #1. Stories 1.11–1.14 wait on a Salla demo store.
+**Epic 1 status:** Stories 1.1–1.10 are built. Each one went through BMAD build-auto, an independent review, fixes, a full pipeline check under Node 24 against Postgres, and a push to PR #1. Stories 1.11–1.14 ran on Salla demo store 73897098 on 2026-10-25: G1, G2, G3 and G6 pass, G7 uses its fallback, and G4, G8 and billing move to the first pilot store. Conditional go signed off; Epics 2–5 can start.
 
 **Decisions that need your confirmation:**
 1. **Staff access (Story 1.9).** Any Salla user who can open the app inside a store's Salla dashboard gets that store's session. Each session records which user signed in. The alternative is owner-only access.

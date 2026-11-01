@@ -9,6 +9,8 @@ import { DATABASE_PROBE, type DatabaseProbe } from './ports/database-probe.js';
 import { FEATURE_FLAGS, type FeatureFlags } from './ports/feature-flags.js';
 import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from './ports/store-data-lifecycle.js';
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
+import { MAILER, type Mailer } from './ports/mailer.js';
+import { STORE_INSTALL_LISTENERS, type StoreInstallListener } from './ports/store-install-listener.js';
 
 export const APP_INFO = Symbol('APP_INFO');
 export const METRICS_ENDPOINT = Symbol('METRICS_ENDPOINT');
@@ -26,6 +28,8 @@ export interface IntegrationConfig {
   secureCookies: boolean;
   /** Dev-only: set when WEBHOOK_RECORD_DIR is configured (never in production). */
   webhookRecorder?: WebhookRecorder;
+  /** Serve the dev consent simulator (only when the dev platform stands in for unconfigured Salla credentials). */
+  devConsent?: boolean;
 }
 
 export interface SessionConfig {
@@ -67,8 +71,11 @@ export interface InfraDeps {
   integration: IntegrationConfig;
   session: SessionConfig;
   adminAccess: AdminAccess;
+  mailer: Mailer;
   /** Modules that hold tenant data, registered for uninstall, reinstall and purge (the integration module adds its own, last). */
   lifecycles: readonly StoreDataLifecycle[];
+  /** Modules told about each committed install, on the webhook and the OAuth path alike (the owner invite). */
+  installListeners: readonly StoreInstallListener[];
 }
 
 /** Binds the ports to their adapters for the Nest container. Global so domain modules just inject tokens. */
@@ -89,8 +96,11 @@ export class InfraModule {
       { provide: INTEGRATION_CONFIG, useValue: deps.integration },
       { provide: SESSION_CONFIG, useValue: deps.session },
       { provide: ADMIN_ACCESS, useValue: deps.adminAccess },
+      { provide: MAILER, useValue: deps.mailer },
       { provide: STORE_DATA_LIFECYCLES, useValue: deps.lifecycles },
+      { provide: STORE_INSTALL_LISTENERS, useValue: deps.installListeners },
     ];
     return { module: InfraModule, providers, exports: providers.map((p) => p.provide) };
   }
 }
+

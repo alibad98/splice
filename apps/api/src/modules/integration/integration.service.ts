@@ -17,6 +17,7 @@ import { TOKEN_CIPHER, type TokenCipher } from '../../ports/token-cipher.js';
 import { StoreDisconnectedError, StoreLifecycleConflictError, StoreNotConnectedError } from './errors.js';
 import { createInstallState, verifyInstallState } from './install-state.js';
 import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from '../../ports/store-data-lifecycle.js';
+import { STORE_INSTALL_LISTENERS, type StoreInstallListener } from '../../ports/store-install-listener.js';
 import { integrationStoreData } from './integration.lifecycle.js';
 import { IntegrationRepository } from './integration.repository.js';
 import { lockStore, StoreLifecycle } from './store-lifecycle.js';
@@ -52,10 +53,11 @@ export class IntegrationService {
     @Inject(EVENT_SENDER) private readonly events: EventSender,
     @Inject(INTEGRATION_CONFIG) private readonly config: IntegrationConfig,
     @Optional() @Inject(STORE_DATA_LIFECYCLES) modules: readonly StoreDataLifecycle[] = [],
+    @Optional() @Inject(STORE_INSTALL_LISTENERS) private readonly installListeners: readonly StoreInstallListener[] = [],
   ) {
     // Other modules purge first; the integration module's own data (tokens, account) goes last.
     this.lifecycle = new StoreLifecycle(pool, telemetry, events, [...modules, integrationStoreData], () => this.now());
-    this.inbox = new WebhookInbox(pool, platform, cipher, telemetry, this.lifecycle, (t, p) => this.installFromTokens(t, p), (id) => this.locate(id), () => this.now(), config.webhookRecorder ? (r) => config.webhookRecorder?.record(r) : undefined);
+    this.inbox = new WebhookInbox(pool, platform, cipher, telemetry, this.lifecycle, (t, p) => this.installAndNotify(t, p), (id) => this.locate(id), () => this.now(), config.webhookRecorder ? (r) => config.webhookRecorder?.record(r) : undefined);
   }
 
   /** Uninstall, reinstall and purge (AD-20). */
@@ -79,7 +81,7 @@ export class IntegrationService {
     try {
       const tokens = await this.platform.auth.exchangeCode(input.code);
       const profile = await this.platform.auth.getMerchantProfile(tokens.accessToken);
-      const result = await this.installFromTokens(tokens, profile);
+      const result = await this.installAndNotify(tokens, profile);
       this.telemetry.log.info('store install completed', { store_id: result.storeId, created: result.created });
       return { ok: true, ...result };
     } catch (err) {
@@ -88,6 +90,19 @@ export class IntegrationService {
       this.telemetry.captureError(err, { component: 'integration.install', reason });
       return { ok: false, reason };
     }
+  }
+
+  /** Install, then tell the registered listeners (owner invite, ...). A listener failure is reported and never fails the install. */
+  async installAndNotify(tokens: TokenSet, profile: MerchantProfile): Promise<{ storeId: string; created: boolean; restored?: boolean }> {
+    const result = await this.installFromTokens(tokens, profile);
+    for (const listener of this.installListeners) {
+      try {
+        await listener.onInstalled(this.pool, { storeId: result.storeId, created: result.created, profile });
+      } catch (err) {
+        this.telemetry.captureError(err, { component: 'integration.install-listener', listener: listener.name, store_id: result.storeId });
+      }
+    }
+    return result;
   }
 
   /**

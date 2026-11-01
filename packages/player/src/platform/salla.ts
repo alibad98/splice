@@ -56,7 +56,7 @@ export function readPageContext(env: SallaEnv = globalThis as SallaEnv): PageCon
   const pageType = SLUGS[slug] ?? 'other';
   let targetId: string | null = null;
   if (pageType === 'product' || pageType === 'thank-you') targetId = str(get('page.id'));
-  // page.id is not set on category pages (desk research): fall back to the "/c<digits>" URL segment.
+  // page.id carries the category id (verified on a demo store, 2026-10-25); the "/c<digits>" URL segment is the fallback.
   else if (pageType === 'category') targetId = str(get('page.id')) ?? /\/c(\d+)(?:[/?#]|$)/.exec(env.location?.pathname ?? '')?.[1] ?? null;
   const root = env.document?.documentElement;
   // store.lang may be null (KIT); user.language_code first, then <html lang>.

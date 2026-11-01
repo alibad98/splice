@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { ar } from '../i18n/messages/ar';
 import { en } from '../i18n/messages/en';
 import { physicalClassPattern, physicalCssPattern } from '../eslint-rules/direction.js';
 
-const root = new URL('..', import.meta.url).pathname;
-const repoRoot = new URL('../../..', import.meta.url).pathname;
+const root = fileURLToPath(new URL('..', import.meta.url));
+const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -26,7 +27,10 @@ function flatKeys(obj: unknown, prefix = ''): string[] {
 
 const isTest = (f: string) => /\.test\.tsx?$/.test(f);
 // /admin is the English-only internal back-office (Epic 7), outside the merchant i18n requirement.
-const uiSources = [...walk(join(root, 'app')), ...walk(join(root, 'components'))].filter((f) => /\.tsx$/.test(f) && !isTest(f) && !f.includes('/app/admin/'));
+const uiSources = [...walk(join(root, 'app')), ...walk(join(root, 'components'))].filter((f) => {
+  const norm = f.replaceAll('\\', '/');
+  return /\.tsx$/.test(f) && !isTest(f) && !norm.includes('/app/admin/');
+});
 const hasLetters = (s: string) => /[A-Za-z؀-ۿ]/.test(s);
 const textAttrs = new Set(['alt', 'title', 'aria-label', 'aria-description', 'placeholder', 'label']);
 

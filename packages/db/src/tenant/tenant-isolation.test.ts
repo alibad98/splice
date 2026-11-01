@@ -13,8 +13,8 @@ import { MissingStoreContextError, currentStoreContext, withStoreContext } from 
 import { findTenantViolations, tablesOwnedBy, tenantTableStatements } from './rls.js';
 import { StoreScoped } from './store-scoped.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_app:slips_app_test@127.0.0.1:5433/slips';
+const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
+const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_app:slips_app_test@127.0.0.1:5433/slips';
 const STORE_A = '11111111-1111-4111-8111-111111111111';
 const STORE_B = '22222222-2222-4222-8222-222222222222';
 

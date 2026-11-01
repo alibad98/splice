@@ -9,9 +9,12 @@ import { NestTelemetryLogger } from './adapters/telemetry/nest-logger.js';
 import { PinoTelemetry } from './adapters/telemetry/pino-telemetry.js';
 import { EnvelopeTokenCipher } from './adapters/crypto/envelope-cipher.js';
 import { SendOnlyEventSender } from './adapters/pgboss/send-only-producer.js';
-import { SallaCommercePlatform, unconfiguredPlatform } from './adapters/salla/index.js';
+import { DevSallaCommercePlatform, SallaCommercePlatform, unconfiguredPlatform } from './adapters/salla/index.js';
 import { sessionStoreData } from './modules/session/session.lifecycle.js';
+import { ConsoleMailer } from './adapters/mailer/console-mailer.js';
+import { ownerInviteListener } from './modules/auth/owner-invite.js';
 import { denyAllAdminAccess } from './ports/admin-access.js';
+
 import type { TokenCipher } from './ports/token-cipher.js';
 import { AppModule } from './app.module.js';
 import type { Env } from './config/env.js';
@@ -59,7 +62,14 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
   const pool = overrides.pool ?? new pg.Pool({ connectionString: databaseUrl, max: 4 });
   pool.on('error', () => undefined);
   const masterKey = env.TOKEN_ENCRYPTION_KEY;
-  const cipher = overrides.cipher ?? (masterKey ? new EnvelopeTokenCipher({ [env.TOKEN_ENCRYPTION_KEY_ID ?? 'k1']: masterKey }, env.TOKEN_ENCRYPTION_KEY_ID ?? 'k1') : unconfiguredCipher());
+  const devKey = Buffer.alloc(32, 7).toString('base64');
+  const cipher =
+    overrides.cipher ??
+    (masterKey
+      ? new EnvelopeTokenCipher({ [env.TOKEN_ENCRYPTION_KEY_ID ?? 'k1']: masterKey }, env.TOKEN_ENCRYPTION_KEY_ID ?? 'k1')
+      : env.NODE_ENV === 'development'
+        ? new EnvelopeTokenCipher({ k1: devKey }, 'k1')
+        : unconfiguredCipher());
   const platform =
     overrides.platform ??
     (env.SALLA_CLIENT_ID && env.SALLA_CLIENT_SECRET && env.SALLA_REDIRECT_URI
@@ -74,8 +84,12 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
           },
           telemetry,
         )
-      : unconfiguredPlatform());
+      : env.NODE_ENV === 'development'
+        ? new DevSallaCommercePlatform()
+        : unconfiguredPlatform());
   const recorder = env.NODE_ENV === 'production' ? undefined : createWebhookRecorder(env.WEBHOOK_RECORD_DIR);
+  const dashboardUrl = env.DASHBOARD_URL ?? 'http://localhost:3000';
+  const mailer = overrides.mailer ?? new ConsoleMailer(telemetry);
   return {
     telemetry,
     pool,
@@ -83,7 +97,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     cipher,
     platform,
     integration: overrides.integration ?? {
-      dashboardUrl: env.DASHBOARD_URL ?? 'http://localhost:3000',
+      dashboardUrl,
       // OAUTH_STATE_SECRET is required in production (env validation). In dev, fall back to a key derived from the
       // master key, then to a random per-process key (state then only survives within one process).
       stateSecret: env.OAUTH_STATE_SECRET
@@ -93,6 +107,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
           : randomBytes(32),
       secureCookies: env.NODE_ENV === 'production',
       ...(recorder ? { webhookRecorder: recorder } : {}),
+      ...(platform instanceof DevSallaCommercePlatform ? { devConsent: true } : {}),
     },
     session: overrides.session ?? {
       secret: createHmac('sha256', env.OAUTH_STATE_SECRET ?? (masterKey ? Buffer.from(masterKey, 'base64') : randomBytes(32))).update('slips/session-csrf/v1').digest(),
@@ -103,7 +118,9 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
       idleMs: 12 * 3_600_000,
     },
     adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
+    mailer,
     lifecycles: overrides.lifecycles ?? [sessionStoreData],
+    installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),
     info: overrides.info ?? { version },

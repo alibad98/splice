@@ -32,22 +32,78 @@ function declaredRoutes(): string[] {
   return out.sort();
 }
 
+type Json = Record<string, unknown>;
+const doc = buildOpenApi('http://localhost:3001', '1.2.3') as unknown as Json & { paths: Record<string, Record<string, Json>>; components: { schemas: Record<string, Json>; responses: Json } };
+const op = (path: string, method: string) => doc.paths[path]![method] as Json & { parameters?: Json[]; responses: Record<string, Json>; requestBody?: Json; security: unknown[] };
+const jsonSchema = (response: Json) => ((response.content as Json)['application/json'] as Json).schema as Json;
+
+function walk(node: unknown, visit: (key: string, value: unknown, parent: Json) => void): void {
+  if (Array.isArray(node)) return node.forEach((n) => walk(n, visit));
+  if (!node || typeof node !== 'object') return;
+  for (const [k, v] of Object.entries(node)) {
+    visit(k, v, node as Json);
+    walk(v, visit);
+  }
+}
+
 describe('API docs', () => {
   it('documents exactly the routes the controllers declare', () => {
     expect(ROUTES.map((r) => `${r.method} ${r.path}`).sort()).toEqual(declaredRoutes());
   });
 
-  it('builds an OpenAPI 3.1 document with contract schemas, query parameters and auth', () => {
-    const doc = buildOpenApi('http://localhost:3001', '1.2.3');
-    expect(doc.openapi).toBe('3.1.0');
-    expect(doc.info.version).toBe('1.2.3');
-    const products = doc.paths['/v1/products']!.get as { parameters: Array<{ name: string }>; security: unknown[]; responses: Record<string, { content?: Record<string, { schema: { properties?: object } }> }> };
-    expect(products.parameters.map((p) => p.name).sort()).toEqual(['category', 'page', 'q', 'sort']);
+  it('is OpenAPI 3.0 with named models: every JSON body and error is a $ref', () => {
+    expect(doc.openapi).toBe('3.0.3');
+    expect(Object.keys(doc.components.schemas)).toEqual(
+      expect.arrayContaining(['Problem', 'SessionInfo', 'ConnectionStatus', 'SignInResult', 'Product', 'ProductPage', 'CategoryList', 'CatalogSyncStatus', 'LoginRequest', 'VerifyOtpRequest']),
+    );
+    for (const [path, ops] of Object.entries(doc.paths)) {
+      for (const [method, o] of Object.entries(ops) as Array<[string, Json & { responses: Record<string, Json>; requestBody?: Json }]>) {
+        for (const [status, response] of Object.entries(o.responses)) {
+          if (Number(status) >= 400) expect(response.$ref, `${method} ${path} ${status}`).toMatch(/^#\/components\/responses\/E\d+$/);
+          else if (response.content && (response.content as Json)['application/json']) expect(jsonSchema(response).$ref, `${method} ${path}`).toMatch(/^#\/components\/schemas\//);
+        }
+        if (o.requestBody) expect(jsonSchema(o.requestBody).$ref, `${method} ${path} body`).toMatch(/^#\/components\/schemas\//);
+      }
+    }
+  });
+
+  it('nests models by reference (ProductPage -> Product, SignInResult -> SessionInfo -> ConnectionStatus)', () => {
+    const s = doc.components.schemas;
+    expect(JSON.stringify(s.ProductPage)).toContain('#/components/schemas/Product"');
+    expect(JSON.stringify(s.SignInResult)).toContain('#/components/schemas/SessionInfo');
+    expect(JSON.stringify(s.SessionInfo)).toContain('#/components/schemas/ConnectionStatus');
+  });
+
+  it('has no generator noise and every $ref resolves', () => {
+    walk(doc, (key, value, parent) => {
+      expect(['$schema', '$id']).not.toContain(key);
+      if (key === 'maximum') expect(value).not.toBe(Number.MAX_SAFE_INTEGER);
+      if (key === 'pattern') expect(parent.format).not.toBe('uuid');
+      if (key === '$ref') {
+        const [, kind, name] = /^#\/components\/(schemas|responses)\/(.+)$/.exec(String(value)) ?? [];
+        expect(kind && (doc.components[kind as 'schemas' | 'responses'] as Json)[name!], String(value)).toBeTruthy();
+      }
+    });
+  });
+
+  it('documents the products query from the contract: search, category, sort, page, with descriptions', () => {
+    const products = op('/v1/products', 'get');
+    expect(products.parameters!.map((p) => p.name).sort()).toEqual(['category', 'page', 'q', 'sort']);
+    for (const p of products.parameters!) expect(p.description, String(p.name)).toBeTruthy();
+    expect(products.parameters!.find((p) => p.name === 'page')!.schema).toMatchObject({ type: 'integer', minimum: 1, default: 1 });
+    expect(products.parameters!.find((p) => p.name === 'sort')!.schema).toMatchObject({ enum: ['name', '-name', 'price', '-price'] });
     expect(products.security).toEqual([{ bearerAuth: [] }, { cookieAuth: [] }]);
-    expect(Object.keys(products.responses['200']!.content!['application/json']!.schema.properties ?? {})).toEqual(expect.arrayContaining(['items', 'total', 'page', 'page_size']));
-    const login = doc.paths['/v1/auth/login']!.post as { requestBody: { content: Record<string, { schema: { required?: string[] } }> }; security: unknown[] };
-    expect(login.security).toEqual([]);
-    expect(login.requestBody.content['application/json']!.schema.required).toEqual(expect.arrayContaining(['email', 'password']));
+    expect(((products.responses['200']!.content as Json)['application/json'] as Json).example).toBeTruthy();
+  });
+
+  it('describes the flows: intro sections, tags with descriptions, and a summary on every operation', () => {
+    const info = doc.info as Json;
+    for (const heading of ['## Signing in', '## Conventions', '## Errors']) expect(info.description).toContain(heading);
+    const tags = doc.tags as Array<{ name: string; description: string }>;
+    const used = new Set(ROUTES.map((r) => r.tag));
+    expect(tags.map((t) => t.name).sort()).toEqual([...used].sort());
+    for (const t of tags) expect(t.description).toBeTruthy();
+    for (const ops of Object.values(doc.paths)) for (const o of Object.values(ops)) expect((o as Json).summary).toBeTruthy();
   });
 
   it('serves a Swagger UI page pointed at the spec', () => {

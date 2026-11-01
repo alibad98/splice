@@ -22,3 +22,5 @@ export {
 export type { AuthProblemCode } from './auth.js';
 
 export { CURRENCY_EXPONENTS, InvalidAmountError, UnknownCurrencyError, currencyExponent, toMinorUnits } from './money.js';
+export { Availability, CatalogSyncStatus, CategoryListResponse, PRODUCT_PAGE_SIZE, PRODUCT_SEARCH_MAX, PRODUCT_SORTS, ProductListQuery, ProductListResponse, ProductRow } from './catalog.js';
+export type { ProductListQueryInput, ProductSort } from './catalog.js';

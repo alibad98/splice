@@ -1,13 +1,14 @@
-// Story 2.1 composition tests: live Postgres (non-owner RLS role, real pg-boss outbox), a fake CommercePlatform and
-// a fake token source standing in for integration.getAccessToken.
+// Story 2.1/2.2 composition tests: live Postgres (non-owner RLS role, real pg-boss outbox), a fake CommercePlatform and
+// a fake token source standing in for integration.getAccessToken; the Products read API over HTTP.
 import 'reflect-metadata';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { INestApplication } from '@nestjs/common';
 import pg from 'pg';
 import { PgBoss } from 'pg-boss';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EVENT_QUEUE, type EventEnvelope } from '@slips/contracts';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { CatalogSyncStatus, CategoryListResponse, EVENT_QUEUE, ProductListResponse, type EventEnvelope } from '@slips/contracts';
 import { ensureTestAppRole, runMigrations, withStoreContext } from '@slips/db';
 import { PinoTelemetry } from '../adapters/telemetry/pino-telemetry.js';
 import { EventHandlerRegistry, eventDispatcher } from '../events/dispatcher.js';
@@ -21,6 +22,10 @@ import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integ
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CanonicalProduct, type CommercePlatform, type ProductPage } from '../ports/commerce-platform.js';
 import { catalogJobHandlers, FULL_SYNC_SINGLETON_SECONDS, registerCatalogEventHandlers } from '../worker/catalog-jobs.js';
 import { QUEUES, queueOptions } from '../worker/queues.js';
+import { createHttpApp } from '../http.js';
+import type { SessionConfig } from '../infra.module.js';
+import { ContentService } from '../modules/content/content.service.js';
+import { SessionService } from '../modules/session/session.service.js';
 
 const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
 const APP_URL = 'postgres://slips_it_catalog_sync:it_catalog_sync_pw@127.0.0.1:5433/slips';
@@ -383,5 +388,147 @@ describe('queue', () => {
   it('runs catalog.full-sync on the batch queue with the AD-1 retry policy (5 attempts, 30 s to 15 min)', () => {
     expect(QUEUES).toContainEqual({ name: CATALOG_FULL_SYNC_QUEUE, group: 'batch' });
     expect(queueOptions('batch')).toEqual({ retryLimit: 4, retryDelay: 30, retryBackoff: true, retryDelayMax: 900 });
+  });
+});
+
+// Story 2.2: the Products page read API over HTTP (session -> store, RLS, query validation, batch link counts).
+describe('products read API', () => {
+  let nest: INestApplication;
+  let base: string;
+  const sessionConfig: SessionConfig = { secret: randomBytes(32), secureCookies: true, embeddedTtlMs: 15 * 60_000, directMaxAgeMs: 3_600_000, idleMs: 3_600_000 };
+
+  beforeAll(async () => {
+    // A pool of its own: closing the app ends it.
+    const httpPool = new pg.Pool({ connectionString: APP_URL, max: 4 });
+    nest = await createHttpApp({ CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' }, { pool: httpPool, events: boss, telemetry, session: sessionConfig });
+    await nest.listen(0);
+    base = await nest.getUrl();
+  });
+  afterAll(async () => {
+    await nest?.close();
+  });
+
+  /** An installed store row (sessions reference it) and an embedded session bearer for it. */
+  const bearerFor = async (storeId: string) => {
+    await admin.query(`insert into stores (id, store_id, platform, platform_store_id, name) values ($1, $1, 'salla', $2, 'Catalog Store') on conflict do nothing`, [storeId, `cat-${storeId}`]);
+    return (await nest.get(SessionService).create(storeId, 'embedded')).token;
+  };
+  const get = async (token: string, path: string) => {
+    const res = await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${token}` } });
+    return { res, body: (await res.json()) as unknown };
+  };
+  const list = async (token: string, qs = '') => ProductListResponse.parse((await get(token, `/v1/products${qs}`)).body);
+  async function seededStore(items: CanonicalProduct[]): Promise<{ storeId: string; token: string }> {
+    const storeId = randomUUID();
+    const pages: CanonicalProduct[][] = [];
+    for (let i = 0; i < items.length; i += 60) pages.push(items.slice(i, i + 60));
+    const { sync } = syncFor(new FakePlatform(pages));
+    expect(await sync.run(storeId, nextRun())).toBe('succeeded');
+    return { storeId, token: await bearerFor(storeId) };
+  }
+
+  it('lists the first 50 of 120 products sorted by name with the total; later pages and descending order follow', async () => {
+    const many = Array.from({ length: 120 }, (_, i) => product(`n${String(i).padStart(3, '0')}`, { name: `Item ${String(119 - i).padStart(3, '0')}` }));
+    const { token } = await seededStore(many);
+    const { res, body } = await get(token, '/v1/products');
+    expect(res.status).toBe(200);
+    const page = ProductListResponse.parse(body);
+    expect(page).toMatchObject({ total: 120, page: 1, page_size: 50 });
+    expect(page.items).toHaveLength(50);
+    expect(page.items[0]!.name).toBe('Item 000');
+    expect(page.items[49]!.name).toBe('Item 049');
+    const last = await list(token, '?page=3');
+    expect(last.items).toHaveLength(20);
+    expect(last.items.at(-1)!.name).toBe('Item 119');
+    expect((await list(token, '?sort=-name')).items[0]!.name).toBe('Item 119');
+    expect(await list(token, '?page=9')).toMatchObject({ items: [], total: 120 });
+  });
+
+  it('returns money in minor units with the sale price, the stored bucket, the first category (+N), 0 links and null orders; hidden products are excluded', async () => {
+    const { token } = await seededStore([
+      product('s1', { name: 'Sale', price: '150.00', salePrice: '120.00', stock: 3, categories: [{ externalId: 'c1', name: 'Abayas' }, { externalId: 'c2', name: 'Gifts' }, { externalId: 'c3', name: 'New' }] }),
+      product('s2', { name: 'Gone', stock: 0, categories: [] }),
+      product('s3', { name: 'Hidden', visible: false }),
+    ]);
+    const page = await list(token);
+    expect(page.total).toBe(2);
+    expect(page.items.map((i) => i.name)).toEqual(['Gone', 'Sale']);
+    expect(page.items[1]).toMatchObject({ price_minor: 15000, sale_price_minor: 12000, currency: 'SAR', tax_inclusive: true, availability: 'low', category_name: 'Abayas', more_categories: 2, linked_content_count: 0, attributed_orders: null });
+    expect(page.items[0]).toMatchObject({ availability: 'out_of_stock', category_name: null, more_categories: 0 });
+  });
+
+  it('sorts by effective price (sale price when set) both ways', async () => {
+    const { token } = await seededStore([
+      product('e1', { name: 'A', price: '100.00' }),
+      product('e2', { name: 'B', price: '200.00', salePrice: '50.00' }),
+      product('e3', { name: 'C', price: '75.00' }),
+    ]);
+    expect((await list(token, '?sort=price')).items.map((i) => i.name)).toEqual(['B', 'C', 'A']);
+    expect((await list(token, '?sort=-price')).items.map((i) => i.name)).toEqual(['A', 'C', 'B']);
+  });
+
+  it('searches names case-insensitively in Arabic and English and treats % and _ literally', async () => {
+    const { token } = await seededStore([
+      product('a1', { name: 'عباية سوداء' }),
+      product('a2', { name: 'Black ABAYA' }),
+      product('a3', { name: '50% off scarf' }),
+      product('a4', { name: 'plain_tee' }),
+      product('a5', { name: 'plainXtee' }),
+    ]);
+    const names = async (q: string) => (await list(token, `?q=${encodeURIComponent(q)}`)).items.map((i) => i.name);
+    expect(await names('عباية')).toEqual(['عباية سوداء']);
+    expect(await names('abaya')).toEqual(['Black ABAYA']);
+    expect(await names('%')).toEqual(['50% off scarf']);
+    expect(await names('n_t')).toEqual(['plain_tee']);
+    expect(await names('')).toHaveLength(5);
+  });
+
+  it('filters by category external id; an unknown id is an empty result; lists categories by name', async () => {
+    const { token } = await seededStore([
+      product('f1', { categories: [{ externalId: 'c1', name: 'Abayas' }] }),
+      product('f2', { categories: [{ externalId: 'c2', name: 'Bags' }, { externalId: 'c1', name: 'Abayas' }] }),
+      product('f3', { categories: [{ externalId: 'c2', name: 'Bags' }] }),
+    ]);
+    expect((await list(token, '?category=c1')).items.map((i) => i.external_id).sort()).toEqual(['f1', 'f2']);
+    expect(await list(token, '?category=nope')).toMatchObject({ items: [], total: 0 });
+    const cats = CategoryListResponse.parse((await get(token, '/v1/products/categories')).body);
+    expect(cats.items).toEqual([{ external_id: 'c1', name: 'Abayas' }, { external_id: 'c2', name: 'Bags' }]);
+  });
+
+  it('never shows another store’s rows to a session of store B', async () => {
+    await seededStore([product('x1', { name: 'Store A product', categories: [{ externalId: 'ca', name: 'Only A' }] })]);
+    const b = await seededStore([product('y1', { name: 'Store B product' })]);
+    expect((await list(b.token, '?q=product')).items.map((i) => i.name)).toEqual(['Store B product']);
+    const cats = CategoryListResponse.parse((await get(b.token, '/v1/products/categories')).body);
+    expect(cats.items.map((c) => c.name)).toEqual(['Abayas']);
+  });
+
+  it.each(['page=0', 'page=abc', 'sort=x', `q=${'a'.repeat(101)}`, 'q=a&q=b'])('answers 400 problem+json for %s', async (qs) => {
+    const { token } = await seededStore([product('b1')]);
+    const { res, body } = await get(token, `/v1/products?${qs}`);
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('application/problem+json');
+    expect(body).toMatchObject({ status: 400, code: 'invalid_query' });
+  });
+
+  it('needs a merchant session', async () => {
+    for (const path of ['/v1/products', '/v1/products/categories', '/v1/catalog/sync']) expect((await fetch(`${base}${path}`)).status).toBe(401);
+  });
+
+  it('reads link counts in one batch call per page', async () => {
+    const { token, storeId } = await seededStore([product('l1'), product('l2'), product('l3')]);
+    const spy = vi.spyOn(nest.get(ContentService), 'getLinkCountsByProductIds');
+    const page = await list(token);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(storeId, page.items.map((i) => i.id));
+  });
+
+  it('reports the sync state: never before the first run, succeeded with its time after it', async () => {
+    const fresh = await bearerFor(randomUUID());
+    expect(CatalogSyncStatus.parse((await get(fresh, '/v1/catalog/sync')).body)).toMatchObject({ status: 'never', last_synced_at: null });
+    const { token } = await seededStore([product('z1')]);
+    const synced = CatalogSyncStatus.parse((await get(token, '/v1/catalog/sync')).body);
+    expect(synced.status).toBe('succeeded');
+    expect(synced.last_synced_at).not.toBeNull();
   });
 });

@@ -73,3 +73,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
   summary: startWorker's handler and event wiring (integration and catalog) has no test; dropping registerCatalogEventHandlers would pass CI.
   evidence: Extract a buildWorkerHandlers(pool, infra, boss, events) and assert the registry has the catalog triggers and the queue handlers.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-2-browse-products-page.md`
+  summary: Stores installed before Story 2.1 have sync status `never` and the Products page shows "Syncing your products..." forever while polling two endpoints every 5 s.
+  evidence: No sync row exists until a full sync runs; the approved 2.2 matrix maps `never` to the syncing state. Story 2.3's manual sync gives these stores a way out; consider capping the poll there.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-2-browse-products-page.md`
+  summary: Product name search does not fold Arabic letter variants (أ/إ/آ→ا, ة/ه, ى/ي) or strip tashkeel, so "عبايه" does not find "عباية".
+  evidence: `CatalogReadRepository.where` uses plain `ilike`; normalize both sides (e.g. translate + regexp_replace) with tests.

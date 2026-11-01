@@ -53,8 +53,8 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-import-the-full-product-catalog-on-first-install: review
-  2-2-browse-products-on-the-products-page: backlog
+  2-1-import-the-full-product-catalog-on-first-install: done
+  2-2-browse-products-on-the-products-page: review
   2-3-sync-products-manually-and-see-last-sync-time: backlog
   2-4-apply-product-webhooks-in-near-real-time: backlog
   2-5-handle-products-deleted-in-salla: backlog

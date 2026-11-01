@@ -7,15 +7,15 @@ export function formatNumber(value: number, locale: Locale, options?: Intl.Numbe
   return new Intl.NumberFormat(tag(locale), options).format(value);
 }
 
-/** Currency with decimals only when the amount has a fractional part. */
-export function formatCurrency(amount: number, locale: Locale, currency = 'SAR'): string {
+/** Currency with decimals only when the amount has a fractional part (then `fractionDigits` of them, e.g. 3 for KWD). */
+export function formatCurrency(amount: number, locale: Locale, currency = 'SAR', fractionDigits = 2): string {
   const whole = Number.isInteger(amount);
   const formatted = new Intl.NumberFormat(tag(locale), {
     style: 'currency',
     currency,
     currencyDisplay: 'symbol',
-    minimumFractionDigits: whole ? 0 : 2,
-    maximumFractionDigits: whole ? 0 : 2,
+    minimumFractionDigits: whole ? 0 : fractionDigits,
+    maximumFractionDigits: whole ? 0 : fractionDigits,
   }).format(amount);
   // Strip bidi marks and the trailing full stop ICU adds to the Arabic riyal symbol.
   const clean = formatted.replace(/[\u200e\u200f]/g, '').replace(/\u00a0/g, ' ');

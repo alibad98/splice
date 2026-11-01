@@ -1,4 +1,4 @@
-import { schema, StoreScoped, eq, sql, type AvailabilityBucket, type CatalogSyncReason, type StorePlatform } from '@slips/db';
+import { schema, StoreScoped, and, eq, sql, type AvailabilityBucket, type CatalogSyncReason, type StorePlatform } from '@slips/db';
 
 const { products, categories, catalogSyncState } = schema;
 
@@ -115,5 +115,82 @@ export class CatalogRepository extends StoreScoped {
       .returning({ inserted: sql<boolean>`(xmax = 0)` });
     const created = result.filter((r) => r.inserted).length;
     return { created, updated: result.length - created };
+  }
+}
+
+export type ProductSortKey = 'name' | '-name' | 'price' | '-price';
+
+export interface ProductListFilter {
+  /** Case-insensitive substring of the name; LIKE wildcards are matched literally. */
+  search?: string | undefined;
+  /** External id of a category the product must be in. */
+  category?: string | undefined;
+  sort: ProductSortKey;
+  limit: number;
+  offset: number;
+}
+
+export interface ProductListRow {
+  id: string;
+  externalId: string;
+  name: string;
+  imageUrl: string | null;
+  categoryName: string | null;
+  categoryCount: number;
+  priceMinor: number;
+  salePriceMinor: number | null;
+  currency: string;
+  taxInclusive: boolean;
+  availability: AvailabilityBucket;
+}
+
+/** Escape `\`, `%` and `_` so a search term is matched literally by (I)LIKE (default escape character `\`). */
+export const escapeLike = (term: string): string => term.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+export class CatalogReadRepository extends StoreScoped {
+  private where(filter: Pick<ProductListFilter, 'search' | 'category'>) {
+    const conditions = [eq(products.storeId, this.storeId), eq(products.visible, true)];
+    if (filter.search) conditions.push(sql`${products.name} ilike ${`%${escapeLike(filter.search)}%`}`);
+    if (filter.category) conditions.push(sql`${products.categoryExternalIds} @> array[${filter.category}]::text[]`);
+    return and(...conditions);
+  }
+
+  /** One page of visible products plus the total that match, read in the caller's store transaction. */
+  async listProducts(filter: ProductListFilter): Promise<{ rows: ProductListRow[]; total: number }> {
+    const where = this.where(filter);
+    const [{ total } = { total: 0 }] = await this.db.select({ total: sql<number>`count(*)::int` }).from(products).where(where);
+    if (total === 0 || filter.offset >= total) return { rows: [], total };
+    const effectivePrice = sql`coalesce(${products.salePriceMinor}, ${products.priceMinor})`;
+    const dir = filter.sort.startsWith('-') ? sql`desc` : sql`asc`;
+    const primary = filter.sort.endsWith('price') ? sql`${effectivePrice} ${dir}` : sql`lower(${products.name}) ${dir}`;
+    const rows = await this.db
+      .select({
+        id: products.id,
+        externalId: products.externalId,
+        name: products.name,
+        imageUrl: products.imageUrl,
+        categoryName: sql<string | null>`(select c.name from ${categories} c where c.store_id = ${products.storeId} and c.platform = ${products.platform} and c.external_id = ${products.categoryExternalIds}[1] limit 1)`,
+        categoryCount: sql<number>`coalesce(cardinality(${products.categoryExternalIds}), 0)::int`,
+        priceMinor: products.priceMinor,
+        salePriceMinor: products.salePriceMinor,
+        currency: products.currency,
+        taxInclusive: products.taxInclusive,
+        availability: products.availability,
+      })
+      .from(products)
+      .where(where)
+      .orderBy(primary, sql`lower(${products.name}) asc`, products.id)
+      .limit(filter.limit)
+      .offset(filter.offset);
+    return { rows, total };
+  }
+
+  async listCategories(): Promise<Array<{ externalId: string; name: string }>> {
+    return this.db
+      .select({ externalId: categories.externalId, name: categories.name })
+      .from(categories)
+      .where(eq(categories.storeId, this.storeId))
+      .orderBy(sql`lower(${categories.name})`, categories.externalId)
+      .limit(1000);
   }
 }

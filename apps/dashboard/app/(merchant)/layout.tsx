@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { AppShell } from '../../components/shell/AppShell';
 import { SessionProvider } from '../../components/session/SessionProvider';
+import { DataProviders } from '../../components/providers/DataProviders';
 import { withLang } from '../../i18n/config';
 import { getMessages } from '../../i18n/messages';
 import { getLocale } from '../../i18n/server';
@@ -25,9 +26,11 @@ export default async function MerchantLayout({ children }: { children: ReactNode
       initial={context.session ?? { kind: 'none' }}
       framed={context.framed ?? false}
     >
-      <AppShell locale={locale} messages={getMessages(locale)} context={context}>
-        {children}
-      </AppShell>
+      <DataProviders>
+        <AppShell locale={locale} messages={getMessages(locale)} context={context}>
+          {children}
+        </AppShell>
+      </DataProviders>
     </SessionProvider>
   );
 }

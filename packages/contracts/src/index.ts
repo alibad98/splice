@@ -1,6 +1,15 @@
 export * as v1 from './v1/index.js';
 export {
   AUTH_PROBLEM_CODES,
+  Availability,
+  CatalogSyncStatus,
+  CategoryListResponse,
+  PRODUCT_PAGE_SIZE,
+  PRODUCT_SEARCH_MAX,
+  PRODUCT_SORTS,
+  ProductListQuery,
+  ProductListResponse,
+  ProductRow,
   CURRENCY_EXPONENTS,
   InvalidAmountError,
   UnknownCurrencyError,
@@ -36,6 +45,8 @@ export type {
   EventName,
   EventOwner,
   EventPayload,
+  ProductListQueryInput,
+  ProductSort,
   SessionProblemCode,
 } from './v1/index.js';
 

@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { withStoreContext, type CatalogSyncReason, type CatalogSyncStatus } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL } from '../../infra.module.js';
-import { CatalogRepository } from './catalog.repository.js';
+import { CatalogReadRepository, CatalogRepository, type ProductListFilter, type ProductListRow } from './catalog.repository.js';
 
 export interface CatalogSyncView {
   status: CatalogSyncStatus | 'never';
@@ -13,10 +13,13 @@ export interface CatalogSyncView {
   updated: number;
 }
 
+export type { ProductListFilter, ProductListRow } from './catalog.repository.js';
+
 /** The catalog module's exported service (AD-2): other modules and the dashboard read catalog state only through it. */
 @Injectable()
 export class CatalogService {
   private readonly repo = new CatalogRepository();
+  private readonly reads = new CatalogReadRepository();
 
   constructor(@Inject(DB_POOL) private readonly pool: Pool) {}
 
@@ -25,5 +28,15 @@ export class CatalogService {
     const row = await withStoreContext(this.pool, storeId, () => this.repo.getSyncState());
     if (!row) return { status: 'never', reason: null, lastSyncedAt: null, startedAt: null, created: 0, updated: 0 };
     return { status: row.status, reason: row.reason ?? null, lastSyncedAt: row.lastSyncedAt, startedAt: row.startedAt, created: row.createdCount, updated: row.updatedCount };
+  }
+
+  /** A page of the store's products visible in Salla (hidden ones are excluded), with the total that match. */
+  async listProducts(storeId: string, filter: ProductListFilter): Promise<{ rows: ProductListRow[]; total: number }> {
+    return withStoreContext(this.pool, storeId, () => this.reads.listProducts(filter));
+  }
+
+  /** The store's categories, by name. */
+  async listCategories(storeId: string): Promise<Array<{ externalId: string; name: string }>> {
+    return withStoreContext(this.pool, storeId, () => this.reads.listCategories());
   }
 }

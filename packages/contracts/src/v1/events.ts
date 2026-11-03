@@ -17,6 +17,9 @@ export interface EventDefinition<S extends z.ZodType = z.ZodType> {
 
 const defineEvent = <S extends z.ZodType>(owner: EventOwner, schema: S): EventDefinition<S> => ({ owner, schema });
 
+/** Product fields a manifest shows; a change to one of them is announced. */
+export const PRODUCT_VISIBLE_FIELDS = ['name', 'image_url', 'price_minor', 'sale_price_minor', 'availability', 'has_required_options', 'visible'] as const;
+
 /** The event catalogue (AD-17). Add events here with their owner; names outside it do not compile. */
 export const EVENT_CATALOG = {
   'integration.store.installed': defineEvent(
@@ -39,6 +42,8 @@ export const EVENT_CATALOG = {
     'integration',
     z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),
   ),
+  /** A merchant asked for a sync (Story 2.3); the event id is the run id. The worker turns it into a full-sync job. */
+  'catalog.sync.requested': defineEvent('catalog', z.object({ v: z.literal(1), store_id: z.uuid(), run_id: z.uuid() })),
   'catalog.sync.completed': defineEvent(
     'catalog',
     z.object({
@@ -48,6 +53,25 @@ export const EVENT_CATALOG = {
       created: z.number().int().nonnegative(),
       updated: z.number().int().nonnegative(),
       finished_at: z.iso.datetime(),
+    }),
+  ),
+  /** A webhook changed a field a manifest shows (Story 2.4); `changed` names them, the rest is the new visible snapshot. */
+  'catalog.product.updated': defineEvent(
+    'catalog',
+    z.object({
+      v: z.literal(1),
+      store_id: z.uuid(),
+      product_id: z.uuid(),
+      external_id: z.string().min(1),
+      changed: z.array(z.enum(PRODUCT_VISIBLE_FIELDS)).min(1),
+      name: z.string(),
+      image_url: z.string().nullable(),
+      price_minor: z.number().int().nonnegative(),
+      sale_price_minor: z.number().int().nonnegative().nullable(),
+      currency: z.string(),
+      availability: z.enum(['available', 'low', 'out_of_stock']),
+      has_required_options: z.boolean(),
+      visible: z.boolean(),
     }),
   ),
 } as const;

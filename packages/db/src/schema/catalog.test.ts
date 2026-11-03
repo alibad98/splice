@@ -69,6 +69,14 @@ describe('catalog tables', () => {
     await assertCrossTenantIsolation({ admin, app, storeA: randomUUID(), storeB: randomUUID() }, reg!);
   });
 
+  it('sync state accepts queued with a request time and still rejects an unknown status (Story 2.3)', async () => {
+    const s = randomUUID();
+    await admin.query(`insert into catalog_sync_state (store_id, run_id, status, requested_at) values ($1, $2, 'queued', now())`, [s, randomUUID()]);
+    expect((await admin.query(`select status, requested_at from catalog_sync_state where store_id = $1`, [s])).rows[0]).toMatchObject({ status: 'queued', requested_at: expect.any(Date) });
+    await expect(admin.query(`update catalog_sync_state set status = 'paused' where store_id = $1`, [s])).rejects.toMatchObject({ code: '23514' });
+    expect(schema.CATALOG_SYNC_STATUSES).toEqual(['queued', 'running', 'succeeded', 'failed']);
+  });
+
   it('rejects a bad availability bucket, a lower-case currency, a negative price and a duplicate external id', async () => {
     const s = randomUUID();
     const ins = (ext: string, availability = 'available', currency = 'SAR', price = 100) =>

@@ -58,7 +58,7 @@ class FakePlatform implements CommercePlatform {
     },
     openUrl: () => 'https://s.example/embedded/app/app-1',
   };
-  products = { list: async () => ({ items: [], hasMore: false }) };
+  products = { list: async () => ({ items: [], hasMore: false }), get: async (): Promise<never> => { throw new Error('not used'); } };
   orders = { get: async () => ({ externalId: '1', status: 's', total: 1, currency: 'SAR', lines: [] }) };
   subscriptions = { list: async () => [] };
   webhooks = { verify: () => false, parse: () => null };

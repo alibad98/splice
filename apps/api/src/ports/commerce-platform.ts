@@ -91,7 +91,7 @@ export interface WebhookRequest {
   rawBody: Buffer;
 }
 
-export type WebhookKind = 'authorize' | 'installed' | 'uninstalled' | 'other';
+export type WebhookKind = 'authorize' | 'installed' | 'uninstalled' | 'product' | 'other';
 
 /** A verified webhook reduced to what Slips may keep (AD-5, AD-13): no shopper PII, no raw body. */
 export interface CanonicalWebhook {
@@ -151,6 +151,8 @@ export interface CommercePlatform {
   readonly products: {
     /** One page (1-based) of the store's products. Throws PlatformUnavailableError when the platform can not answer. */
     list(session: PlatformSession, page: number): Promise<ProductPage>;
+    /** One product by its platform id. Throws PlatformUnavailableError when the platform can not answer or the answer is not a readable product. */
+    get(session: PlatformSession, externalId: string): Promise<CanonicalProduct>;
   };
   readonly orders: { get(session: PlatformSession, externalId: string): Promise<CanonicalOrder> };
   readonly subscriptions: { list(session: PlatformSession): Promise<CanonicalSubscription[]> };

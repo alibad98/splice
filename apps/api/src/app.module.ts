@@ -8,6 +8,7 @@ import { SessionModule } from './modules/session/session.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { IntegrationModule } from './modules/integration/integration.module.js';
 import { CatalogModule } from './modules/catalog/catalog.module.js';
+import { ContentModule } from './modules/content/content.module.js';
 import { InfraModule, type InfraDeps } from './infra.module.js';
 
 @Module({})
@@ -15,7 +16,7 @@ export class AppModule {
   static register(deps: InfraDeps): DynamicModule {
     return {
       module: AppModule,
-      imports: [InfraModule.register(deps), HealthModule, SessionModule, IntegrationModule, CatalogModule, AuthModule, AdminModule, MetricsModule],
+      imports: [InfraModule.register(deps), HealthModule, SessionModule, IntegrationModule, CatalogModule, ContentModule, AuthModule, AdminModule, MetricsModule],
       providers: [{ provide: APP_FILTER, useValue: new TelemetryExceptionFilter(deps.telemetry) }],
     };
   }

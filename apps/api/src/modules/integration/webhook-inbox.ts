@@ -9,7 +9,7 @@ import { uuidv7 } from '../../events/outbox.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CanonicalWebhook, type CommercePlatform, type MerchantProfile, type TokenSet, type WebhookRequest } from '../../ports/commerce-platform.js';
 import { Metric, type Telemetry } from '../../ports/telemetry.js';
 import type { TokenCipher } from '../../ports/token-cipher.js';
-import { StoreLifecycleConflictError } from './errors.js';
+import { InvalidWebhookPayloadError, StoreLifecycleConflictError } from './errors.js';
 import type { StoreLifecycle } from './store-lifecycle.js';
 
 /** An event for a store we do not know yet is retried for this long, then dead-lettered (never answered 404). */
@@ -21,7 +21,19 @@ const RETRY_BASE_MS = 30_000;
 const RETRY_MAX_MS = 15 * 60_000;
 const LEASE_MS = 2 * 60_000;
 
-export type IntakeResult = { status: 200; duplicate: boolean; id: string; kind?: CanonicalWebhook['kind'] } | { status: 400 | 401 };
+export type IntakeResult = { status: 200; duplicate: boolean; id: string; kind?: CanonicalWebhook['kind']; needsFetch?: boolean } | { status: 400 | 401 };
+
+/** What a module-owned consumer receives for a stored event of its kind (catalog takes `product`). */
+export interface InboxEventInput {
+  storeId: string;
+  /** The canonical, PII-free payload as stored. */
+  payload: Readonly<Record<string, unknown>>;
+  eventId: string;
+  occurredAt: Date | undefined;
+}
+export type InboxConsumer = (input: InboxEventInput) => Promise<void>;
+/** Event kinds a module may consume. */
+export type ConsumableKind = 'product';
 export type ProcessOutcome = 'processed' | 'ignored' | 'parked' | 'retry' | 'dead_lettered' | 'skipped';
 
 interface InboxRow {
@@ -53,6 +65,13 @@ export class WebhookInbox {
     private readonly onVerified?: (req: WebhookRequest) => void,
   ) {}
 
+  private readonly consumers = new Map<ConsumableKind, InboxConsumer>();
+
+  /** Register the module that applies events of `kind`. A kind without a consumer fails (and is retried) rather than being dropped. */
+  onKind(kind: ConsumableKind, consumer: InboxConsumer): void {
+    this.consumers.set(kind, consumer);
+  }
+
   /** Steps 1 and 2. Never logs or stores the raw body. */
   async receive(req: WebhookRequest): Promise<IntakeResult> {
     if (!this.platform.webhooks.verify(req)) return { status: 401 };
@@ -71,7 +90,9 @@ export class WebhookInbox {
     );
     if (rows.length === 0) return { status: 200, duplicate: true, id: '' };
     this.telemetry.log.info('webhook received', { webhook_type: event.type, platform_store_id: event.platformStoreId });
-    return { status: 200, duplicate: false, id, kind: event.kind };
+    // A product event whose data was unreadable needs a platform call to be applied: that is left to the sweep.
+    const needsFetch = event.kind === 'product' && event.payload.invalid !== true && event.payload.product === undefined;
+    return { status: 200, duplicate: false, id, kind: event.kind, ...(needsFetch ? { needsFetch } : {}) };
   }
 
   /**
@@ -80,7 +101,7 @@ export class WebhookInbox {
    */
   async receiveAndProcess(req: WebhookRequest): Promise<IntakeResult> {
     const result = await this.receive(req);
-    if (result.status === 200 && !result.duplicate && result.kind !== 'authorize') {
+    if (result.status === 200 && !result.duplicate && result.kind !== 'authorize' && !result.needsFetch) {
       try {
         await this.processOne(result.id);
       } catch (err) {
@@ -135,6 +156,14 @@ export class WebhookInbox {
 
   private async handle(row: InboxRow): Promise<'processed' | 'ignored' | 'parked'> {
     const kind = row.payload.kind as CanonicalWebhook['kind'] | undefined;
+    if (kind === 'product') {
+      const storeId = await this.locate(row.platform_store_id);
+      if (!storeId) return 'parked';
+      const consumer = this.consumers.get('product');
+      if (!consumer) throw new Error('no consumer registered for product webhooks');
+      await consumer({ storeId, payload: row.payload, eventId: row.event_id, occurredAt: row.occurred_at ?? undefined });
+      return 'processed';
+    }
     if (kind !== 'authorize' && kind !== 'installed' && kind !== 'uninstalled') return 'ignored';
     const storeId = await this.locate(row.platform_store_id);
     if (kind === 'installed') return storeId ? 'ignored' : 'parked'; // Easy Mode: tokens follow in app.store.authorize
@@ -181,12 +210,12 @@ export class WebhookInbox {
   }
 
   private async fail(row: InboxRow, err: unknown): Promise<ProcessOutcome> {
-    const code = err instanceof PlatformUnavailableError ? 'platform_unavailable' : err instanceof PlatformAuthRejectedError ? 'platform_rejected' : err instanceof StoreLifecycleConflictError ? 'lifecycle_conflict' : 'internal';
+    const code = err instanceof PlatformUnavailableError ? 'platform_unavailable' : err instanceof PlatformAuthRejectedError ? 'platform_rejected' : err instanceof StoreLifecycleConflictError ? 'lifecycle_conflict' : err instanceof InvalidWebhookPayloadError ? 'invalid_payload' : 'internal';
     this.telemetry.counter(Metric.WebhookFailures, { reason: code });
     this.telemetry.captureError(err, { component: 'webhook-inbox', inbox_id: row.id, webhook_type: row.type, reason: code });
     const attempts = row.attempts + 1;
-    // A rejected token will not get better by retrying.
-    if (attempts >= MAX_ATTEMPTS || code === 'platform_rejected') {
+    // A rejected token or an unusable payload will not get better by retrying.
+    if (attempts >= MAX_ATTEMPTS || code === 'platform_rejected' || code === 'invalid_payload') {
       await this.deadLetter({ ...row, attempts }, code);
       return 'dead_lettered';
     }

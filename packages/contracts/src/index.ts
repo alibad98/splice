@@ -1,6 +1,17 @@
 export * as v1 from './v1/index.js';
 export {
   AUTH_PROBLEM_CODES,
+  Availability,
+  CATALOG_SYNC_RATE_LIMITED,
+  CATALOG_SYNC_STATES,
+  CatalogSyncStatus,
+  CategoryListResponse,
+  PRODUCT_PAGE_SIZE,
+  PRODUCT_SEARCH_MAX,
+  PRODUCT_SORTS,
+  ProductListQuery,
+  ProductListResponse,
+  ProductRow,
   CURRENCY_EXPONENTS,
   InvalidAmountError,
   UnknownCurrencyError,
@@ -11,6 +22,7 @@ export {
   EVENT_NAME_PATTERN,
   EVENT_OWNERS,
   EVENT_QUEUE,
+  PRODUCT_VISIBLE_FIELDS,
   EmbeddedSession,
   EventEnvelope,
   ForgotPasswordInput,
@@ -36,6 +48,8 @@ export type {
   EventName,
   EventOwner,
   EventPayload,
+  ProductListQueryInput,
+  ProductSort,
   SessionProblemCode,
 } from './v1/index.js';
 

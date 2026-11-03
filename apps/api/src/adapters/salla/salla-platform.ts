@@ -26,6 +26,7 @@ import {
   SALLA_EMBEDDED_APP_BASE,
   SALLA_INTROSPECT_SOURCE_HEADER,
   SALLA_INTROSPECT_URL,
+  SALLA_PRODUCT_EVENTS,
   SALLA_HEADERS,
   SALLA_SIGNATURE_STRATEGY,
   SALLA_TOKEN_URL,
@@ -143,6 +144,8 @@ const SallaProduct = z.object({
 });
 type SallaProduct = z.infer<typeof SallaProduct>;
 
+const ProductResponse = z.object({ data: SallaProduct });
+const PRODUCT_EVENTS: ReadonlySet<string> = new Set(SALLA_PRODUCT_EVENTS);
 const HIDDEN_STATUSES = new Set(['hidden', 'deleted']);
 /** Only http(s) image URLs are kept; anything else (javascript:, data:, relative) becomes no image. */
 const HTTP_URL = /^https?:\/\/\S+$/i;
@@ -295,6 +298,12 @@ export class SallaCommercePlatform implements CommercePlatform {
       }
       return { items, skipped, hasMore: parsed.data.pagination ? parsed.data.pagination.currentPage < parsed.data.pagination.totalPages : false };
     },
+    get: async (session: PlatformSession, externalId: string): Promise<CanonicalProduct> => {
+      // Response shape `{ data }` is unverified against a live store, like `list`.
+      const parsed = ProductResponse.safeParse(await this.admin(session, `/products/${encodeURIComponent(externalId)}`));
+      if (!parsed.success) throw new PlatformUnavailableError('Salla product response was not recognised');
+      return mapProduct(parsed.data.data);
+    },
   };
 
   readonly orders = {
@@ -344,7 +353,7 @@ export class SallaCommercePlatform implements CommercePlatform {
     const env = WebhookEnvelope.safeParse(json);
     if (!env.success) return null;
     const { event, merchant, created_at, data } = env.data;
-    const kind: WebhookKind = event === SALLA_APP_EVENTS.authorize ? 'authorize' : event === SALLA_APP_EVENTS.installed ? 'installed' : event === SALLA_APP_EVENTS.uninstalled ? 'uninstalled' : 'other';
+    const kind: WebhookKind = event === SALLA_APP_EVENTS.authorize ? 'authorize' : event === SALLA_APP_EVENTS.installed ? 'installed' : event === SALLA_APP_EVENTS.uninstalled ? 'uninstalled' : PRODUCT_EVENTS.has(event) ? 'product' : 'other';
     const occurredAt = parseEventTime(created_at);
     // Canonical payload: allow-listed fields only, never a spread of the body (AD-5).
     const payload: Record<string, unknown> = { event, kind };
@@ -365,6 +374,20 @@ export class SallaCommercePlatform implements CommercePlatform {
       out.tokens = { accessToken: a.data.access_token, refreshToken: a.data.refresh_token, expiresAt, scopes };
       payload.scopes = scopes;
       payload.expires_at = expiresAt.toISOString();
+    }
+    if (kind === 'product') {
+      // Catalog data only (AD-5). The id is read on its own, so an unreadable product can still be fetched by id.
+      const id = SallaId.safeParse((data as { id?: unknown } | undefined)?.id);
+      if (!id.success || id.data.trim() === '') payload.invalid = true;
+      else {
+        payload.product_id = id.data;
+        try {
+          const product = toCanonicalProduct(data as z.input<typeof SallaProduct>);
+          payload.product = { ...product, ...(product.sourceUpdatedAt ? { sourceUpdatedAt: product.sourceUpdatedAt.toISOString() } : {}) };
+        } catch {
+          // Left out: the consumer fetches the product by id.
+        }
+      }
     }
     return out;
   }

@@ -1,6 +1,6 @@
 // Worker-side wiring of the catalog module: install/reinstall events queue a full sync; the job runs it (Story 2.1).
 import type { EventName } from '@slips/contracts';
-import { jobMeta, type JobHandler } from '../adapters/telemetry/jobs.js';
+import { isFinalAttempt, jobMeta, type JobHandler } from '../adapters/telemetry/jobs.js';
 import type { EventHandlerRegistry } from '../events/dispatcher.js';
 import { CATALOG_FULL_SYNC_QUEUE, FullSyncJob, type CatalogSync } from '../modules/catalog/catalog-sync.js';
 import type { Telemetry } from '../ports/telemetry.js';
@@ -11,9 +11,10 @@ export const FULL_SYNC_SINGLETON_SECONDS = 60;
 
 export function catalogJobHandlers(sync: CatalogSync): Record<string, JobHandler> {
   return {
-    [CATALOG_FULL_SYNC_QUEUE]: async (data) => {
+    [CATALOG_FULL_SYNC_QUEUE]: async (data, meta) => {
       const job = FullSyncJob.parse(data);
-      await sync.run(job.store_id, job.run_id);
+      // A retryable failure reads `failed` only on the last attempt (Story 2.3).
+      await sync.run(job.store_id, job.run_id, { finalAttempt: isFinalAttempt(meta) });
     },
   };
 }
@@ -34,6 +35,20 @@ export function registerCatalogEventHandlers(registry: EventHandlerRegistry, bos
       if (!jobId) telemetry.log.info('catalog full sync already queued', { event: name, event_id: event.id });
     });
   }
+  // A merchant's manual sync (Story 2.3): the run is already recorded `queued` with this event id as its run id. Same
+  // singleton key as install; a send that collides with a job queued in the current slot moves to the next slot instead
+  // of being dropped, so the queued run is never left without a job.
+  registry.on('catalog.sync.requested', 'catalog.full-sync.on.catalog.sync.requested', async (event) => {
+    const storeId = event.payload.store_id;
+    const payload: FullSyncJob = { ...jobMeta(telemetry, storeId), store_id: storeId, run_id: event.payload.run_id };
+    const jobId = await boss.send(CATALOG_FULL_SYNC_QUEUE, payload, { singletonKey: storeId, singletonSeconds: FULL_SYNC_SINGLETON_SECONDS, singletonNextSlot: true });
+    // Never leave the queued run without a job: fail the delivery so the event is retried.
+    if (!jobId) throw new Error(`catalog full sync not queued for requested run ${event.payload.run_id}`);
+  });
+  // Nothing consumes product changes yet (content in Story 3.4 and publishing in Epic 4 will); the dispatcher still needs a handler.
+  registry.on('catalog.product.updated', 'catalog.log.product.updated', async (event) => {
+    telemetry.log.info('catalog event', { event: event.name, event_id: event.id, product_id: event.payload.product_id, changed: event.payload.changed });
+  });
   registry.on('catalog.sync.completed', 'catalog.log.sync.completed', async (event) => {
     telemetry.log.info('catalog event', { event: event.name, event_id: event.id, created: event.payload.created, updated: event.payload.updated });
   });

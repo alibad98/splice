@@ -73,3 +73,41 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-import-full-product-catalog.md`
   summary: startWorker's handler and event wiring (integration and catalog) has no test; dropping registerCatalogEventHandlers would pass CI.
   evidence: Extract a buildWorkerHandlers(pool, infra, boss, events) and assert the registry has the catalog triggers and the queue handlers.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-2-browse-products-page.md`
+  summary: Stores installed before Story 2.1 have sync status `never` and the Products page shows "Syncing your products..." forever while polling two endpoints every 5 s.
+  evidence: No sync row exists until a full sync runs; the approved 2.2 matrix maps `never` to the syncing state. Story 2.3's manual sync gives these stores a way out; consider capping the poll there.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-2-browse-products-page.md`
+  summary: Product name search does not fold Arabic letter variants (أ/إ/آ→ا, ة/ه, ى/ي) or strip tashkeel, so "عبايه" does not find "عباية".
+  evidence: `CatalogReadRepository.where` uses plain `ilike`; normalize both sides (e.g. translate + regexp_replace) with tests.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
+  summary: Wave-1 UI kit first-load budget is already used up (Button, Spinner, Toast add 15.2 KB to /products; Radix Toast ~20.8 KB); lazy-load the Toaster.
+  evidence: Story 2.3 build measurement against the UI-kit spec's 15 KB wave-1 budget.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
+  summary: Toast uses an inline close SVG and the "Last synced" exact-time hint is not Escape-dismissable; move `Icon` into packages/ui and use the wave-2 Tooltip.
+  evidence: UI-kit spec forbids a second icon set and requires WCAG 1.4.13 for hover content.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
+  summary: No test proves the merchant layout mounts the Toaster.
+  evidence: Tests render their own Toaster; the dashboard has no harness for async server layouts.
+
+## Deferred from: code review of spec-ui-kit-global-components (2026-11-03)
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Hard-coded colours outside tokens (Salla button teal, DotField canvas RGB, `bg-black/40` scrims).
+  evidence: Partner brand colour and canvas drawing need a token-reading helper; revisit with the next design pass.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Skeleton is not boneyard-based yet (only a `data-boneyard-bone` attribute and `animate-pulse`).
+  evidence: Registry row 1 says boneyard; wire it when the first skeleton-heavy page lands.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Wave-1 acceptance items still open (Products states on kit Alert/EmptyState/Skeleton, budget report, AA check, impeccable pass).
+  evidence: Tasks checkboxes unchecked; close with the wave-1 sign-off.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Two icon sets in the dashboard (`components/shell/Icon` and the kit `Icon`).
+  evidence: SessionActions.tsx and AppShell.tsx import both; migrate shell icons to the kit.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
+  summary: Untested lost-race branch in `CatalogRepository.applyProduct` (guarded upsert returns no row after the read).
+  evidence: Practically unreachable under the `for update` row lock plus the `catalog-product` advisory lock; testing needs an artificial interleaving.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
+  summary: A product webhook needing a fetch for a disconnected store retries as `internal`, then dead-letters (`getAccessToken` throws `StoreDisconnected*`).
+  evidence: Story 2.7 (pause sync when disconnected) should skip or park these; reconciliation repairs after reconnect.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
+  summary: Partial product payloads (`product.quantity.low`, `product.available`) might map with defaults and overwrite fields (unverified, medium if true).
+  evidence: Settle by recording real deliveries on the demo store with the webhook recorder and adding them as fixtures.

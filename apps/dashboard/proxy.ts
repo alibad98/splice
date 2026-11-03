@@ -29,7 +29,9 @@ export function proxy(request: NextRequest) {
     !hasSessionCookie &&
     !isAuthPath(pathname) &&
     !isAdminPath(pathname) &&
-    !pathname.startsWith('/api/')
+    !pathname.startsWith('/api/') &&
+    // The dev-only UI gallery needs no session (the page itself 404s in production).
+    !(pathname === '/ui' && process.env.NODE_ENV !== 'production')
   ) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';
@@ -45,21 +47,8 @@ export function proxy(request: NextRequest) {
     return withSecurityHeaders(redirectResponse, pathname);
   }
 
-  // If an authenticated browser visits /login, redirect to /
-  if (isDirectDocumentNav && hasSessionCookie && pathname === '/login') {
-    const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = '/';
-    const redirectResponse = NextResponse.redirect(homeUrl);
-    if (isLocale(lang)) {
-      redirectResponse.cookies.set(localeCookie, lang, {
-        path: '/',
-        maxAge: 60 * 60 * 24 * 365,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
-      });
-    }
-    return withSecurityHeaders(redirectResponse, pathname);
-  }
+  // A cookie on /login is not proof of a session (it may be expired or revoked): the login page asks the API and
+  // redirects signed-in merchants itself. Redirecting here on cookie presence loops with the merchant layout.
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete(langHeader);

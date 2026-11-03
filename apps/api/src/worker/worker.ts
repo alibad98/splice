@@ -12,6 +12,7 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
+import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
 import { buildInfra } from '../http.js';
 import type { Env } from '../config/env.js';
 import type { DatabaseProbe } from '../ports/database-probe.js';
@@ -21,7 +22,7 @@ import { GROUP_POLICY, QUEUES, deadLetterName, queueOptions, queuesFor, type Que
 /** The slice of PgBoss queue registration used, so it can be tested with a fake. */
 export interface QueueRegistrar {
   createQueue(name: string, options?: Record<string, unknown>): Promise<unknown>;
-  work(name: string, options: { localConcurrency: number }, handler: (jobs: Array<{ id: string; data: unknown }>) => Promise<void>): Promise<unknown>;
+  work(name: string, options: { localConcurrency: number; includeMetadata: true }, handler: (jobs: Array<{ id: string; data: unknown; retryCount: number; retryLimit: number }>) => Promise<void>): Promise<unknown>;
 }
 
 /**
@@ -40,7 +41,8 @@ export async function registerQueues(
     const dead = deadLetterName(queue.name);
     await boss.createQueue(dead);
     await boss.createQueue(queue.name, { ...queueOptions(queue.group), deadLetter: dead });
-    await boss.work(queue.name, { localConcurrency: GROUP_POLICY[queue.group].concurrency }, instrumentJob(telemetry, queue.name, handler));
+    // With metadata, handlers see retryCount/retryLimit and can tell the last attempt (e.g. catalog sync failures).
+    await boss.work(queue.name, { localConcurrency: GROUP_POLICY[queue.group].concurrency, includeMetadata: true }, instrumentJob(telemetry, queue.name, handler));
   }
 }
 
@@ -114,6 +116,8 @@ export async function startWorker(
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
+  // The worker's sweep retries product webhooks that were not applied inline.
+  registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
   const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync), ...handlers };
   let stopPoller = () => {};
   try {

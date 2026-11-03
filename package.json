@@ -2,13 +2,16 @@
   "name": "slips",
   "private": true,
   "packageManager": "pnpm@12.11.2",
-  "engines": { "node": ">=24.15.0" },
+  "engines": {
+    "node": ">=24.15.0"
+  },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "pnpm -r --filter \"./packages/*\" --filter \"!@slips/player\" build && pnpm --parallel --filter \"./apps/*\" dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "dev:turbo": "turbo run dev --ui=stream"
   },
   "devDependencies": {
     "turbo": "2.11.7",

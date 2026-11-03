@@ -82,13 +82,13 @@ colors:
   chart-4-dark: '#FFC23D'
   chart-5-dark: '#60B4FF'
 typography:
-  family-latin: { fontFamily: '"Plus Jakarta Sans", system-ui, sans-serif' }
-  family-arabic: { fontFamily: '"IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif' }
+  family-latin: { fontFamily: '"Figtree", system-ui, sans-serif' }
+  family-arabic: { fontFamily: '"Tajawal", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif' }
   family-player: { fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Geeza Pro", "Noto Sans Arabic", Tahoma, sans-serif' }
   display: { fontSize: 2.25rem, fontWeight: 800, lineHeight: 1.1, letterSpacing: -0.035em }
   h1: { fontSize: 1.75rem, fontWeight: 800, lineHeight: 1.2, letterSpacing: -0.03em }
   h2: { fontSize: 1.125rem, fontWeight: 700, lineHeight: 1.3, letterSpacing: -0.01em }
-  h3: { fontSize: 0.875rem, fontWeight: 650, lineHeight: 1.4, note: 'Arabic falls back to 600 (Plex has no 650)' }
+  h3: { fontSize: 0.875rem, fontWeight: 650, lineHeight: 1.4, note: 'Arabic uses 600' }
   body: { fontSize: 0.875rem, fontWeight: 400, lineHeight: 1.55 }
   body-lg: { fontSize: 1rem, fontWeight: 400, lineHeight: 1.6 }
   small: { fontSize: 0.75rem, fontWeight: 500, lineHeight: 1.45 }
@@ -154,7 +154,7 @@ Energetic and social, built with precision. Slips sells creator-tool energy (Sto
 ### Logo & Wordmark
 
 - **Mark** (`brand/logo-mark.svg`): a story ring (coral→amber gradient arc, open at the top-end like a "new story" indicator) around a geometric bold "S" built from two stacked arcs. Outlined paths, legible at 16px.
-- **Wordmarks**: `brand/logo-wordmark-en.svg` ("Slips", Plus Jakarta Sans 800, −0.03em) and `brand/logo-wordmark-ar.svg` ("سليبس", IBM Plex Sans Arabic 700). Use the mark at the inline-start of the wordmark (right side in RTL).
+- **Wordmarks**: `brand/logo-wordmark-en.svg` ("Slips", Figtree 800, −0.03em) and `brand/logo-wordmark-ar.svg` ("سليبس", Tajawal 700). Use the mark at the inline-start of the wordmark (right side in RTL).
 - On coral backgrounds the mark uses an ink `{colors.foreground}` S with a white→amber arc (`brand/logo-mark-on-coral.svg`, filename kept). The app icon is a coral tile with an ink S and amber ring. Minimum clear space = the S stroke width × 2. Never recolor the ring to a single flat color except mono (all `{colors.foreground}` or all white).
 - Sheet: `brand/logo-sheet.html`.
 
@@ -183,10 +183,10 @@ Charts: series in order chart-1..5; never encode meaning by color alone (legend 
 
 ## Typography
 
-- **Arabic UI:** IBM Plex Sans Arabic 400/500/600/700. No negative letter-spacing on Arabic, ever; no all-caps concept; line-height ≥1.55 for body. Arabic display uses 700 (Plex has no 800).
-- **Latin UI:** Plus Jakarta Sans 400–800; display/headings 800 with tight tracking (scale in frontmatter). Base size 14px (`{typography.body}`), airy.
-- Font stack order follows `lang`: `:lang(ar)` puts Plex Arabic first; Latin glyphs inside Arabic text fall back to Jakarta.
-- **Numerals:** Western digits (0-9) in both locales (Salla convention), `tabular-nums` everywhere numbers align (KPIs, tables, prices). KPI values use Jakarta 800 even in Arabic UI.
+- **Arabic UI:** Tajawal (Arabic subset), 400/500/700/800: soft, light geometric Arabic, familiar in Saudi commerce. No 600: semibold requests resolve to 700. No negative letter-spacing on Arabic, ever; no all-caps concept; line-height ≥1.55 for body. Arabic display uses 700 (800 reads heavy in Arabic).
+- **Latin UI:** Figtree 400–800 (soft geometric, pairs with Tajawal, tabular digits); display/headings 800 with tight tracking (scale in frontmatter). Base size 14px (`{typography.body}`), airy.
+- Font stack order follows `lang`: `:lang(ar)` puts Tajawal first; Tajawal is loaded with Arabic glyphs only, so Latin inside Arabic text (emails, SAR, the brand) renders in Figtree in both locales. (Changed 2026-11-01 from Plus Jakarta Sans + IBM Plex Sans Arabic: the UI should read softer. Tajawal has no tabular digits, but it is loaded with Arabic glyphs only and the UI uses Western digits, so every number renders in Figtree, which is tabular.)
+- **Numerals:** Western digits (0-9) in both locales (Salla convention), `tabular-nums` everywhere numbers align (KPIs, tables, prices). KPI values use Figtree 800 even in Arabic UI.
 - **Bidi:** wrap numbers, SKUs, URLs, and currency amounts in `<bdi>` / `dir="ltr"` isolates; currency follows locale ("1,250 ر.س" / "SAR 1,250"). Percentages keep the sign with the number inside the isolate.
 
 ## Layout & Spacing
@@ -208,7 +208,8 @@ Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.
 ## Components
 
 - **Button:** pill, 36px (32 sm, 44 lg / touch). Primary coral with ink text; secondary = outline border; accent (amber + dark text) reserved for one "make something" action per screen. Hover: brightness 1.08; disabled 50% opacity.
-- **Badge / status:** pill, 11.5px 600, leading 6px dot. One chip per status name in EXPERIENCE.md: `status-draft` (muted), `status-processing` (coral tint, `info-text`, pulsing dot), `status-failed` (crimson tint + row tint 6%), `status-scheduled` (coral tint, `info-text`), `status-published` (green tint, `success-text`), `status-ended` (outline, no dot), `status-archived` (outline + archive icon), `status-deactivated` (amber). Role words map: neutral = draft/ended/archived, info = scheduled/processing, danger = failed, success = published, warning = deactivated. Always a text label, never dot alone. Arabic chips use 12px minimum.
+- **Badge (`@slips/ui` Badge):** bordered pill, always (holds its shape on tints and in forced colours). Tones `neutral · brand · accent · info · success · warning · danger`; variants `soft` (tint + 30–50% tone border, default), `solid` (one loud mark per view; ink text on coral and amber), `outline` (quiet); sizes 20/24/28px; optional leading icon or dot (dot may pulse for live states, still under reduced motion); `glass` for badges over imagery or the dark auth panel. Never colour alone: always text.
+- **Badge / status:** StatusChip = small soft Badge with a leading 6px dot. One chip per status name in EXPERIENCE.md: `status-draft` (muted), `status-processing` (coral tint, `info-text`, pulsing dot), `status-failed` (crimson tint + row tint 6%), `status-scheduled` (coral tint, `info-text`), `status-published` (green tint, `success-text`), `status-ended` (outline, no dot), `status-archived` (outline + archive icon), `status-deactivated` (amber). Role words map: neutral = draft/ended/archived, info = scheduled/processing, danger = failed, success = published, warning = deactivated. Always a text label, never dot alone. Arabic chips use 12px minimum.
 - **KPI tile:** label 13px muted, value `{typography.kpi}` tabular, delta 12px 600 (`{colors.delta-up}` / `{colors.delta-down}`, dark `-dark` variants, always with an arrow icon + sign). **`{components.kpi-tile-celebration}`**: the Revenue tile is solid coral with ink value, solid ink label, ink delta — one per dashboard, never more.
 - **Card:** shadcn Card composition; title `{typography.h3}`, 22px padding.
 - **Input:** 36px, 12px radius, `{colors.input-border}` → `{components.focus-ring}` on focus; error = destructive border + text-destructive-text message below.
@@ -238,5 +239,5 @@ Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.
 - Do use `-text` color variants for status text; Don't put success/warning/amber fills as text on white.
 - Do use logical properties and test RTL first; Don't use `left`/`right`/`ml-`/`mr-`.
 - Do use tabular Western numerals with bidi isolates; Don't letter-space Arabic.
-- Do keep the player neutral, Shadow-DOM-scoped, system-font; Don't load Jakarta/Plex in the storefront.
+- Do keep the player neutral, Shadow-DOM-scoped, system-font; Don't load Figtree/Tajawal in the storefront.
 - Don't use emoji in UI copy.

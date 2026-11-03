@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-25-2026 19:00
-last_updated: 11-01-2026
+last_updated: 11-03-2026
 project: splice
 project_key: NOKEY
 tracking_system: file-system
@@ -53,10 +53,10 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-import-the-full-product-catalog-on-first-install: review
-  2-2-browse-products-on-the-products-page: backlog
-  2-3-sync-products-manually-and-see-last-sync-time: backlog
-  2-4-apply-product-webhooks-in-near-real-time: backlog
+  2-1-import-the-full-product-catalog-on-first-install: done
+  2-2-browse-products-on-the-products-page: done
+  2-3-sync-products-manually-and-see-last-sync-time: done
+  2-4-apply-product-webhooks-in-near-real-time: done
   2-5-handle-products-deleted-in-salla: backlog
   2-6-reconcile-the-catalog-daily: backlog
   2-7-pause-sync-when-disconnected-and-resume-on-reconnect: backlog

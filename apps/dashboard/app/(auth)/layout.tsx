@@ -1,114 +1,70 @@
 import type { ReactNode } from 'react';
+import { Badge } from '@slips/ui';
+import { BrandShowcase } from '../../components/auth/BrandShowcase';
+import { DotField } from '../../components/auth/DotField';
 import { Logo } from '../../components/shell/Logo';
 import { LocaleSwitch } from '../../components/shell/LocaleSwitch';
+import { ThemeSwitch } from '../../components/shell/ThemeSwitch';
 import { getMessages } from '../../i18n/messages';
 import { getLocale } from '../../i18n/server';
 
+/**
+ * Auth frame. Exactly one screen when the form fits (no stray margins, so no scrollbar); if the window is very short
+ * the page itself scrolls (never an inner scroller: the app runs in Salla's iframe) and the brand panel stays put. Mobile: a single column at least one screen tall, centred. The brand panel is always dark: it scopes
+ * the `.dark` tokens to itself instead of hard-coding colours.
+ */
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const locale = await getLocale();
   const m = getMessages(locale);
   const a = m.auth;
 
   return (
-    <div className="min-h-screen bg-[var(--page)] flex flex-col lg:grid lg:grid-cols-12 text-foreground selection:bg-[var(--primary)] selection:text-white">
-      {/* Brand Hero Panel (Desktop) */}
-      <aside className="hidden lg:col-span-5 xl:col-span-6 lg:flex flex-col justify-between relative overflow-hidden bg-[#100D0C] p-12 text-[#F5F1EE] border-e border-white/10">
-        {/* Ambient Gradient Glows */}
-        <div className="absolute top-0 end-0 -mt-24 -me-24 w-96 h-96 rounded-full bg-[radial-gradient(circle,rgba(255,74,61,0.25)_0%,transparent_70%)] blur-2xl pointer-events-none" />
-        <div className="absolute bottom-10 start-0 -ms-20 w-80 h-80 rounded-full bg-[radial-gradient(circle,rgba(255,194,61,0.18)_0%,transparent_70%)] blur-2xl pointer-events-none" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_0%,rgba(0,0,0,0.4)_100%)] pointer-events-none" />
+    <div className="flex min-h-dvh flex-col bg-page text-foreground selection:bg-primary selection:text-primary-foreground lg:grid lg:grid-cols-2">
+      <aside className="dark sticky top-0 hidden h-dvh flex-col items-center overflow-hidden border-e border-border bg-background px-12 py-[clamp(16px,3.5dvh,32px)] text-center text-foreground select-none lg:flex xl:px-20">
+        <DotField />
 
-        {/* Brand Top Header */}
-        <div className="relative z-10 flex items-center justify-between">
-          <Logo locale={locale} name={m.app.name} size={36} />
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium text-[#FFC23D] backdrop-blur-sm">
-            <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
+        <div className="relative z-10">
+          <Logo locale={locale} name={m.app.name} size={34} animated />
+        </div>
+
+        <div className="relative z-10 my-auto flex min-h-0 w-full max-w-2xl flex-col items-center gap-[clamp(10px,2.2dvh,20px)] py-[clamp(12px,3dvh,32px)]">
+          <Badge tone="accent" variant="outline" size="lg" icon="check" glass>
             {a.verifiedForSalla}
+          </Badge>
+          <h1 className="text-[clamp(1.6rem,min(2.8vw,5.2dvh),3rem)] leading-[1.12] font-extrabold tracking-[-0.025em] text-balance [:lang(ar)_&]:leading-[1.4] [:lang(ar)_&]:font-bold">{a.heroTitle}</h1>
+          <p className="-mt-1 max-w-xl text-body-lg text-pretty text-muted-foreground">{a.brandDescription}</p>
+          <div className="mt-[clamp(4px,1.5dvh,16px)] flex w-full justify-center">
+            <BrandShowcase a={a} />
+          </div>
+        </div>
+
+        <div className="relative z-10 flex items-center gap-3 text-small text-muted-foreground">
+          <span>
+            © {new Date().getFullYear()} {m.app.name}
           </span>
-        </div>
-
-        {/* Hero Copy & Visual Showcase */}
-        <div className="relative z-10 my-auto py-12 max-w-lg">
-          <h1 className="text-3xl xl:text-4xl font-extrabold tracking-tight leading-tight text-white mb-4">
-            {a.heroTitle}
-          </h1>
-          <p className="text-base xl:text-lg text-[#A89F99] leading-relaxed mb-8">
-            {a.brandDescription}
-          </p>
-
-          {/* Interactive Feature Card Mockup */}
-          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl backdrop-blur-md">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-[2px] [background:conic-gradient(#FF4A3D,#FFC23D,#FF4A3D)]">
-                <div className="h-full w-full rounded-full bg-[#100D0C] flex items-center justify-center font-bold text-xs text-white">
-                  ▶
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white truncate">
-                    {a.reelTitle}
-                  </p>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#3FD27F] bg-[#3FD27F]/10 px-2 py-0.5 rounded-full">
-                    +34% {a.cvrBoost}
-                  </span>
-                </div>
-                <p className="text-xs text-[#A89F99] truncate">
-                  {a.reelProduct}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5 pt-3 border-t border-white/10 text-center">
-              <div className="rounded-xl bg-white/[0.03] p-2.5 border border-white/5">
-                <p className="text-lg font-bold text-white">{a.statEngagementVal}</p>
-                <p className="text-[11px] text-[#A89F99]">{a.statEngagement}</p>
-              </div>
-              <div className="rounded-xl bg-white/[0.03] p-2.5 border border-white/5">
-                <p className="text-lg font-bold text-[#FFC23D]">{a.statAovVal}</p>
-                <p className="text-[11px] text-[#A89F99]">{a.statAov}</p>
-              </div>
-              <div className="rounded-xl bg-white/[0.03] p-2.5 border border-white/5">
-                <p className="text-lg font-bold text-white">{a.statZeroCodeVal}</p>
-                <p className="text-[11px] text-[#A89F99]">{a.statZeroCode}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="relative z-10 flex items-center justify-between text-xs text-[#7A716C]">
-          <span>© {new Date().getFullYear()} {m.app.name}</span>
-          <div className="flex items-center gap-4">
-            <span className="hover:text-[#A89F99] cursor-pointer">{a.privacy}</span>
-            <span className="hover:text-[#A89F99] cursor-pointer">{a.terms}</span>
-          </div>
+          <span aria-hidden="true">·</span>
+          <span>{a.privacy}</span>
+          <span aria-hidden="true">·</span>
+          <span>{a.terms}</span>
         </div>
       </aside>
 
-      {/* Auth Form Container Panel */}
-      <main className="col-span-12 lg:col-span-7 xl:col-span-6 flex flex-col justify-between min-h-screen p-6 sm:p-10 lg:p-14">
-        {/* Top bar with mobile logo & language switch */}
-        <header className="flex items-center justify-between w-full mb-6">
+      <main className="flex min-h-dvh flex-1 flex-col px-5 py-4 sm:px-10 lg:px-16 lg:py-[clamp(12px,2.5dvh,24px)] xl:px-24">
+        <header className="flex items-center justify-between gap-3">
           <div className="lg:hidden">
-            <Logo locale={locale} name={m.app.name} size={30} />
+            <Logo locale={locale} name={m.app.name} size={28} />
           </div>
-          <div className="ms-auto">
+          <div className="ms-auto flex items-center gap-2">
+            <ThemeSwitch />
             <LocaleSwitch />
           </div>
         </header>
 
-        {/* Center Card Content */}
-        <div className="w-full max-w-md mx-auto my-auto py-4">
-          <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 shadow-[var(--card-shadow)]">
-            {children}
-          </div>
+        <div className="flex flex-1 items-center justify-center py-[clamp(8px,2.5dvh,24px)]">
+          <div className="w-full max-w-[480px] animate-rise-in rounded-xl border border-border bg-card p-6 shadow-card sm:p-[clamp(20px,3.6dvh,32px)]">{children}</div>
         </div>
 
-        {/* Bottom spacer / footer note */}
-        <footer className="text-center text-xs text-muted-foreground mt-8">
+        <footer className="text-center text-small text-pretty text-muted-foreground [@media(max-height:680px)]:sr-only">
           <p>{a.footerSecurity}</p>
         </footer>
       </main>

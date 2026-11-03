@@ -2,9 +2,11 @@
 
 import { useState } from 'react';
 import type { StoreChoice } from '@slips/contracts';
+import { Icon, Spinner } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 import { authClient } from '../../lib/auth/client';
 import { AuthAlert } from './AuthAlert';
+import { AuthHeading } from './AuthHeading';
 
 interface StorePickerProps {
   selectionToken: string;
@@ -35,28 +37,39 @@ export function StorePicker({ selectionToken, stores }: StorePickerProps) {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1.5 text-start">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">{m.chooseStoreTitle}</h2>
-        <p className="text-sm text-muted-foreground">{m.chooseStoreSubtitle}</p>
-      </div>
+    <div className="flex flex-col gap-[clamp(16px,3dvh,24px)]">
+      <AuthHeading title={m.chooseStoreTitle}>{m.chooseStoreSubtitle}</AuthHeading>
 
       {errorMessage && <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
 
-      <ul className="space-y-2">
-        {stores.map((store) => (
-          <li key={store.id}>
-            <button
-              type="button"
-              onClick={() => open(store.id)}
-              disabled={opening !== null}
-              className="w-full min-h-11 inline-flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 text-start text-sm font-semibold text-foreground hover:bg-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <span className="truncate">{store.name}</span>
-              {opening === store.id && <span className="shrink-0 text-xs text-muted-foreground">{m.openingStore}</span>}
-            </button>
-          </li>
-        ))}
+      <ul className="flex flex-col gap-2">
+        {stores.map((store) => {
+          const busy = opening === store.id;
+          return (
+            <li key={store.id}>
+              <button
+                type="button"
+                onClick={() => open(store.id)}
+                aria-busy={busy || undefined}
+                aria-disabled={(opening !== null && !busy) || undefined}
+                className="group flex min-h-13 w-full items-center gap-3 rounded-md border border-border bg-card px-4 text-start text-body font-semibold text-foreground transition-colors duration-150 hover:border-foreground/30 hover:bg-muted aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-pill bg-primary-tint text-info-text">
+                  <Icon name="store" className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{store.name}</span>
+                {busy ? (
+                  <span className="inline-flex shrink-0 items-center gap-1.5 text-small text-muted-foreground">
+                    <Spinner />
+                    {m.openingStore}
+                  </span>
+                ) : (
+                  <Icon name="chevron" className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5" />
+                )}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

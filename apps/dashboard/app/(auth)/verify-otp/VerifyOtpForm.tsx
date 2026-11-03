@@ -3,12 +3,14 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Button, cn, Field, Icon, OtpInput } from '@slips/ui';
 import { AuthAlert } from '../../../components/auth/AuthAlert';
-import { OtpInput } from '../../../components/auth/OtpInput';
+import { AuthHeading, authLinkClass } from '../../../components/auth/AuthHeading';
 import { useI18n } from '../../../i18n/provider';
 import { authClient } from '../../../lib/auth/client';
 
 const COUNTDOWN_SECONDS = 60;
+const CODE_LENGTH = 6;
 
 export function VerifyOtpForm() {
   const { messages } = useI18n();
@@ -24,148 +26,125 @@ export function VerifyOtpForm() {
   const [isResending, setIsResending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_SECONDS);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [codeError, setCodeError] = useState<string | undefined>();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Countdown timer effect
   useEffect(() => {
     if (secondsLeft <= 0) return;
-    const timer = setInterval(() => {
-      setSecondsLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
+    const timer = setInterval(() => setSecondsLeft((prev) => Math.max(0, prev - 1)), 1000);
     return () => clearInterval(timer);
   }, [secondsLeft]);
 
-  const verifyCode = async (codeToVerify: string) => {
-    if (!email || codeToVerify.length !== 6 || isPending) return;
+  const verifyCode = async (code: string) => {
+    if (!email || isPending) return;
+    if (code.length !== CODE_LENGTH) {
+      setCodeError(m.errors.codeIncomplete);
+      return;
+    }
 
     setIsPending(true);
     setErrorMessage(null);
+    setCodeError(undefined);
 
-    const purpose = flow === 'setup' ? ('setup' as const) : ('reset' as const);
-    const result = await authClient.verifyOtp({
-      email,
-      code: codeToVerify,
-      purpose,
-    });
-
+    const result = await authClient.verifyOtp({ email, code, purpose: flow });
     if (result.ok) {
-      const token = result.data.token;
-      if (flow === 'setup') {
-        router.push(`/set-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`);
-      } else {
-        router.push(`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`);
-      }
+      const next = flow === 'setup' ? '/set-password' : '/reset-password';
+      router.push(`${next}?email=${encodeURIComponent(email)}&token=${encodeURIComponent(result.data.token)}`);
       return;
     }
 
     setIsPending(false);
-    const code = result.error.code;
-    if (code === 'otp_expired') {
-      setErrorMessage(m.errors.otpExpired);
-    } else if (code === 'otp_attempts_exceeded') {
-      setErrorMessage(m.errors.otpAttemptsExceeded);
-    } else if (code === 'invalid_otp') {
-      setErrorMessage(m.errors.invalidOtp);
-    } else if (code === 'network_error') {
-      setErrorMessage(m.errors.networkError);
+    const err = result.error.code;
+    if (err === 'invalid_otp') {
+      // The code itself is wrong: show it on the field and let the user retype from the start.
+      setCodeError(m.errors.invalidOtp);
+      setOtp('');
     } else {
-      setErrorMessage(m.errors.genericError);
+      setErrorMessage(
+        err === 'otp_expired' ? m.errors.otpExpired : err === 'otp_attempts_exceeded' ? m.errors.otpAttemptsExceeded : err === 'network_error' ? m.errors.networkError : m.errors.genericError,
+      );
     }
   };
 
   const handleResend = async () => {
     if (!email || secondsLeft > 0 || isResending) return;
-
     setIsResending(true);
     setErrorMessage(null);
     setSuccessMessage(null);
-
-    const purpose = flow === 'setup' ? ('setup' as const) : ('reset' as const);
-    const result = await authClient.resendOtp({ email, purpose });
-
+    const result = await authClient.resendOtp({ email, purpose: flow });
     setIsResending(false);
     if (result.ok) {
       setSecondsLeft(COUNTDOWN_SECONDS);
       setSuccessMessage(m.success.otpSent);
       setOtp('');
+      setCodeError(undefined);
     } else {
       setErrorMessage(m.errors.genericError);
     }
   };
 
-  const formattedTimer = `00:${secondsLeft < 10 ? `0${secondsLeft}` : secondsLeft}`;
+  const timer = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1.5 text-start">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">{m.verifyOtpTitle}</h2>
-        <p className="text-sm text-muted-foreground">
-          {m.verifyOtpSubtitle} <span className="font-semibold text-foreground dir-ltr inline-block">{email}</span>
-        </p>
-      </div>
+    <div className="flex flex-col gap-[clamp(16px,3dvh,24px)]">
+      <AuthHeading title={m.verifyOtpTitle}>
+        {m.verifyOtpSubtitle}{' '}
+        <bdi dir="ltr" className="font-semibold break-all text-foreground">
+          {email}
+        </bdi>
+      </AuthHeading>
 
-      {successMessage && (
-        <AuthAlert type="success" message={successMessage} onDismiss={() => setSuccessMessage(null)} />
-      )}
-
-      {errorMessage && (
-        <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />
-      )}
+      {successMessage && <AuthAlert type="success" message={successMessage} onDismiss={() => setSuccessMessage(null)} />}
+      {errorMessage && <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void verifyCode(otp);
         }}
-        className="space-y-6"
+        className="flex flex-col gap-5"
         noValidate
       >
-        <div className="py-2">
+        <Field label={m.otpLabel} error={codeError} className="items-center [&>div:first-child]:self-start">
           <OtpInput
+            length={CODE_LENGTH}
             value={otp}
+            autoFocus
+            digitLabel={m.otpDigit}
+            ofLabel={m.otpOf}
             onChange={(val) => {
               setOtp(val);
+              if (codeError) setCodeError(undefined);
               if (errorMessage) setErrorMessage(null);
             }}
-            onComplete={(fullCode) => {
-              void verifyCode(fullCode);
-            }}
+            onComplete={(code) => void verifyCode(code)}
             disabled={isPending}
-            hasError={Boolean(errorMessage)}
+            hasError={Boolean(codeError)}
           />
-        </div>
+        </Field>
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+        <div className="flex min-h-9 items-center justify-between gap-3 text-small">
           {secondsLeft > 0 ? (
-            <span className="font-medium text-muted-foreground">
-              {m.resendCountdown} <span className="font-bold text-foreground tabular-nums">{formattedTimer}</span>
+            <span className="text-muted-foreground">
+              {m.resendCountdown}{' '}
+              <span role="timer" className="font-bold text-foreground tabular-nums" dir="ltr">
+                {timer}
+              </span>
             </span>
           ) : (
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={isResending}
-              className="font-semibold text-[var(--primary)] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)] disabled:opacity-50"
-            >
-              {isResending ? '...' : m.resendCode}
-            </button>
+            <Button variant="ghost" size="sm" pending={isResending} onClick={handleResend} className="-ms-3 text-info-text">
+              {m.resendCode}
+            </Button>
           )}
-
-          <Link
-            href="/login"
-            className="font-semibold hover:text-foreground transition-colors hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]"
-          >
+          <Link href="/login" className={cn(authLinkClass, 'inline-flex items-center gap-1 text-muted-foreground hover:text-foreground')}>
+            <Icon name="arrow" className="size-4 rotate-180" />
             {m.backToLogin}
           </Link>
         </div>
 
-        <button
-          type="submit"
-          disabled={isPending || otp.length !== 6}
-          className="w-full h-11 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] text-white font-semibold text-sm hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"
-        >
+        <Button type="submit" variant="primary" size="lg" pending={isPending} className="w-full">
           {isPending ? m.verifyingButton : m.verifyButton}
-        </button>
+        </Button>
       </form>
     </div>
   );

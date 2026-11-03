@@ -11,7 +11,8 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "dev:turbo": "turbo run dev --ui=stream"
+    "dev:turbo": "turbo run dev --ui=stream",
+    "db:migrate": "pnpm --filter @slips/db build && node --env-file-if-exists=.env packages/db/scripts/migrate.mjs"
   },
   "devDependencies": {
     "turbo": "2.11.7",

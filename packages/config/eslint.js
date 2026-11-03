@@ -67,7 +67,9 @@ export function createConfig(options = {}) {
     js.configs.recommended,
     ...tseslint.configs.recommended,
     {
-      languageOptions: { globals: { ...globals.node, ...globals.browser } },
+      // Explicit root: the editor's ESLint server lints several packages in one process, and typescript-eslint
+      // refuses to guess between their tsconfig roots.
+      languageOptions: { globals: { ...globals.node, ...globals.browser }, parserOptions: { tsconfigRootDir: pkgDir } },
       rules: {
         '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports', fixStyle: 'separate-type-imports' }],
       },

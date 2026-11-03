@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CONTENT_STATUSES } from './content.js';
 import { JobMeta } from './job-meta.js';
 
 /** Modules that may own a domain event (the spine's module list). */
@@ -19,6 +20,14 @@ const defineEvent = <S extends z.ZodType>(owner: EventOwner, schema: S): EventDe
 
 /** Product fields a manifest shows; a change to one of them is announced. */
 export const PRODUCT_VISIBLE_FIELDS = ['name', 'image_url', 'price_minor', 'sale_price_minor', 'availability', 'has_required_options', 'visible'] as const;
+
+const contentTransitionPayload = z.object({
+  v: z.literal(1),
+  store_id: z.uuid(),
+  content_id: z.uuid(),
+  from: z.enum(CONTENT_STATUSES),
+  to: z.enum(CONTENT_STATUSES),
+});
 
 /** The event catalogue (AD-17). Add events here with their owner; names outside it do not compile. */
 export const EVENT_CATALOG = {
@@ -89,6 +98,26 @@ export const EVENT_CATALOG = {
    * A later recreate of the same external id is announced as `catalog.product.updated` with every visible field changed.
    */
   'catalog.product.deleted': defineEvent('catalog', z.object({ v: z.literal(1), store_id: z.uuid(), product_id: z.uuid(), external_id: z.string().min(1) })),
+  /** Content item lifecycle events (Story 3.1). Emitted by `ContentLifecycle` in the same transaction as the status write. */
+  'content.item.created': defineEvent(
+    'content',
+    z.object({ v: z.literal(1), store_id: z.uuid(), content_id: z.uuid(), from: z.enum(CONTENT_STATUSES).nullable(), to: z.enum(CONTENT_STATUSES) }),
+  ),
+  'content.item.processing_started': defineEvent('content', contentTransitionPayload),
+  'content.item.processed': defineEvent('content', contentTransitionPayload),
+  'content.item.processing_failed': defineEvent('content', contentTransitionPayload),
+  'content.item.published': defineEvent('content', contentTransitionPayload),
+  'content.item.scheduled': defineEvent('content', contentTransitionPayload),
+  'content.item.ended': defineEvent('content', contentTransitionPayload),
+  'content.item.deactivated': defineEvent('content', contentTransitionPayload),
+  'content.item.reactivated': defineEvent('content', contentTransitionPayload),
+  'content.item.archived': defineEvent('content', contentTransitionPayload),
+  'content.item.unarchived': defineEvent('content', contentTransitionPayload),
+  'content.item.restored': defineEvent('content', contentTransitionPayload),
+  'content.item.deleted': defineEvent(
+    'content',
+    z.strictObject({ v: z.literal(1), store_id: z.uuid(), content_id: z.uuid(), from: z.enum(CONTENT_STATUSES) }),
+  ),
 } as const;
 
 export type EventName = keyof typeof EVENT_CATALOG;

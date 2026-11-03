@@ -11,6 +11,7 @@ import { startQueueStatsPoller } from '../adapters/telemetry/queue-stats.js';
 import { IntegrationService } from '../modules/integration/integration.service.js';
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
+import { registerContentEventHandlers } from './content-jobs.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
 import { CATALOG_RECONCILE_SCHEDULE_QUEUE, CatalogReconcile, RECONCILE_CRON } from '../modules/catalog/catalog-reconcile.js';
 import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
@@ -116,6 +117,7 @@ export async function startWorker(
   const integration = new IntegrationService(pool, infra.platform, infra.cipher, telemetry, boss, infra.integration, infra.lifecycles, infra.installListeners);
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
+  registerContentEventHandlers(events, telemetry);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.

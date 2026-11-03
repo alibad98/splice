@@ -539,6 +539,6 @@ describe('security review fixes', () => {
 
   it('the default store-data lifecycles purge session and catalog data (integration is added last by the service)', () => {
     const infra = buildInfra({ CORS_ORIGINS: 'x', LOG_LEVEL: 'silent' }, 'worker', { pool: app, events: boss });
-    expect(infra.lifecycles.map((l) => l.module)).toEqual(['session', 'catalog']);
+    expect(infra.lifecycles.map((l) => l.module)).toEqual(['session', 'catalog', 'content']);
   });
 });

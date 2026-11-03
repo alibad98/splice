@@ -38,3 +38,13 @@ export const SALLA_APP_EVENTS = {
   uninstalled: 'app.uninstalled',
 } as const;
 /** A delivery has no documented event id; the SHA-256 of the raw body stands in (a retry resends the same body). Verify in Story 1.13. */
+
+/** Product events that mean "this product changed" (Story 2.4). `product.deleted` is Story 2.5. Names from docs; verify on a real store. */
+export const SALLA_PRODUCT_EVENTS = [
+  'product.created',
+  'product.updated',
+  'product.price.updated',
+  'product.quantity.low',
+  'product.available',
+  'product.status.updated',
+] as const;

@@ -103,6 +103,15 @@ describe('SallaCommercePlatform data', () => {
     expect(JSON.stringify(order)).not.toMatch(/Sara|shopper|Secret Street|0555/);
   });
 
+  it('gets one product by id from the { data } envelope and fails closed on anything else', async () => {
+    const f = vi.fn().mockResolvedValueOnce(json({ data: { id: 3, name: 'P3', price: { amount: '5.5', currency: 'sar' }, quantity: 2 } })).mockResolvedValueOnce(json({ nope: true }));
+    const p = platform(f as unknown as typeof fetch);
+    const session = { storeId: 's1', accessToken: 'AT' };
+    expect(await p.products.get(session, '3')).toMatchObject({ externalId: '3', price: '5.5', currency: 'SAR', stock: 2 });
+    expect(String((f.mock.calls[0] as unknown[])[0])).toContain('/products/3');
+    await expect(p.products.get(session, '3')).rejects.toBeInstanceOf(PlatformUnavailableError);
+  });
+
   it('lists products with paging and subscriptions', async () => {
     const f = vi
       .fn()
@@ -159,6 +168,22 @@ describe('webhook parsing', () => {
     const o = parse({ event: 'order.created', merchant: '9', data: pii })!;
     expect(o.kind).toBe('other');
     expect(JSON.stringify([u, o])).not.toMatch(/shopper@example.com|0555/);
+  });
+  it('reads product events into an allow-listed canonical product, dropping shopper-like and unknown fields', () => {
+    const data = { id: 77, name: 'Abaya', price: { amount: 120, currency: 'SAR' }, quantity: 4, updated_at: '2026-10-30T09:00:00Z', description: 'secret copy', customer: { email: 'shopper@example.com' } };
+    for (const event of ['product.created', 'product.updated', 'product.price.updated', 'product.quantity.low', 'product.available', 'product.status.updated']) {
+      expect(parse({ event, merchant: '9', created_at: '2026-10-30T09:00:01Z', data })!.kind).toBe('product');
+    }
+    const e = parse({ event: 'product.updated', merchant: '9', data })!;
+    expect(e.payload).toMatchObject({ event: 'product.updated', kind: 'product', product_id: '77', product: { externalId: '77', name: 'Abaya', price: '120', stock: 4, sourceUpdatedAt: '2026-10-30T09:00:00.000Z' } });
+    expect(JSON.stringify(e.payload)).not.toMatch(/shopper@example.com|secret copy/);
+    expect(parse({ event: 'product.deleted', merchant: '9', data })!.kind).toBe('other');
+  });
+  it('keeps only the product id when the data is unreadable, and marks an event without an id invalid', () => {
+    const unreadable = parse({ event: 'product.updated', merchant: '9', data: { id: 5, name: '' } })!;
+    expect(unreadable.payload).toEqual({ event: 'product.updated', kind: 'product', product_id: '5' });
+    expect(parse({ event: 'product.updated', merchant: '9', data: { name: 'x' } })!.payload).toEqual({ event: 'product.updated', kind: 'product', invalid: true });
+    expect(parse({ event: 'product.updated', merchant: '9' })!.payload).toMatchObject({ invalid: true });
   });
   it('gives a retry of the same body the same event id and a different body another', () => {
     const body = { event: 'app.uninstalled', merchant: '9' };

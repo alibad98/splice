@@ -12,6 +12,7 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
+import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
 import { buildInfra } from '../http.js';
 import type { Env } from '../config/env.js';
 import type { DatabaseProbe } from '../ports/database-probe.js';
@@ -115,6 +116,8 @@ export async function startWorker(
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
+  // The worker's sweep retries product webhooks that were not applied inline.
+  registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
   const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync), ...handlers };
   let stopPoller = () => {};
   try {

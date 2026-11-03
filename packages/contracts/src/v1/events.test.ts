@@ -68,4 +68,14 @@ describe('catalog events', () => {
     expect(schema.safeParse({ v: 1, store_id: id, run_id: run, created: -1, updated: 0, finished_at: '2026-11-01T10:00:00.000Z' }).success).toBe(false);
     expect(schema.safeParse({ v: 1, store_id: id, run_id: run, created: 1, finished_at: '2026-11-01T10:00:00.000Z' }).success).toBe(false);
   });
+  it('product.updated carries the changed fields and the visible snapshot', () => {
+    const schema = EVENT_CATALOG['catalog.product.updated'].schema;
+    const ok = { v: 1, store_id: id, product_id: run, external_id: 'p1', changed: ['price_minor'], name: 'A', image_url: null, price_minor: 1250, sale_price_minor: null, currency: 'SAR', availability: 'low', has_required_options: false, visible: true };
+    expect(EVENT_CATALOG['catalog.product.updated'].owner).toBe('catalog');
+    expect(schema.safeParse(ok).success).toBe(true);
+    expect(schema.safeParse({ ...ok, changed: [] }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, changed: ['stock'] }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, availability: 'gone' }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, product_id: 'x' }).success).toBe(false);
+  });
 });

@@ -21,3 +21,11 @@ export class StoreLifecycleConflictError extends Error {
     this.name = 'StoreLifecycleConflictError';
   }
 }
+
+/** A stored webhook has no usable content (e.g. a product event without an id): retrying will not help. */
+export class InvalidWebhookPayloadError extends Error {
+  constructor(message = 'webhook payload is not usable') {
+    super(message);
+    this.name = 'InvalidWebhookPayloadError';
+  }
+}

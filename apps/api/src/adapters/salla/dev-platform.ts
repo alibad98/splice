@@ -1,5 +1,7 @@
+import { PlatformUnavailableError } from '../../ports/commerce-platform.js';
 import type {
   CanonicalOrder,
+  CanonicalProduct,
   ProductPage,
   CanonicalSubscription,
   CanonicalWebhook,
@@ -79,6 +81,9 @@ export class DevSallaCommercePlatform implements CommercePlatform {
   };
 
   readonly products = {
+    get: async (_: PlatformSession, externalId: string): Promise<CanonicalProduct> => {
+      throw new PlatformUnavailableError(`dev platform has no product ${externalId}`);
+    },
     list: async (): Promise<ProductPage> => ({
       items: [],
       hasMore: false,

@@ -102,3 +102,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
   summary: Two icon sets in the dashboard (`components/shell/Icon` and the kit `Icon`).
   evidence: SessionActions.tsx and AppShell.tsx import both; migrate shell icons to the kit.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
+  summary: Untested lost-race branch in `CatalogRepository.applyProduct` (guarded upsert returns no row after the read).
+  evidence: Practically unreachable under the `for update` row lock plus the `catalog-product` advisory lock; testing needs an artificial interleaving.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
+  summary: A product webhook needing a fetch for a disconnected store retries as `internal`, then dead-letters (`getAccessToken` throws `StoreDisconnected*`).
+  evidence: Story 2.7 (pause sync when disconnected) should skip or park these; reconciliation repairs after reconnect.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
+  summary: Partial product payloads (`product.quantity.low`, `product.available`) might map with defaults and overwrite fields (unverified, medium if true).
+  evidence: Settle by recording real deliveries on the demo store with the webhook recorder and adding them as fixtures.

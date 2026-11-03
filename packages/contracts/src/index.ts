@@ -22,6 +22,7 @@ export {
   EVENT_NAME_PATTERN,
   EVENT_OWNERS,
   EVENT_QUEUE,
+  PRODUCT_VISIBLE_FIELDS,
   EmbeddedSession,
   EventEnvelope,
   ForgotPasswordInput,

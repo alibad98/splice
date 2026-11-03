@@ -150,6 +150,17 @@ describe('install event -> full-sync job', () => {
   });
 });
 
+describe('catalog.product.updated', () => {
+  it('is dispatched to the logging handler without failing', async () => {
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, { send: async () => 'job' }, telemetry);
+    const storeId = randomUUID();
+    const payload = { v: 1, store_id: storeId, product_id: randomUUID(), external_id: 'p1', changed: ['price_minor'], name: 'A', image_url: null, price_minor: 100, sale_price_minor: null, currency: 'SAR', availability: 'available', has_required_options: false, visible: true };
+    const envelope: EventEnvelope = { v: 1, trace_id: 't', store_id: storeId, event_id: uuidv7(), name: 'catalog.product.updated', occurred_at: new Date().toISOString(), payload };
+    await expect(eventDispatcher(app, registry)(envelope, { id: 'j', data: envelope })).resolves.not.toThrow();
+  });
+});
+
 describe('full sync', () => {
   it('imports every page with prices in minor units, buckets, flags and source time; records the sync and emits sync.completed in the same transaction', async () => {
     const storeId = randomUUID();

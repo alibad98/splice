@@ -12,7 +12,7 @@ export function unconfiguredPlatform(): CommercePlatform {
     platform: 'salla',
     auth: { buildAuthorizeUrl: fail, exchangeCode: fail, refresh: fail, getMerchantProfile: fail },
     embedded: { introspect: fail, openUrl: () => undefined },
-    products: { list: fail },
+    products: { list: fail, get: fail },
     orders: { get: fail },
     subscriptions: { list: fail },
     webhooks: { verify: () => false, parse: () => null },

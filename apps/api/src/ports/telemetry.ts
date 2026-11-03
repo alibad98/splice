@@ -14,6 +14,8 @@ export const Metric = {
   DashboardRequests: 'slips_dashboard_requests_total',
   /** Counter: failed Salla API calls, label `reason`. */
   SallaApiFailures: 'slips_salla_api_failures_total',
+  /** Counter, label `source` (`webhook` | `sync`): a product write skipped because the stored copy is newer. */
+  CatalogStaleWrites: 'slips_catalog_stale_writes_total',
   /** Counter: webhook jobs that failed an attempt. */
   WebhookFailures: 'slips_webhook_failures_total',
   /** Gauge, label `queue`: jobs sitting in that queue's dead-letter queue. Above zero means a job gave up. */

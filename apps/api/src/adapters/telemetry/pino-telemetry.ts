@@ -44,6 +44,7 @@ export class PinoTelemetry implements Telemetry {
     this.registry.declare(Metric.DashboardRequests, 'counter', OUTCOMES);
     this.registry.declare(Metric.SallaApiFailures, 'counter', [{}]);
     this.registry.declare(Metric.WebhookFailures, 'counter', [{}]);
+    this.registry.declare(Metric.CatalogStaleWrites, 'counter', [{ source: 'webhook' }, { source: 'sync' }]);
     this.registry.declare(Metric.ApiRequestDuration, 'histogram');
     this.registry.declare(Metric.JobsProcessed, 'counter');
     this.registry.declare(Metric.QueueDepth, 'gauge');

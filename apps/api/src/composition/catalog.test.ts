@@ -16,6 +16,7 @@ import { uuidv7 } from '../events/outbox.js';
 import { grantEventPublishing } from '../events/queue-grants.js';
 import { availabilityBucket } from '../modules/catalog/availability.js';
 import { catalogStoreData } from '../modules/catalog/catalog.lifecycle.js';
+import { CatalogRepository } from '../modules/catalog/catalog.repository.js';
 import { CatalogService } from '../modules/catalog/catalog.service.js';
 import { CATALOG_FULL_SYNC_QUEUE, CatalogSync, FullSyncJob, RUN_HEARTBEAT_MS, RunBusyError, STALE_RUN_MS } from '../modules/catalog/catalog-sync.js';
 import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integration/errors.js';
@@ -158,6 +159,18 @@ describe('catalog.product.updated', () => {
     const payload = { v: 1, store_id: storeId, product_id: randomUUID(), external_id: 'p1', changed: ['price_minor'], name: 'A', image_url: null, price_minor: 100, sale_price_minor: null, currency: 'SAR', availability: 'available', has_required_options: false, visible: true };
     const envelope: EventEnvelope = { v: 1, trace_id: 't', store_id: storeId, event_id: uuidv7(), name: 'catalog.product.updated', occurred_at: new Date().toISOString(), payload };
     await expect(eventDispatcher(app, registry)(envelope, { id: 'j', data: envelope })).resolves.not.toThrow();
+  });
+});
+
+describe('catalog.product.deleted', () => {
+  it('is dispatched to the logging handler without failing', async () => {
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, { send: async () => 'job' }, telemetry);
+    const storeId = randomUUID();
+    const payload = { v: 1, store_id: storeId, product_id: randomUUID(), external_id: 'p1' };
+    const envelope: EventEnvelope = { v: 1, trace_id: 't', store_id: storeId, event_id: uuidv7(), name: 'catalog.product.deleted', occurred_at: new Date().toISOString(), payload };
+    await expect(eventDispatcher(app, registry)(envelope, { id: 'j', data: envelope })).resolves.not.toThrow();
+    expect(lines.some((l) => l.includes('"event":"catalog.product.deleted"') && l.includes(payload.product_id))).toBe(true);
   });
 });
 
@@ -527,6 +540,23 @@ describe('products read API', () => {
     expect(page.items.map((i) => i.name)).toEqual(['Gone', 'Sale']);
     expect(page.items[1]).toMatchObject({ price_minor: 15000, sale_price_minor: 12000, currency: 'SAR', tax_inclusive: true, availability: 'low', category_name: 'Abayas', more_categories: 2, linked_content_count: 0, attributed_orders: null });
     expect(page.items[0]).toMatchObject({ availability: 'out_of_stock', category_name: null, more_categories: 0 });
+  });
+
+  it('excludes deleted (tombstoned) products from the rows and the total, with and without search or category filters', async () => {
+    const { storeId, token } = await seededStore([
+      product('d1', { name: 'Kept abaya', categories: [{ externalId: 'c1', name: 'Abayas' }] }),
+      product('d2', { name: 'Deleted abaya', categories: [{ externalId: 'c1', name: 'Abayas' }] }),
+    ]);
+    const repo = new CatalogRepository();
+    await withStoreContext(app, storeId, async () => {
+      await repo.lockProductWrites();
+      await repo.tombstoneProducts('salla', ['d2'], new Date('2026-10-31T00:00:00Z'));
+    });
+    for (const qs of ['', '?q=abaya', '?category=c1', '?q=Deleted&category=c1']) {
+      const page = await list(token, qs);
+      expect(page.items.map((i) => i.name)).toEqual(qs.includes('Deleted') ? [] : ['Kept abaya']);
+      expect(page.total).toBe(qs.includes('Deleted') ? 0 : 1);
+    }
   });
 
   it('sorts by effective price (sale price when set) both ways', async () => {

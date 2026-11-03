@@ -151,8 +151,11 @@ export interface CommercePlatform {
   readonly products: {
     /** One page (1-based) of the store's products. Throws PlatformUnavailableError when the platform can not answer. */
     list(session: PlatformSession, page: number): Promise<ProductPage>;
-    /** One product by its platform id. Throws PlatformUnavailableError when the platform can not answer or the answer is not a readable product. */
-    get(session: PlatformSession, externalId: string): Promise<CanonicalProduct>;
+    /**
+     * One product by its platform id; null when the platform says it does not exist (deleted, Story 2.5). Throws
+     * PlatformUnavailableError when the platform can not answer or the answer is not a readable product.
+     */
+    get(session: PlatformSession, externalId: string): Promise<CanonicalProduct | null>;
   };
   readonly orders: { get(session: PlatformSession, externalId: string): Promise<CanonicalOrder> };
   readonly subscriptions: { list(session: PlatformSession): Promise<CanonicalSubscription[]> };

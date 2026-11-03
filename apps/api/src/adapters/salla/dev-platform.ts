@@ -81,7 +81,7 @@ export class DevSallaCommercePlatform implements CommercePlatform {
   };
 
   readonly products = {
-    get: async (_: PlatformSession, externalId: string): Promise<CanonicalProduct> => {
+    get: async (_: PlatformSession, externalId: string): Promise<CanonicalProduct | null> => {
       throw new PlatformUnavailableError(`dev platform has no product ${externalId}`);
     },
     list: async (): Promise<ProductPage> => ({

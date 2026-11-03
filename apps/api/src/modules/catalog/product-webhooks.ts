@@ -1,7 +1,10 @@
-// Applies Salla product webhooks to the catalog (Story 2.4). Registered on the integration inbox for the `product` kind.
-// The webhook's own data is used when it was readable (no API call); the product is fetched by id only when it was not.
-// Writes run in the store's context under one advisory lock per store, guarded on `source_updated_at`, and announce a
-// change of a manifest-visible field with `catalog.product.updated` in the same transaction.
+// Applies Salla product webhooks to the catalog (Stories 2.4, 2.5). Registered on the integration inbox for the
+// `product` kind. The webhook's own data is used when it was readable (no API call); the product is fetched by id only
+// when it was not. Writes run in the store's context under one advisory lock per store, guarded on `source_updated_at`,
+// and announce a change of a manifest-visible field with `catalog.product.updated` in the same transaction (a
+// tombstoned product written again by a strictly newer source is restored and announced with every field changed).
+// A deletion (`deleted: true` in the payload, or a fetch the platform answers "not found") tombstones the product
+// through `deleteProducts`, which announces `catalog.product.deleted`.
 import { withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { z } from 'zod';
@@ -12,6 +15,7 @@ import { InvalidWebhookPayloadError } from '../integration/errors.js';
 import type { InboxEventInput, WebhookInbox } from '../integration/webhook-inbox.js';
 import type { AccessTokenSource } from './catalog-sync.js';
 import { CatalogRepository } from './catalog.repository.js';
+import { deleteProducts } from './product-deletions.js';
 import { toProductWrites } from './product-writes.js';
 
 /** The canonical product as the platform adapter stored it in the inbox payload (dates as ISO text). */
@@ -52,7 +56,11 @@ export class ProductWebhooks {
     const { storeId, payload } = input;
     const productId = payload.product_id;
     if (payload.invalid === true || typeof productId !== 'string' || productId === '') throw new InvalidWebhookPayloadError('product webhook without a readable product id');
+    // A deletion is ordered by the platform's event time, else now.
+    if (payload.deleted === true) return this.delete(input, productId, input.occurredAt ?? new Date(this.now()));
     const product = await this.canonical(storeId, productId, payload.product);
+    // The platform answered "not found" to the fetch: the product is gone, observed now.
+    if (product === null) return this.delete(input, productId, new Date(this.now()));
     // The product's own change time orders writes; without it, the platform's event time, then now.
     const fallbackAt = input.occurredAt ?? new Date(this.now());
     const { products, categories, rejected } = toProductWrites(this.platform.platform, [product], fallbackAt);
@@ -89,7 +97,17 @@ export class ProductWebhooks {
     this.telemetry.log.info('product webhook applied', { store_id: storeId, outcome: result.outcome, changed: result.changed, external_id: productId, event_id: input.eventId });
   };
 
-  private async canonical(storeId: string, productId: string, stored: unknown): Promise<CanonicalProduct> {
+  private async delete(input: InboxEventInput, productId: string, observedAt: Date): Promise<void> {
+    const { storeId } = input;
+    const result = await withStoreContext(this.pool, storeId, async (ctx) => {
+      await this.repo.lockProductWrites();
+      return deleteProducts(ctx, { events: this.events, telemetry: this.telemetry }, { storeId, platform: this.platform.platform, externalIds: [productId], observedAt, source: 'webhook' });
+    });
+    this.telemetry.log.info('product deletion webhook applied', { store_id: storeId, external_id: productId, event_id: input.eventId, ...result });
+  }
+
+  /** The canonical product; null when it had to be fetched and the platform says it does not exist. */
+  private async canonical(storeId: string, productId: string, stored: unknown): Promise<CanonicalProduct | null> {
     if (stored !== undefined) {
       const parsed = StoredProduct.safeParse(stored);
       if (parsed.success) {

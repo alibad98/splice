@@ -19,6 +19,7 @@ import { catalogStoreData } from '../modules/catalog/catalog.lifecycle.js';
 import { CatalogRepository } from '../modules/catalog/catalog.repository.js';
 import { CatalogService } from '../modules/catalog/catalog.service.js';
 import { CATALOG_FULL_SYNC_QUEUE, CatalogSync, FullSyncJob, RUN_HEARTBEAT_MS, RunBusyError, STALE_RUN_MS } from '../modules/catalog/catalog-sync.js';
+import type { CatalogReconcile } from '../modules/catalog/catalog-reconcile.js';
 import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integration/errors.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CanonicalProduct, type CommercePlatform, type ProductPage } from '../ports/commerce-platform.js';
 import { catalogJobHandlers, FULL_SYNC_SINGLETON_SECONDS, registerCatalogEventHandlers } from '../worker/catalog-jobs.js';
@@ -98,6 +99,9 @@ class FakeTokens {
 
 const syncFor = (platform: FakePlatform, tokens = new FakeTokens(), now = () => Date.now()) =>
   ({ sync: new CatalogSync(app, platform as unknown as CommercePlatform, tokens, telemetry, boss, now), tokens });
+
+/** The catalog job handlers around a full sync; reconcile (Story 2.6) is covered in catalog-reconcile.test.ts. */
+const handlersFor = (sync: CatalogSync) => catalogJobHandlers(sync, {} as CatalogReconcile, { activeStoreIds: async () => [] }, boss, telemetry);
 
 const productsOf = async (storeId: string) =>
   (await admin.query('select * from products where store_id = $1 order by external_id', [storeId])).rows as Array<Record<string, unknown>>;
@@ -183,7 +187,7 @@ describe('full sync', () => {
       [product('p3', { stock: null, price: '1.250', currency: 'KWD', categories: [{ externalId: 'c2', name: 'Gifts' }] }), product('p4', { stock: 6, visible: false, sourceUpdatedAt: undefined })],
     ]);
     const { sync, tokens } = syncFor(platform);
-    const handlers = catalogJobHandlers(sync);
+    const handlers = handlersFor(sync);
     await handlers[CATALOG_FULL_SYNC_QUEUE]!({ v: 1, trace_id: 't', store_id: storeId, run_id: runId }, { id: 'j', data: {} });
 
     expect(platform.calls).toEqual([1, 2]);
@@ -286,7 +290,7 @@ describe('full sync', () => {
     const storeId = randomUUID();
     const runId = nextRun();
     const platform = new FakePlatform([[product('l1')], [product('l2')]]);
-    const handler = catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
+    const handler = handlersFor(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
     const job = { v: 1, trace_id: 't', store_id: storeId, run_id: runId };
     for (let attempt = 0; attempt < 5; attempt++) {
       platform.fail.set(2, new PlatformUnavailableError('down'));
@@ -682,7 +686,7 @@ describe('manual sync', () => {
     registerCatalogEventHandlers(registry, { send: async (_q: string, data: object, options?: Record<string, unknown>) => (sent.push({ data: data as FullSyncJob, options }), 'job') }, telemetry);
     const dispatch = eventDispatcher(app, registry);
     for (const { data } of await requestedEvents(storeId)) await dispatch(data, { id: data.event_id, data });
-    const handler = catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
+    const handler = handlersFor(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
     for (const job of sent) await handler(job.data, { id: 'j', data: job.data, ...attempt });
     return sent;
   }
@@ -815,7 +819,7 @@ describe('manual sync', () => {
     expect(await requestedEvents(storeId)).toHaveLength(1);
     const job: FullSyncJob = { v: 1, trace_id: 't', store_id: storeId, run_id: (await statusOf(token)).run_id! };
     platform.fail.set(1, new PlatformUnavailableError('503'));
-    await expect(catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!(job, { id: 'j', data: job, retryCount: 4, retryLimit: 4 })).rejects.toBeInstanceOf(PlatformUnavailableError);
+    await expect(handlersFor(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!(job, { id: 'j', data: job, retryCount: 4, retryLimit: 4 })).rejects.toBeInstanceOf(PlatformUnavailableError);
     expect(await statusOf(token)).toMatchObject({ status: 'failed', reason: 'platform_unavailable' });
   });
 

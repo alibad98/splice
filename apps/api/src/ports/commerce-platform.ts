@@ -62,6 +62,11 @@ export interface ProductPage {
   items: CanonicalProduct[];
   /** Products on the page the adapter could not read (malformed); never stored. */
   skipped?: number;
+  /**
+   * Platform ids of the skipped products whose id was still readable. They exist on the platform, so reconciliation
+   * never treats them as absent (Story 2.6).
+   */
+  skippedExternalIds?: string[];
   hasMore: boolean;
 }
 

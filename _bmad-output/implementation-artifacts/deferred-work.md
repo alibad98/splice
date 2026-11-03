@@ -111,3 +111,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-4-apply-product-webhooks.md`
   summary: Partial product payloads (`product.quantity.low`, `product.available`) might map with defaults and overwrite fields (unverified, medium if true).
   evidence: Settle by recording real deliveries on the demo store with the webhook recorder and adding them as fixtures.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-reconcile-catalog-daily.md`
+  summary: The daily `catalog.reconcile.schedule` cron registration in `startWorker` (like the webhook sweep cron) has no test; deleting the `boss.schedule` line passes CI.
+  evidence: No worker-startup test harness exists. Covering it needs a `startWorker` seam (e.g. an extracted `registerSchedules(boss, selected)`) that tests can call with a fake.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-reconcile-catalog-daily.md`
+  summary: UNVERIFIED (medium if true). A truncated or empty listing turns most live products into deletion candidates. That means unbounded sequential `products.get` calls, and a mass tombstone if Salla's 404 were systemic.
+  evidence: Confirm-before-delete protects against a bad listing only while `get` answers correctly. Settle Salla's 404 behaviour with the webhook recorder (Story 2.5 deferred). If it is not trustworthy, add a candidate cap (e.g. abort and alert when more than X% of live products are absent).

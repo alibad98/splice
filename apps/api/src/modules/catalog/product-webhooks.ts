@@ -61,9 +61,11 @@ export class ProductWebhooks {
 
     const result = await withStoreContext(this.pool, storeId, async (ctx) => {
       await this.repo.lockProductWrites();
+      // Categories before the product, the same lock order as a full sync page, so the two can not deadlock.
+      // Each category is guarded on its own `source_updated_at`, so a stale product does not make its categories stale.
+      await this.repo.upsertCategories(categories);
       const applied = await this.repo.applyProduct(write);
       if (applied.outcome === 'stale') return applied;
-      await this.repo.upsertCategories(categories);
       if (applied.changed.length > 0) {
         await publishEvent(ctx, this.events, this.telemetry, 'catalog.product.updated', {
           v: 1,
@@ -84,7 +86,7 @@ export class ProductWebhooks {
       return applied;
     });
     if (result.outcome === 'stale') this.telemetry.counter(Metric.CatalogStaleWrites, { source: 'webhook' });
-    this.telemetry.log.info('product webhook applied', { outcome: result.outcome, changed: result.changed, external_id: productId, event_id: input.eventId });
+    this.telemetry.log.info('product webhook applied', { store_id: storeId, outcome: result.outcome, changed: result.changed, external_id: productId, event_id: input.eventId });
   };
 
   private async canonical(storeId: string, productId: string, stored: unknown): Promise<CanonicalProduct> {

@@ -45,7 +45,7 @@ export function registerCatalogEventHandlers(registry: EventHandlerRegistry, bos
     // Never leave the queued run without a job: fail the delivery so the event is retried.
     if (!jobId) throw new Error(`catalog full sync not queued for requested run ${event.payload.run_id}`);
   });
-  // Nothing consumes product changes yet (Epic 3 publishes them); the dispatcher still needs a handler.
+  // Nothing consumes product changes yet (content in Story 3.4 and publishing in Epic 4 will); the dispatcher still needs a handler.
   registry.on('catalog.product.updated', 'catalog.log.product.updated', async (event) => {
     telemetry.log.info('catalog event', { event: event.name, event_id: event.id, product_id: event.payload.product_id, changed: event.payload.changed });
   });

@@ -214,6 +214,16 @@ describe('product webhooks', () => {
     expect(await productRow(storeId, 'p1')).toMatchObject({ price_minor: '15000', sale_price_minor: '10000', availability: 'available', visible: true, stock: 20 });
   });
 
+  it('emits catalog.product.updated for a change of the name, the main image or the required-options flag alone', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1'));
+    await post(hook('product.updated', merchant, sallaProduct('p1', { name: 'Renamed', updated_at: '2026-10-30T10:01:00Z' })));
+    await post(hook('product.updated', merchant, sallaProduct('p1', { name: 'Renamed', main_image: 'https://cdn.example.com/new.jpg', updated_at: '2026-10-30T10:02:00Z' })));
+    await post(hook('product.updated', merchant, sallaProduct('p1', { name: 'Renamed', main_image: 'https://cdn.example.com/new.jpg', options: [{ required: true }], updated_at: '2026-10-30T10:03:00Z' })));
+    expect((await updatedEvents(storeId)).map((e) => (e.payload as { changed: string[] }).changed)).toEqual([['name'], ['image_url'], ['has_required_options']]);
+    expect(await productRow(storeId, 'p1')).toMatchObject({ name: 'Renamed', image_url: 'https://cdn.example.com/new.jpg', has_required_options: true });
+  });
+
   it('keeps only the id when the data is unreadable: the request answers 200, the sweep fetches the product, and a fetch failure retries', async () => {
     const { merchant, storeId } = await installStore();
     await seed(storeId, row('p9'));

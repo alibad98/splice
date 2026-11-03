@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { Toaster } from '@slips/ui';
+import { DialogHost, SIDEBAR_COOKIE, sidebarOpenFromCookie, Toaster } from '@slips/ui';
 import { AppShell } from '../../components/shell/AppShell';
 import { SessionProvider } from '../../components/session/SessionProvider';
 import { DataProviders } from '../../components/providers/DataProviders';
@@ -21,6 +22,7 @@ export default async function MerchantLayout({ children }: { children: ReactNode
 
   const apiBase = publicApiUrl();
   const messages = getMessages(locale);
+  const sidebarOpen = sidebarOpenFromCookie((await cookies()).get(SIDEBAR_COOKIE)?.value);
   return (
     <SessionProvider
       apiBase={apiBase}
@@ -29,11 +31,13 @@ export default async function MerchantLayout({ children }: { children: ReactNode
       framed={context.framed ?? false}
     >
       <DataProviders>
-        <AppShell locale={locale} messages={messages} context={context}>
+        <AppShell locale={locale} messages={messages} context={context} sidebarOpen={sidebarOpen}>
           {children}
         </AppShell>
         {/* Mounted once, empty, so every toast is announced (EXPERIENCE.md). */}
         <Toaster label={messages.toast.region} toastLabel={messages.toast.item} closeLabel={messages.toast.close} dir={directionOf(locale)} />
+        {/* Mounted once; dialog.confirm() renders here (sign out, destructive confirms). */}
+        <DialogHost dir={directionOf(locale)} />
       </DataProviders>
     </SessionProvider>
   );

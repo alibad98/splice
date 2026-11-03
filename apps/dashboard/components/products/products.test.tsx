@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NuqsTestingAdapter, type OnUrlUpdateFunction } from 'nuqs/adapters/testing';
@@ -67,6 +67,16 @@ function setup({ locale = 'en', search = '', products = [], syncState, onUrlUpda
   );
 }
 
+beforeAll(() => {
+  // jsdom lacks the pointer-capture and scroll APIs Radix Select uses.
+  Object.assign(Element.prototype, {
+    hasPointerCapture: () => false,
+    setPointerCapture: () => undefined,
+    releasePointerCapture: () => undefined,
+    scrollIntoView: () => undefined,
+  });
+});
+
 afterEach(() => {
   cleanup();
   session = null;
@@ -122,7 +132,7 @@ describe('Products page', () => {
     const query: ProductListQuery = { q: 'abaya', category: 'c1', sort: '-price', page: 2 };
     setup({ search: '?q=abaya&category=c1&sort=-price&page=2', products: [[query, page([row()], { total: 51, page: 2 })]] });
     expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('abaya');
-    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('c1');
+    expect(screen.getByRole('combobox').textContent).toContain('Abayas');
     expect(screen.getByRole('columnheader', { name: /Price/ }).getAttribute('aria-sort')).toBe('descending');
     expect(screen.getByText('51-51 of 51')).toBeTruthy();
   });
@@ -234,7 +244,12 @@ describe('Products page', () => {
   it('choosing a category from ?page=3 sets the category and drops the page', async () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
     setup({ search: '?page=3', products: [[{ sort: 'name', page: 3 }, page([row()], { total: 120, page: 3 })]], onUrlUpdate });
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'c1' } });
+    const combobox = screen.getByRole('combobox');
+    combobox.focus();
+    fireEvent.keyDown(combobox, { key: 'Enter' });
+    const option = await screen.findByRole('option', { name: 'Abayas' });
+    option.focus();
+    fireEvent.keyDown(option, { key: 'Enter' });
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
     expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('?category=c1');
     expect(onUrlUpdate.mock.lastCall![0].options.history).toBe('push');

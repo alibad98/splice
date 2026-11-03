@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
+import { Button, cn, Field, Icon, Input } from '@slips/ui';
 import { AuthAlert } from '../../../components/auth/AuthAlert';
-import { FormInput } from '../../../components/auth/FormInput';
+import { AuthHeading, authLinkClass, looksLikeEmail } from '../../../components/auth/AuthHeading';
 import { useI18n } from '../../../i18n/provider';
 import { authClient } from '../../../lib/auth/client';
 
@@ -16,69 +17,71 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | undefined>();
+  const emailRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email || isPending) return;
+    if (isPending) return;
+
+    const cleanEmail = email.trim();
+    const error = !cleanEmail ? m.errors.emailRequired : !looksLikeEmail(cleanEmail) ? m.errors.emailInvalid : undefined;
+    setEmailError(error);
+    if (error) {
+      emailRef.current?.focus();
+      return;
+    }
 
     setIsPending(true);
     setErrorMessage(null);
 
-    const cleanEmail = email.trim();
     const result = await authClient.forgotPassword({ email: cleanEmail });
-
     if (result.ok) {
       router.push(`/verify-otp?flow=reset&email=${encodeURIComponent(cleanEmail)}`);
       return;
     }
 
     setIsPending(false);
-    if (result.error.code === 'network_error') {
-      setErrorMessage(m.errors.networkError);
-    } else {
-      setErrorMessage(m.errors.genericError);
-    }
+    setErrorMessage(result.error.code === 'network_error' ? m.errors.networkError : m.errors.genericError);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1.5 text-start">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">{m.forgotPasswordTitle}</h2>
-        <p className="text-sm text-muted-foreground">{m.forgotPasswordSubtitle}</p>
-      </div>
+    <div className="flex flex-col gap-[clamp(16px,3dvh,24px)]">
+      <AuthHeading title={m.forgotPasswordTitle}>{m.forgotPasswordSubtitle}</AuthHeading>
 
-      {errorMessage && (
-        <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />
-      )}
+      {errorMessage && <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
 
-      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-        <FormInput
-          label={m.emailLabel}
-          type="email"
-          autoComplete="email"
-          placeholder={m.emailPlaceholder}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
+        <Field label={m.emailLabel} error={emailError}>
+          <Input
+            ref={emailRef}
+            size="lg"
+            type="email"
+            inputMode="email"
+            dir="ltr"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            leadingIcon="mail"
+            placeholder={m.emailPlaceholder}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailError) setEmailError(undefined);
+            }}
+            required
+          />
+        </Field>
 
-        <button
-          type="submit"
-          disabled={isPending || !email}
-          className="w-full h-11 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] text-white font-semibold text-sm hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"
-        >
+        <Button type="submit" variant="primary" size="lg" pending={isPending} className="w-full">
           {isPending ? m.sendingOtpButton : m.sendOtpButton}
-        </button>
+        </Button>
       </form>
 
-      <div className="text-center pt-2">
-        <Link
-          href="/login"
-          className="text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]"
-        >
-          {m.backToLogin}
-        </Link>
-      </div>
+      <Link href="/login" className={cn(authLinkClass, 'inline-flex items-center justify-center gap-1.5 self-center text-small text-muted-foreground hover:text-foreground')}>
+        <Icon name="arrow" className="size-4 rotate-180" />
+        {m.backToLogin}
+      </Link>
     </div>
   );
 }

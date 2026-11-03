@@ -3,7 +3,7 @@ import { ResetPasswordForm } from './ResetPasswordForm';
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="h-48 animate-pulse rounded-xl bg-secondary/30" />}>
+    <Suspense fallback={<div className="h-72 animate-pulse rounded-md bg-muted motion-reduce:animate-none" />}>
       <ResetPasswordForm />
     </Suspense>
   );

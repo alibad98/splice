@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PRODUCT_SEARCH_MAX } from '@slips/contracts';
+import { Field, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 
 export const SEARCH_DEBOUNCE_MS = 300;
-
-const field = 'h-9 rounded-md border border-input-border bg-background px-3 text-body';
 
 interface Props {
   q: string;
@@ -20,8 +19,6 @@ interface Props {
 export function ProductFilters({ q, category, categories, onSearch, onCategory }: Props) {
   const { messages } = useI18n();
   const m = messages.products;
-  const searchId = useId();
-  const categoryId = useId();
   const [term, setTerm] = useState(q);
   const latest = useRef(q);
 
@@ -42,25 +39,24 @@ export function ProductFilters({ q, category, categories, onSearch, onCategory }
 
   return (
     <div role="search" className="flex flex-col gap-3 sm:flex-row sm:items-end">
-      <div className="flex flex-1 flex-col gap-1">
-        <label htmlFor={searchId} className="text-small text-muted-foreground">
-          {m.searchLabel}
-        </label>
-        <input id={searchId} type="search" dir="auto" value={term} maxLength={PRODUCT_SEARCH_MAX} placeholder={m.searchPlaceholder} onChange={(e) => setTerm(e.target.value)} className={field} />
-      </div>
-      <div className="flex flex-col gap-1 sm:w-56">
-        <label htmlFor={categoryId} className="text-small text-muted-foreground">
-          {m.categoryLabel}
-        </label>
-        <select id={categoryId} value={category} onChange={(e) => onCategory(e.target.value)} className={field}>
-          <option value="">{m.allCategories}</option>
-          {categories.map((c) => (
-            <option key={c.external_id} value={c.external_id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Field label={m.searchLabel} className="flex-1">
+        <Input type="search" dir="auto" leadingIcon="search" value={term} maxLength={PRODUCT_SEARCH_MAX} placeholder={m.searchPlaceholder} onChange={(e) => setTerm(e.target.value)} />
+      </Field>
+      <Field label={m.categoryLabel} className="sm:w-56">
+        <Select value={category} onValueChange={onCategory}>
+          <SelectTrigger>
+            <SelectValue placeholder={m.allCategories} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">{m.allCategories}</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.external_id} value={c.external_id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
     </div>
   );
 }

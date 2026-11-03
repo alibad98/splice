@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, type FormEvent } from 'react';
-import { AuthAlert } from '../../../components/auth/AuthAlert';
-import { FormInput } from '../../../components/auth/FormInput';
+import { useRef, useState, type FormEvent } from 'react';
 import type { StoreChoice } from '@slips/contracts';
+import { Button, Field, Input, PasswordInput } from '@slips/ui';
+import { AuthAlert } from '../../../components/auth/AuthAlert';
+import { AuthHeading, authLinkClass, looksLikeEmail } from '../../../components/auth/AuthHeading';
 import { SallaButton } from '../../../components/auth/SallaButton';
 import { StorePicker } from '../../../components/auth/StorePicker';
 import { useI18n } from '../../../i18n/provider';
@@ -22,16 +23,30 @@ export function LoginForm({ resetSuccess }: LoginFormProps) {
   const [password, setPassword] = useState('');
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [choice, setChoice] = useState<{ selection_token: string; stores: StoreChoice[] } | null>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email || !password || isPending) return;
+    if (isPending) return;
+
+    const cleanEmail = email.trim();
+    const errors = {
+      email: !cleanEmail ? m.errors.emailRequired : !looksLikeEmail(cleanEmail) ? m.errors.emailInvalid : undefined,
+      password: !password ? m.errors.passwordRequired : undefined,
+    };
+    setFieldErrors(errors);
+    if (errors.email || errors.password) {
+      (errors.email ? emailRef : passwordRef).current?.focus();
+      return;
+    }
 
     setIsPending(true);
     setErrorMessage(null);
 
-    const result = await authClient.login({ email: email.trim(), password });
+    const result = await authClient.login({ email: cleanEmail, password });
     if (result.ok) {
       if ('select_store' in result.data) {
         setChoice(result.data.select_store);
@@ -44,6 +59,7 @@ export function LoginForm({ resetSuccess }: LoginFormProps) {
     setIsPending(false);
     if (result.error.code === 'invalid_credentials') {
       setErrorMessage(m.errors.invalidCredentials);
+      passwordRef.current?.select();
     } else if (result.error.code === 'store_inactive') {
       setErrorMessage(m.errors.storeInactive);
     } else if (result.error.code === 'network_error') {
@@ -56,73 +72,71 @@ export function LoginForm({ resetSuccess }: LoginFormProps) {
   if (choice) return <StorePicker selectionToken={choice.selection_token} stores={choice.stores} />;
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-1.5 text-start">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">{m.loginTitle}</h2>
-        <p className="text-sm text-muted-foreground">{m.loginSubtitle}</p>
-      </div>
+    <div className="flex flex-col gap-[clamp(16px,3dvh,24px)]">
+      <AuthHeading title={m.loginTitle}>{m.loginSubtitle}</AuthHeading>
 
-      {resetSuccess && (
-        <AuthAlert type="success" message={m.success.passwordReset} />
-      )}
+      {resetSuccess && <AuthAlert type="success" message={m.success.passwordReset} />}
+      {errorMessage && <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />}
 
-      {errorMessage && (
-        <AuthAlert type="error" message={errorMessage} onDismiss={() => setErrorMessage(null)} />
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <FormInput
-          label={m.emailLabel}
-          type="email"
-          autoComplete="email"
-          placeholder={m.emailPlaceholder}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-
-        <div className="space-y-1.5">
-          <FormInput
-            label={m.passwordLabel}
-            type="password"
-            autoComplete="current-password"
-            placeholder={m.passwordPlaceholder}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <Field label={m.emailLabel} error={fieldErrors.email}>
+          <Input
+            ref={emailRef}
+            size="lg"
+            type="email"
+            inputMode="email"
+            dir="ltr"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            leadingIcon="mail"
+            placeholder={m.emailPlaceholder}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined }));
+            }}
             required
           />
-          <div className="flex justify-end">
-            <Link
-              href="/forgot-password"
-              className="text-xs font-semibold text-[var(--primary)] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary)]"
-            >
+        </Field>
+
+        <Field
+          label={m.passwordLabel}
+          error={fieldErrors.password}
+          labelAction={
+            <Link href="/forgot-password" className={authLinkClass}>
               {m.forgotPasswordLink}
             </Link>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={isPending || !email || !password}
-          className="w-full h-11 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] text-white font-semibold text-sm hover:opacity-90 active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2"
+          }
         >
+          <PasswordInput
+            ref={passwordRef}
+            size="lg"
+            dir="ltr"
+            autoComplete="current-password"
+            leadingIcon="lock"
+            showLabel={m.showPassword}
+            hideLabel={m.hidePassword}
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined }));
+            }}
+            required
+          />
+        </Field>
+
+        <Button type="submit" variant="primary" size="lg" pending={isPending} className="mt-2 w-full">
           {isPending ? m.signingInButton : m.signInButton}
-        </button>
+        </Button>
       </form>
 
-      {/* Salla Registration Redirection */}
-      <div className="relative flex items-center justify-center my-6">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-border" />
-        </div>
-        <div className="relative bg-card px-3">
-          <span className="text-xs text-muted-foreground font-medium">
-            {m.noAccount}
-          </span>
-        </div>
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-border" />
+        <span className="text-small font-medium text-muted-foreground">{m.noAccount}</span>
+        <span className="h-px flex-1 bg-border" />
       </div>
 
-      {/* Salla Register Button (opens salla.sa/auth/register) */}
       <SallaButton />
     </div>
   );

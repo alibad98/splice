@@ -8,10 +8,10 @@ import { getMessages } from '../../i18n/messages';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/products', useSearchParams: () => new URLSearchParams('lang=en&x=1') }));
 
-const render = (locale: 'ar' | 'en', connection: { state: 'not-connected' } | { state: 'connected'; storeName: string } = { state: 'not-connected' }) =>
+const render = (locale: 'ar' | 'en', connection: { state: 'not-connected' } | { state: 'connected'; storeName: string } = { state: 'not-connected' }, sidebarOpen = true) =>
   renderToStaticMarkup(
     <I18nProvider locale={locale} messages={getMessages(locale)}>
-      <AppShell locale={locale} messages={getMessages(locale)} context={{ connection }}>
+      <AppShell locale={locale} messages={getMessages(locale)} context={{ connection }} sidebarOpen={sidebarOpen}>
         <p>body</p>
       </AppShell>
     </I18nProvider>,
@@ -38,12 +38,22 @@ describe('app shell', () => {
     expect(en).toContain('Demo');
     expect(en).toContain('Need help? Contact support');
   });
-  it('keeps ?lang on nav links, the chip and the switch, and does not set title on expanded labels', () => {
+  it('keeps ?lang on nav links, the chip and the switch', () => {
     expect(html).toContain('href="/content?lang=en"');
     expect(html).toContain('href="/settings?tab=connection&amp;lang=en"');
     expect(html).toContain('href="/products?x=1&amp;lang=en"');
-    expect(html).toMatch(/<a[^>]*title="المنتجات"/); // collapsed (icon-only) nav keeps a title
-    expect(html).toMatch(/<nav[^>]*>(?:(?!<\/nav>).)*<span class="">المنتجات<\/span>/s);
+  });
+  it('pins a collapsible sidebar to the viewport edge and caps only the content', () => {
+    // No centred max-width wrapper around the sidebar (the old layout shift on wide screens).
+    expect(html).not.toContain('max-w-[1360px]');
+    expect(html).toMatch(/data-slot="sidebar-container" class="fixed inset-y-0 start-0/);
+    expect(html).toContain('max-w-[1200px]');
+    expect(html).toContain('data-state="expanded"');
+    expect(html).toContain('aria-label="طيّ القائمة أو توسيعها (Ctrl+B)"');
+    // Collapsed (from the cookie) renders the icon rail on the server; labels stay in the DOM so links keep their names.
+    const collapsed = render('ar', { state: 'not-connected' }, false);
+    expect(collapsed).toContain('data-collapsible="icon"');
+    expect(collapsed).toMatch(/<a[^>]*aria-current="page"[^>]*>(?:(?!<\/a>).)*<span>المنتجات<\/span>/s);
   });
   it('mailto support link has no target and the disabled preview is described by a reason', () => {
     expect(html).toMatch(/<a href="mailto:support@slips.app" class=/);

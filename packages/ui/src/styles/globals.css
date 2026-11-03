@@ -94,8 +94,8 @@
   --radius-xl: calc(var(--radius) + 6px);  /* 22px */
   --radius-pill: 999px;
   --shadow-card: var(--card-shadow);
-  --font-sans: var(--font-jakarta), "Plus Jakarta Sans", var(--font-plex-arabic), system-ui, sans-serif;
-  --font-arabic: var(--font-plex-arabic), var(--font-jakarta), "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-sans: var(--font-latin), "Figtree", var(--font-arabic-face), "Tajawal", system-ui, sans-serif;
+  --font-arabic: var(--font-arabic-face), var(--font-latin), "Tajawal", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
   --spacing-gutter: 18px;
   --color-player-scrim: var(--player-scrim); --color-player-surface: var(--player-surface);
   --color-player-surface-foreground: var(--player-surface-foreground); --color-player-cta: var(--player-cta);
@@ -108,6 +108,9 @@
   --text-body: 0.875rem; --text-body--line-height: 1.55;
   --text-body-lg: 1rem; --text-body-lg--line-height: 1.6;
   --text-small: 0.75rem; --text-small--line-height: 1.45; --text-small--font-weight: 500;
+  --text-button-sm: 0.8125rem; --text-button-sm--line-height: 1.25rem;
+  --text-button: 0.875rem; --text-button--line-height: 1.25rem;
+  --text-button-lg: 0.9375rem; --text-button-lg--line-height: 1.5rem;
   --text-kpi: 2rem; --text-kpi--line-height: 1.1; --text-kpi--font-weight: 800; --text-kpi--letter-spacing: -0.02em;
   --color-background: var(--background); --color-page: var(--page); --color-foreground: var(--foreground);
   --color-card: var(--card); --color-card-foreground: var(--card-foreground);
@@ -131,27 +134,97 @@
   --color-sidebar-border: var(--sidebar-border); --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Motion (UI kit): enter 200 ms ease-out, exit 180 ms ease-in; stopped by the reduced-motion rule below. */
+/* Motion (UI kit): hover/press 120-160 ms, enter 180-240 ms ease-out, exit 120-180 ms ease-in; stopped by the reduced-motion rule below.
+   Named decorative exceptions (one-off, never on a repeated path): alert medallion icon + ripple, logo ring draw + dot pop, theme reveal. */
 @theme {
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --animate-toast-in: toast-in 200ms ease-out;
   --animate-toast-out: toast-out 180ms ease-in forwards;
+  --animate-dialog-in: dialog-in 200ms var(--ease-out-soft);
+  --animate-dialog-out: dialog-out 150ms ease-in forwards;
+  --animate-overlay-in: fade-in 200ms ease-out;
+  --animate-overlay-out: fade-out 150ms ease-in forwards;
+  /* Alert/dialog motion: the scrim blurs in, the panel rises out of a soft blur, one ripple leaves the medallion. */
+  --animate-scrim-in: scrim-in 220ms var(--ease-out-soft);
+  --animate-scrim-out: scrim-out 160ms ease-in forwards;
+  --animate-alert-in: alert-in 240ms var(--ease-out-soft);
+  --animate-alert-out: alert-out 160ms ease-in forwards;
+  --animate-medallion-icon: medallion-icon 520ms var(--ease-out-soft) 80ms both;
+  --animate-medallion-ripple: medallion-ripple 900ms var(--ease-out-soft) 200ms;
+  --animate-sheet-in: sheet-in 240ms var(--ease-out-soft);
+  --animate-sheet-out: sheet-out 180ms ease-in forwards;
+  --animate-pop-in: pop-in 160ms var(--ease-out-soft);
+  --animate-pop-out: fade-out 120ms ease-in forwards;
+  --animate-progress-indeterminate: progress-indeterminate 1.4s ease-in-out infinite;
+  --animate-rise-in: rise-in 240ms var(--ease-out-soft) both;
+  --animate-ring-draw: ring-draw 1100ms var(--ease-out-soft) both;
+  --animate-dot-pop: dot-pop 420ms var(--ease-out-soft) 900ms both;
   @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
   @keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
+  @keyframes dialog-in { from { opacity: 0; transform: translateY(6px) scale(0.97); } }
+  @keyframes dialog-out { to { opacity: 0; transform: translateY(6px) scale(0.97); } }
+  /* The scrim rests at backdrop-blur 3px (set on the element); these ramp it from and back to sharp. */
+  @keyframes scrim-in { from { opacity: 0; backdrop-filter: blur(0); } }
+  @keyframes scrim-out { to { opacity: 0; backdrop-filter: blur(0); } }
+  /* Centring uses the separate `translate` property (Tailwind v4), so `transform` here only adds the motion. */
+  @keyframes alert-in { from { opacity: 0; filter: blur(6px); transform: translateY(14px) scale(0.96); } }
+  @keyframes alert-out { to { opacity: 0; filter: blur(2px); transform: translateY(6px) scale(0.98); } }
+  @keyframes medallion-icon { from { opacity: 0; transform: scale(0.5) rotate(-12deg); } }
+  @keyframes medallion-ripple { from { opacity: 0.55; transform: scale(1); } to { opacity: 0; transform: scale(1.75); } }
+  @keyframes fade-in { from { opacity: 0; } }
+  @keyframes fade-out { to { opacity: 0; } }
+  /* --sheet-from is -100% in LTR, 100% in RTL (set on the sheet) so it always slides in from the inline start. */
+  @keyframes sheet-in { from { transform: translateX(var(--sheet-from, -100%)); } }
+  @keyframes sheet-out { to { transform: translateX(var(--sheet-from, -100%)); } }
+  @keyframes pop-in { from { opacity: 0; transform: scale(0.96) translateY(-2px); } }
+  @keyframes ring-draw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+  @keyframes dot-pop { from { opacity: 0; scale: 0; } }
+  @keyframes rise-in { from { opacity: 0; transform: translateY(10px); } }
+  /* Runs along the inline axis: the RTL track mirrors it (progress.tsx). */
+  @keyframes progress-indeterminate { 0% { transform: translateX(-60%) scaleX(0.35); } 50% { transform: translateX(30%) scaleX(0.55); } 100% { transform: translateX(120%) scaleX(0.35); } }
 }
+
+/* Theme switch: a circular reveal from the toggle (ThemeToggle drives the clip-path); plain swap elsewhere. */
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 
 @layer base {
   * { @apply border-border; }
+  /* The page scrollbar's gutter is always reserved, so locking scroll (dialogs, sheets, menus) never changes the
+     viewport width and the fixed sidebar and main column never jump. */
+  html { -webkit-tap-highlight-color: transparent; scrollbar-gutter: stable; }
+  /* react-remove-scroll (under Radix) pads the body by the scrollbar width when it locks; the gutter already covers that. */
+  html body[data-scroll-locked] { margin-inline: 0 !important; --removed-body-scroll-bar-size: 0px !important; }
+  /* Scrollbars: thin, rounded, warm-neutral thumb on a clear track; darker on hover. */
+  :root { --scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 32%, transparent); --scrollbar-thumb-hover: color-mix(in oklab, var(--muted-foreground) 58%, transparent); }
+  @supports (scrollbar-color: auto) {
+    * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+    *:hover { scrollbar-color: var(--scrollbar-thumb-hover) transparent; }
+  }
+  /* Safari (no standard scrollbar properties yet) */
+  @supports not (scrollbar-color: auto) {
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; border: 2px solid transparent; }
+    ::-webkit-scrollbar-corner { background: transparent; }
+  }
   /* Two-tone focus ring, full opacity: ink (dark: white) inner + coral outer; visible on coral fills */
   :focus-visible { outline: 2px solid transparent; /* forced-colors fallback */ box-shadow: var(--tw-shadow, 0 0 #0000), 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--ring); }
-  input, textarea, select, [role="combobox"], [role="checkbox"] { border-color: var(--input-border); }
-  body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; }
+  :focus:not(:focus-visible) { outline: none; }
+  input, textarea, select, [role="combobox"], [role="checkbox"], [role="switch"] { border-color: var(--input-border); }
+  /* No horizontal page scroll from wide children; `clip` keeps position: sticky working. */
+  body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; overflow-x: clip; }
   :lang(ar) body, body:lang(ar) { font-family: var(--font-arabic); letter-spacing: 0; line-height: 1.6; }
   :lang(ar) * { letter-spacing: 0 !important; }
   :lang(ar) .text-display, :lang(ar) .text-kpi { font-weight: 700; }
-  :lang(ar) .text-h3 { font-weight: 600; }
-  .text-kpi { font-family: var(--font-sans); } /* KPI values stay Jakarta even in Arabic UI */
+  :lang(ar) .text-h3 { font-weight: 700; } /* Tajawal has no 600 */
+  .text-kpi { font-family: var(--font-sans); } /* KPI values stay Figtree even in Arabic UI */
   /* Popovers and dialogs add a 1px border ring on top of the card shadow */
-  [data-slot="popover-content"], [data-slot="dialog-content"], [role="dialog"], [role="menu"] { box-shadow: var(--card-shadow), 0 0 0 1px var(--border); }
+  [data-slot="popover-content"], [data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="dialog-content"], [data-slot="sheet-content"], [role="dialog"], [role="menu"], [role="listbox"] { box-shadow: var(--card-shadow), 0 0 0 1px var(--border); }
   .num, [data-num] { font-variant-numeric: tabular-nums; }
+  /* Chrome autofill: keep the field on theme instead of the browser's yellow/blue. */
+  input:-webkit-autofill { -webkit-text-fill-color: var(--foreground); box-shadow: 0 0 0 1000px var(--background) inset; caret-color: var(--foreground); }
+  input:-webkit-autofill:focus { box-shadow: 0 0 0 1000px var(--background) inset, 0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--ring); }
+  input[type="search"]::-webkit-search-cancel-button { appearance: none; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 }

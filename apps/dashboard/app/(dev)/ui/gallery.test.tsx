@@ -18,6 +18,14 @@ describe('UI gallery (dev only)', () => {
     expect(screen.getAllByRole('button', { name: 'Sync products' }).every((b) => b.getAttribute('aria-busy') === 'true')).toBe(true);
     expect(screen.getByRole('button', { name: 'Publish' }).getAttribute('aria-disabled')).toBe('true');
     expect(container.querySelector('[data-slot="spinner"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-slot="progress"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-slot="meter"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-slot="banner"]')).toHaveLength(2);
+    expect(container.querySelector('[data-slot="empty-state"]')).not.toBeNull();
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull();
+    expect(container.querySelector('select')).toBeNull();
     expect(container.querySelectorAll('[data-slot="status-chip"]')).toHaveLength(5);
     expect(screen.getByRole('region', { name: 'Notifications (F8)' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'العربية' }));

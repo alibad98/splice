@@ -75,7 +75,9 @@ const subscribe = (l: () => void) => {
   return () => listeners.delete(l);
 };
 const snapshot = () => items;
-const serverSnapshot = (): ToastItem[] => [];
+// One stable empty list: a new array per call makes useSyncExternalStore warn (and can loop).
+const EMPTY: ToastItem[] = [];
+const serverSnapshot = (): ToastItem[] => EMPTY;
 
 const TONE_ACCENT: Record<ToastTone, string> = {
   neutral: '',

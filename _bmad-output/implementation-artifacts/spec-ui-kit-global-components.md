@@ -64,18 +64,25 @@ context:
 | Wave | Component | Covers | Status |
 |------|-----------|--------|--------|
 | 1 | Button (+ Spinner) | primary, secondary, accent, ghost, destructive; sizes 32/36/44; pending; unavailable-with-reason | built (Story 2.3) |
-| 1 | Progress | linear determinate and indeterminate (uploads, sync, processing) | planned |
-| 1 | Meter | plan usage: 6px bar, 80% warning, 100% destructive, "n of m" text | planned |
-| 1 | Alert | inline info / success / warning / danger with optional action (block errors with Retry) | planned |
-| 1 | Banner | page-level in-flow strip: warning (offline), danger (disconnected) | planned |
+| 1 | Progress | linear determinate and indeterminate (uploads, sync, processing) | built (UI rework) |
+| 1 | Meter | plan usage: 6px bar, 80% warning, 100% destructive, "n of m" text | built (UI rework) |
+| 1 | Alert | inline info / success / warning / danger with optional action (block errors with Retry); role alert for danger/warning, status otherwise | built (UI rework) |
+| 1 | Banner | page-level in-flow strip: warning (offline), danger (disconnected) | built (UI rework) |
 | 1 | Toast + Toaster | pre-mounted live region, F8, bottom-start, action toasts persist | built (Story 2.3) |
-| 1 | EmptyState | sentence + optional action/link; filtered-empty variant | planned |
-| 1 | Skeleton | boneyard-based blocks, shimmer off under reduced motion | planned |
-| 2 | Tooltip, Popover | KPI definitions, help text | later |
-| 2 | Dialog, ConfirmDialog, Sheet | destructive confirm naming the item, support sheet | later |
-| 2 | DropdownMenu | row menus | later |
-| 3 | Field, Input, Select, Combobox, Textarea, Switch, Checkbox | forms (RHF + Zod), product picker | later |
-| 3 | Tabs, Segmented control | status tabs, Stories/Reels toggle | later |
+| 1 | EmptyState | sentence + optional action/link; filtered-empty variant | built (UI rework) |
+| 1 | Skeleton | boneyard-based blocks, shimmer off under reduced motion | built (UI rework) |
+| 2 | Tooltip | KPI definitions, help text | built (UI rework) |
+| 2 | Popover | rich help content | later |
+| 2 | Dialog, ConfirmDialog, Sheet | destructive confirm naming the item (alertdialog, Cancel focused first), sheet from the inline-start edge (mobile nav) | built (UI rework) |
+| 2 | AlertDialog + global `dialog.confirm()` / DialogHost | one alert look for every confirm: tone medallion (neutral / warning / danger, icon override), blur-in scrim, panel rises out of a soft blur, one ripple from the medallion; Radix AlertDialog (no outside-click dismiss, Cancel focused); async `onConfirm` stays open + pending, stays open on reject; imperative store like `toast()`, host mounted once in the merchant layout; ConfirmDialog is now a controlled wrapper of the same view. Used by Sign out | built (UI rework 3) |
+| 2 | Sidebar (shadcn) | collapsible icon rail pinned to the viewport's inline-start edge (both directions), width animates with a spacer in flow, state in the `sidebar_state` cookie read on the server (no first-paint shift), Ctrl/Cmd+B, rail strip, tooltips towards the inline end when collapsed, sheet below md (replaces MobileNav) | built (UI rework 3) |
+| 2 | DropdownMenu | row menus | built (UI rework) |
+| 3 | Field, Input, PasswordInput, Select, Textarea, Switch, Checkbox | one control look (`control.ts`), Field wires id/aria-describedby/aria-invalid via context; no native `<select>` or pickers anywhere | built (UI rework) |
+| 3 | OtpInput | LTR digit group, paste + iOS one-time-code autofill, Home/End/arrows | built (UI rework) |
+| 3 | Combobox | product picker | later |
+| 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses | built (UI rework 2) |
+| 3 | Tabs (also the segmented control) | status tabs, Stories/Reels toggle | built (UI rework) |
+| 3 | ThemeToggle (+ THEME_INIT_SCRIPT) | animated sun/moon morph driven by the `dark` variant, circular View Transition reveal, saved choice applied before paint | built (UI rework) |
 
 New components are added as rows; a wave moves to `in-progress` only after its rows are approved.
 
@@ -97,9 +104,57 @@ New components are added as rows; a wave moves to `in-progress` only after its r
 - Given the Products page, when its states render, then they use the kit's Alert, EmptyState and Skeleton with no visual regression.
 - Given `pnpm turbo run lint typecheck test build`, then all packages pass.
 
+### Review Findings
+
+Code review 2026-11-03 (blind-hunter, edge-case-hunter, verification-gap, acceptance-auditor) of the uncommitted UI rework.
+
+- [x] [Review][Decision] Motion runs past the budget in Design Notes (enter/exit 180-240 ms): alert-in 360 ms, scrim-in 260 ms, rise-in 480 ms, medallion ripple 900 ms, ring-draw 1100 ms, sidebar width 300 ms, theme reveal 520 ms. Trim the code to the budget, or keep the reworked motion and widen the budget. Resolved 2026-11-03: trimmed to budget (scrim 220, alert 240, rise 240, sidebar 200 ms); medallion icon + ripple, logo ring draw + dot pop and theme reveal kept as named decorative exceptions in globals.css.
+- [x] [Review][Patch] Fused class `sm:p-7text-card-foreground` in Dialog and AlertDialog [packages/ui/src/dialog.tsx:49] — fixed during review
+- [x] [Review][Patch] OTP: deleting with an Android soft keyboard (empty `change`, key `Unidentified`) is ignored and the digit snaps back [packages/ui/src/otp-input.tsx:72]
+- [x] [Review][Patch] OTP: pasting text with no digits wipes the typed code [packages/ui/src/otp-input.tsx:112]
+- [x] [Review][Patch] OTP: typing into a slot past the entered digits lands in an earlier slot while focus jumps ahead [packages/ui/src/otp-input.tsx:80]
+- [x] [Review][Patch] OTP: `setDigit` comment says nothing shifts; the code shifts later digits left [packages/ui/src/otp-input.tsx:67]
+- [x] [Review][Patch] Select ships a test-only DOM `change` bridge; real item selection (and the `""` item) is untested [packages/ui/src/select.tsx:58]
+- [x] [Review][Patch] Search input with `dir="auto"`: the group wrapper resolves LTR, so the icon and padding sit on opposite sides once Arabic is typed [packages/ui/src/input.tsx:41]
+- [x] [Review][Patch] PasswordInput reveal toggle stays active when the field is disabled [packages/ui/src/input.tsx:70]
+- [x] [Review][Patch] Ctrl+B never fires on an Arabic keyboard layout (`event.key` is not `b`) [packages/ui/src/sidebar.tsx:66]
+- [x] [Review][Patch] SidebarRail hairline offset in RTL (physical `-translate-x-1/2`) [packages/ui/src/sidebar.tsx]
+- [x] [Review][Patch] Banner `danger` (store disconnected) is announced politely (`role="status"`) [packages/ui/src/banner.tsx:39]
+- [x] [Review][Patch] Progress indeterminate bar runs left-to-right in RTL [packages/ui/src/styles/globals.css]
+- [x] [Review][Patch] EmptyState `filtered` variant is not compact as documented [packages/ui/src/empty-state.tsx:21]
+- [x] [Review][Patch] Set/reset password lost the "Back to login" link [apps/dashboard/components/auth/NewPasswordForm.tsx]
+- [x] [Review][Patch] Tests: `cn` keeps `text-button*` sizes alongside text colours [packages/ui/src/components.test.tsx]
+- [x] [Review][Patch] Tests: Tabs switching and OTP keyboard (Backspace, arrows, Home/End); drop `expect(Input).toBeDefined()` [packages/ui/src/interactive.test.tsx]
+- [x] [Review][Patch] Tests: NewPasswordForm validation and VerifyOtpForm `invalid_otp` branch [apps/dashboard/components/auth]
+- [x] [Review][Patch] Tests: sign-out asks first, signs out on confirm only [apps/dashboard/components/session/SessionActions.tsx]
+- [x] [Review][Patch] Tests: mobile sidebar sheet opens and closes after a nav click [packages/ui/src/sidebar.tsx]
+- [x] [Review][Defer] Hard-coded colours outside tokens (Salla button teal, DotField canvas RGB, `bg-black/40` scrims) [apps/dashboard/components/auth/SallaButton.tsx] — deferred: partner brand colour and canvas need a token-reading helper; revisit with the next design pass
+- [x] [Review][Defer] Skeleton is not boneyard-based yet [packages/ui/src/skeleton.tsx] — deferred: registry row says boneyard; wire it when the first skeleton-heavy page lands
+- [x] [Review][Defer] Wave-1 acceptance items open: Products states not on kit Alert/EmptyState/Skeleton, budget report, AA check, impeccable pass [apps/dashboard/components/products/ProductStates.tsx] — deferred: close with the wave-1 sign-off
+- [x] [Review][Defer] Two icon sets in the dashboard (`components/shell/Icon` and kit `Icon`) [apps/dashboard/components/shell/AppShell.tsx] — deferred: migrate shell icons to the kit
+
+Rejected:
+- false — VerifyOtp back arrow points the wrong way in RTL: `arrow` has `mirror`, so mirror + rotate points to the inline start.
+- false — NewPasswordForm stays pending if `onSubmit` rejects: the auth client catches network errors and never rejects.
+- false — inline theme script blocked by CSP: the dashboard sets no CSP.
+- false — Arabic 600 weights render 700: DESIGN.md says semibold resolves to 700 in Arabic.
+- false — duplicate nav landmark on mobile: the desktop container is hidden below `md`.
+- fix edits a spec — DESIGN.md h3 note vs Typography; change-log order.
+- low — OTP `onComplete` re-fires on a changed full code; ThemeToggle label before hydration, `onThemeChange` timing, storage key removal; `dialog.confirm()` with no host; Cancel inert while pending; mobile sheet left open when widening; Meter/Progress with NaN/Infinity; Select sentinel in a posted form; orphan `shell.openMenu` message; Alert dismiss label not enforced by type; focus after `invalid_otp`; `*:hover` scrollbar rule cost; search cancel button hidden; DotField reduced-motion change mid-session; Checkbox indeterminate / DropdownMenu extras (built on demand).
+
 ## Implementation Notes
 
 ## Spec Change Log
+
+- 2026-11-01 — UI rework 4: Arabic font -> Tajawal (digits come from Figtree, so still tabular); auth layout responsive to height: illustration and headline scale with dvh, stats hide under 760px tall and the reels under 600px, form spacing tightens; checked 1024x640 to 1920x1080 with no page scroll and no panel clipping.
+
+- 2026-11-01 — UI rework 3: Arabic font Rubik -> Alexandria (Tajawal rejected: no tabular digits); auth panel 50/50 and wider, brand panel text not selectable, showcase simplified to three abstract fanned reels + a quiet stats line.
+
+- 2026-11-01 — UI rework 2: Badge component (StatusChip now wraps it, so every status pill is bordered); fonts changed to Figtree (Latin) + Rubik (Arabic) in DESIGN.md and globals.css; auth brand panel content centred, new showcase card (story rings, reel with product sheet, stats), DotField gets an edge fade and an idle drifting light.
+
+- 2026-11-01 — UI rework (outside a story, on request): finished wave 1-3 rows above; moved the auth pages, Products filters and mobile nav onto the kit (no native select/dialog left); new logo mark (ring open at the top-end with a story dot, S from two stacked arcs) in `public/brand` and as the inline `LogoMark`; auth layout is one screen with no inner scroller (iframe rule); canvas DotField background on the auth brand panel (original code, React Bits Dot Grid as reference only).
+
+- 2026-11-03 — Dialog and button polish: button labels use their own type steps `text-button-sm/-/-lg` (13/14/15px, tight leading; `lg` was 16px body-lg); Dialog anatomy is Header / new `DialogBody` / Footer at 24px apart, padding 24 → 28px from `sm`, footer split off by a full-bleed divider with full-width stacked buttons on phones; AlertDialog widened to 416px with more room between medallion, text and actions.
 
 ## Review Triage Log
 

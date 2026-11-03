@@ -18,9 +18,10 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'min-h-8 px-3 text-small',
-  md: 'min-h-9 px-3.5 text-body',
-  lg: 'min-h-11 px-5 text-body-lg',
+  // Button type steps, 13/14/15px (globals.css `--text-button*`), with tight leading so labels sit centred in the pill.
+  sm: 'min-h-8 gap-1.5 px-3 text-button-sm',
+  md: 'min-h-9 px-4 text-button',
+  lg: 'min-h-11 px-5 text-button-lg',
 };
 
 export interface ButtonProps extends ComponentProps<'button'> {

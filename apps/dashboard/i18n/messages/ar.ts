@@ -99,6 +99,7 @@ export const ar: Messages = {
       summary: '{from}-{to} من {total}',
       previous: 'السابق',
       next: 'التالي',
+      pageSize: 'عدد الصفوف',
     },
     loading: 'نحمّل المنتجات...',
     empty: {

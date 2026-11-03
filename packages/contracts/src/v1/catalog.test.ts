@@ -19,8 +19,13 @@ const row = {
 
 describe('catalog contracts', () => {
   it('defaults sort and page and coerces page from the query string', () => {
-    expect(ProductListQuery.parse({})).toEqual({ sort: 'name', page: 1 });
-    expect(ProductListQuery.parse({ page: '3', sort: '-price', q: ' abaya ' })).toEqual({ page: 3, sort: '-price', q: 'abaya' });
+    expect(ProductListQuery.parse({})).toEqual({ sort: 'name', page: 1, page_size: 10 });
+    expect(ProductListQuery.parse({ page: '3', sort: '-price', q: ' abaya ' })).toEqual({ page: 3, page_size: 10, sort: '-price', q: 'abaya' });
+  });
+  it('accepts page_size 10, 25 or 50 only', () => {
+    expect(ProductListQuery.parse({ page_size: '25' }).page_size).toBe(25);
+    expect(ProductListQuery.parse({ page_size: '50' }).page_size).toBe(50);
+    for (const bad of ['0', '7', '100', 'x', '25.5']) expect(ProductListQuery.safeParse({ page_size: bad }).success).toBe(false);
   });
   it('rejects page 0, an unknown sort and a search over 100 characters', () => {
     expect(ProductListQuery.safeParse({ page: '0' }).success).toBe(false);

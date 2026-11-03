@@ -28,12 +28,6 @@ export function availabilityChip(bucket: ProductRow['availability'], m: Messages
   }
 }
 
-/** "{from}–{to}" style values for the pagination summary. */
-export function pageRange(page: number, pageSize: number, shown: number): { from: number; to: number } {
-  const from = shown === 0 ? 0 : (page - 1) * pageSize + 1;
-  return { from, to: shown === 0 ? 0 : from + shown - 1 };
-}
-
 /** Fill `{name}` placeholders in a message. */
 export function fill(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(values[k] ?? ''));

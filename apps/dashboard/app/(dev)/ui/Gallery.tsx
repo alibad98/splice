@@ -30,6 +30,7 @@ import {
   Input,
   Label,
   Meter,
+  Pagination,
   OtpInput,
   PasswordInput,
   Progress,
@@ -97,7 +98,7 @@ const COPY = {
     close: 'Close notification',
     kit: {
       badge: 'Badge', badgeTones: { neutral: 'Draft', brand: 'New', accent: 'Pro plan', info: 'Scheduled', success: 'Live', warning: 'Low stock', danger: 'Failed' }, verified: 'Verified for Salla', syncingNow: 'Syncing', small: 'Small', medium: 'Medium', large: 'Large',
-      feedback: 'Progress and meter', alerts: 'Alert and banner', empty: 'Empty state and skeleton', forms: 'Form controls', overlays: 'Dialogs, menus and tooltips', themeSection: 'Theme toggle', tabsSection: 'Tabs',
+      feedback: 'Progress and meter', alerts: 'Alert and banner', empty: 'Empty state and skeleton', pagination: 'Pagination', pages: 'Pages', range: (r: { from: number; to: number; total: number }) => `${r.from}-${r.to} of ${r.total}`, previous: 'Previous', next: 'Next', rowsPerPage: 'Rows per page', forms: 'Form controls', overlays: 'Dialogs, menus and tooltips', themeSection: 'Theme toggle', tabsSection: 'Tabs',
       uploading: 'Uploading video', syncing: 'Syncing products', stories: 'Stories this month', n: (a: number, b: number) => `${a} of ${b}`,
       errorTitle: 'We could not load your stories', errorBody: 'Your other blocks are fine.', retry: 'Retry', warnTitle: 'Two products are out of stock', okTitle: 'Settings saved', dismiss: 'Dismiss',
       offline: 'You are offline. Changes will sync when you reconnect.', disconnected: 'Your store is disconnected from Salla.', reconnect: 'Reconnect',
@@ -143,7 +144,7 @@ const COPY = {
     close: 'أغلق الإشعار',
     kit: {
       badge: 'الشارة', badgeTones: { neutral: 'مسودة', brand: 'جديد', accent: 'الباقة الاحترافية', info: 'مجدول', success: 'مباشر', warning: 'مخزون منخفض', danger: 'فشل' }, verified: 'معتمد لمتجر سلة', syncingNow: 'نزامن الآن', small: 'صغيرة', medium: 'متوسطة', large: 'كبيرة',
-      feedback: 'التقدم والعداد', alerts: 'التنبيه والشريط', empty: 'الحالة الفارغة والهيكل', forms: 'عناصر النماذج', overlays: 'النوافذ والقوائم والتلميحات', themeSection: 'مبدّل الوضع', tabsSection: 'التبويبات',
+      feedback: 'التقدم والعداد', alerts: 'التنبيه والشريط', empty: 'الحالة الفارغة والهيكل', pagination: 'التنقل بين الصفحات', pages: 'الصفحات', range: (r: { from: number; to: number; total: number }) => `${r.from}-${r.to} من ${r.total}`, previous: 'السابق', next: 'التالي', rowsPerPage: 'عدد الصفوف', forms: 'عناصر النماذج', overlays: 'النوافذ والقوائم والتلميحات', themeSection: 'مبدّل الوضع', tabsSection: 'التبويبات',
       uploading: 'نرفع الفيديو', syncing: 'نزامن المنتجات', stories: 'ستوريز هذا الشهر', n: (a: number, b: number) => `${a} من ${b}`,
       errorTitle: 'ما قدرنا نحمّل الستوريز', errorBody: 'باقي الأقسام تعمل بشكل طبيعي.', retry: 'حاول مرة ثانية', warnTitle: 'منتجان نفدا من المخزون', okTitle: 'تم حفظ الإعدادات', dismiss: 'إغلاق',
       offline: 'أنت غير متصل. ستتم مزامنة التغييرات عند عودة الاتصال.', disconnected: 'متجرك غير مرتبط بسلة.', reconnect: 'أعد الربط',
@@ -186,6 +187,7 @@ export function Gallery() {
   const [otp, setOtp] = useState('');
   const [category, setCategory] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pager, setPager] = useState({ page: 1, size: 10 });
   const c = COPY[locale];
   const k = c.kit;
   const dir = directionOf(locale);
@@ -288,6 +290,19 @@ export function Gallery() {
               <Meter key={v} value={v} max={10} label={k.stories} valueLabel={k.n(v, 10)} />
             ))}
           </div>
+        </Section>
+
+        <Section title={k.pagination}>
+          <Pagination
+            className="w-full"
+            page={pager.page}
+            pageSize={pager.size}
+            total={23}
+            onPageChange={(page) => setPager({ ...pager, page })}
+            pageSizes={[10, 25, 50]}
+            onPageSizeChange={(size) => setPager({ page: 1, size })}
+            labels={{ nav: k.pages, summary: k.range, previous: k.previous, next: k.next, pageSize: k.rowsPerPage }}
+          />
         </Section>
 
         <Section title={k.alerts}>

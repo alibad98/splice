@@ -10,6 +10,7 @@ export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from '.
 export { Spinner, type SpinnerProps } from './spinner.js';
 export { TOAST_DURATION_MS, Toaster, toast, type ToastAction, type ToastItem, type ToastOptions, type ToastTone, type ToasterProps } from './toast.js';
 export { Progress, type ProgressProps, type ProgressTone } from './progress.js';
+export { Pagination, pageRange, type PaginationLabels, type PaginationProps } from './pagination.js';
 export { Meter, type MeterProps, type MeterTone } from './meter.js';
 export { Alert, type AlertAction, type AlertProps, type AlertTone } from './alert.js';
 export { Banner, type BannerAction, type BannerProps, type BannerTone } from './banner.js';

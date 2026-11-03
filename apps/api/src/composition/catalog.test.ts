@@ -516,21 +516,26 @@ describe('products read API', () => {
     return { storeId, token: await bearerFor(storeId) };
   }
 
-  it('lists the first 50 of 120 products sorted by name with the total; later pages and descending order follow', async () => {
+  it('lists the first 10 of 120 products by default sorted by name with the total; page_size 25/50, later pages and descending order follow', async () => {
     const many = Array.from({ length: 120 }, (_, i) => product(`n${String(i).padStart(3, '0')}`, { name: `Item ${String(119 - i).padStart(3, '0')}` }));
     const { token } = await seededStore(many);
     const { res, body } = await get(token, '/v1/products');
     expect(res.status).toBe(200);
-    const page = ProductListResponse.parse(body);
+    const first = ProductListResponse.parse(body);
+    expect(first).toMatchObject({ total: 120, page: 1, page_size: 10 });
+    expect(first.items).toHaveLength(10);
+    expect(first.items[9]!.name).toBe('Item 009');
+    expect(await list(token, '?page_size=25&page=2')).toMatchObject({ page: 2, page_size: 25, items: expect.arrayContaining([expect.objectContaining({ name: 'Item 025' })]) });
+    const page = await list(token, '?page_size=50');
     expect(page).toMatchObject({ total: 120, page: 1, page_size: 50 });
     expect(page.items).toHaveLength(50);
     expect(page.items[0]!.name).toBe('Item 000');
     expect(page.items[49]!.name).toBe('Item 049');
-    const last = await list(token, '?page=3');
+    const last = await list(token, '?page_size=50&page=3');
     expect(last.items).toHaveLength(20);
     expect(last.items.at(-1)!.name).toBe('Item 119');
     expect((await list(token, '?sort=-name')).items[0]!.name).toBe('Item 119');
-    expect(await list(token, '?page=9')).toMatchObject({ items: [], total: 120 });
+    expect(await list(token, '?page=13')).toMatchObject({ items: [], total: 120 });
   });
 
   it('returns money in minor units with the sale price, the stored bucket, the first category (+N), 0 links and null orders; hidden products are excluded', async () => {
@@ -609,7 +614,7 @@ describe('products read API', () => {
     expect(cats.items.map((c) => c.name)).toEqual(['Abayas']);
   });
 
-  it.each(['page=0', 'page=abc', 'sort=x', `q=${'a'.repeat(101)}`, 'q=a&q=b'])('answers 400 problem+json for %s', async (qs) => {
+  it.each(['page=0', 'page=abc', 'page_size=7', 'page_size=100', 'sort=x', `q=${'a'.repeat(101)}`, 'q=a&q=b'])('answers 400 problem+json for %s', async (qs) => {
     const { token } = await seededStore([product('b1')]);
     const { res, body } = await get(token, `/v1/products?${qs}`);
     expect(res.status).toBe(400);

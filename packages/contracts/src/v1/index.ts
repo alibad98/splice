@@ -22,5 +22,5 @@ export {
 export type { AuthProblemCode } from './auth.js';
 
 export { CURRENCY_EXPONENTS, InvalidAmountError, UnknownCurrencyError, currencyExponent, toMinorUnits } from './money.js';
-export { Availability, CATALOG_SYNC_RATE_LIMITED, CATALOG_SYNC_STATES, CatalogSyncStatus, CategoryListResponse, PRODUCT_PAGE_SIZE, PRODUCT_SEARCH_MAX, PRODUCT_SORTS, ProductListQuery, ProductListResponse, ProductRow } from './catalog.js';
+export { Availability, CATALOG_SYNC_RATE_LIMITED, CATALOG_SYNC_STATES, CatalogSyncStatus, CategoryListResponse, PRODUCT_PAGE_SIZE, PRODUCT_PAGE_SIZES, PRODUCT_SEARCH_MAX, isProductPageSize, type ProductPageSize, PRODUCT_SORTS, ProductListQuery, ProductListResponse, ProductRow } from './catalog.js';
 export type { ProductListQueryInput, ProductSort } from './catalog.js';

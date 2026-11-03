@@ -86,9 +86,10 @@ describe('API docs', () => {
     });
   });
 
-  it('documents the products query from the contract: search, category, sort, page, with descriptions', () => {
+  it('documents the products query from the contract: search, category, sort, page, page_size, with descriptions', () => {
     const products = op('/v1/products', 'get');
-    expect(products.parameters!.map((p) => p.name).sort()).toEqual(['category', 'page', 'q', 'sort']);
+    expect(products.parameters!.map((p) => p.name).sort()).toEqual(['category', 'page', 'page_size', 'q', 'sort']);
+    expect(products.parameters!.find((p) => p.name === 'page_size')!.schema).toMatchObject({ type: 'integer', default: 10 });
     for (const p of products.parameters!) expect(p.description, String(p.name)).toBeTruthy();
     expect(products.parameters!.find((p) => p.name === 'page')!.schema).toMatchObject({ type: 'integer', minimum: 1, default: 1 });
     expect(products.parameters!.find((p) => p.name === 'sort')!.schema).toMatchObject({ enum: ['name', '-name', 'price', '-price'] });

@@ -97,6 +97,7 @@ export const en = {
       summary: '{from}-{to} of {total}',
       previous: 'Previous',
       next: 'Next',
+      pageSize: 'Rows per page',
     },
     loading: 'Loading products...',
     empty: {

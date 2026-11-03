@@ -3,7 +3,11 @@ import { z } from 'zod';
 /** Products page sort keys; a leading `-` sorts descending. `price` is the effective price (sale price when set). */
 export const PRODUCT_SORTS = ['name', '-name', 'price', '-price'] as const;
 export type ProductSort = (typeof PRODUCT_SORTS)[number];
-export const PRODUCT_PAGE_SIZE = 50;
+/** Page sizes the Products list offers; the first is the default. */
+export const PRODUCT_PAGE_SIZES = [10, 25, 50] as const;
+export type ProductPageSize = (typeof PRODUCT_PAGE_SIZES)[number];
+export const PRODUCT_PAGE_SIZE: ProductPageSize = PRODUCT_PAGE_SIZES[0];
+export const isProductPageSize = (n: number): n is ProductPageSize => (PRODUCT_PAGE_SIZES as readonly number[]).includes(n);
 export const PRODUCT_SEARCH_MAX = 100;
 
 /** Stored by `catalog` only; clients render the bucket, never recompute it. */
@@ -16,6 +20,11 @@ export const ProductListQuery = z.object({
   category: z.string().trim().max(100).optional(),
   sort: z.enum(PRODUCT_SORTS).default('name'),
   page: z.coerce.number().int().min(1).max(100_000).default(1),
+  page_size: z.coerce
+    .number()
+    .int()
+    .refine(isProductPageSize, { message: `page_size must be one of ${PRODUCT_PAGE_SIZES.join(', ')}` })
+    .default(PRODUCT_PAGE_SIZE),
 });
 export type ProductListQuery = z.infer<typeof ProductListQuery>;
 export type ProductListQueryInput = z.input<typeof ProductListQuery>;

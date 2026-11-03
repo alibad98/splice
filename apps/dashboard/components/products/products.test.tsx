@@ -30,9 +30,9 @@ const row = (over: Partial<ProductRow> = {}): ProductRow => ({
   attributed_orders: null,
   ...over,
 });
-const page = (items: ProductRow[], over: Partial<ProductListResponse> = {}): ProductListResponse => ({ v: 1, items, total: items.length, page: 1, page_size: 50, ...over });
+const page = (items: ProductRow[], over: Partial<ProductListResponse> = {}): ProductListResponse => ({ v: 1, items, total: items.length, page: 1, page_size: 10, ...over });
 const sync = (status: CatalogSyncStatus['status']): CatalogSyncStatus => ({ v: 1, status, run_id: null, reason: null, last_synced_at: null });
-const DEFAULT: ProductListQuery = { sort: 'name', page: 1 };
+const DEFAULT: ProductListQuery = { sort: 'name', page: 1, page_size: 10 };
 
 /** The signed-in session the data hooks use; null (default) means nothing is fetched and seeded data is shown. */
 let session: { client: { apiFetch: (path: string) => Promise<Response> }; state: { status: 'signed-in' } } | null = null;
@@ -129,12 +129,12 @@ describe('Products page', () => {
   });
 
   it('reads q, category, sort and page from the URL', () => {
-    const query: ProductListQuery = { q: 'abaya', category: 'c1', sort: '-price', page: 2 };
+    const query: ProductListQuery = { q: 'abaya', category: 'c1', sort: '-price', page: 2, page_size: 10 };
     setup({ search: '?q=abaya&category=c1&sort=-price&page=2', products: [[query, page([row()], { total: 51, page: 2 })]] });
     expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('abaya');
-    expect(screen.getByRole('combobox').textContent).toContain('Abayas');
+    expect(screen.getByRole('combobox', { name: 'Category' }).textContent).toContain('Abayas');
     expect(screen.getByRole('columnheader', { name: /Price/ }).getAttribute('aria-sort')).toBe('descending');
-    expect(screen.getByText('51-51 of 51')).toBeTruthy();
+    expect(screen.getByText('11-11 of 51')).toBeTruthy();
   });
 
   it('pushes sort and page changes to the URL (history entries, so Back restores them)', async () => {
@@ -152,7 +152,7 @@ describe('Products page', () => {
     vi.useFakeTimers();
     try {
       const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-      setup({ search: '?page=3', products: [[{ sort: 'name', page: 3 }, page([row()], { total: 120, page: 3 })]], onUrlUpdate });
+      setup({ search: '?page=3', products: [[{ sort: 'name', page: 3, page_size: 10 }, page([row()], { total: 120, page: 3 })]], onUrlUpdate });
       fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'عباية' } });
       await act(async () => void vi.advanceTimersByTime(250));
       expect(onUrlUpdate).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe('Products page', () => {
 
   it('filtered-empty: a sentence and "Show all" clears q and category', async () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-    const query: ProductListQuery = { q: 'zzz', category: 'c1', sort: 'name', page: 1 };
+    const query: ProductListQuery = { q: 'zzz', category: 'c1', sort: 'name', page: 1, page_size: 10 };
     setup({ search: '?q=zzz&category=c1', products: [[query, page([])]], onUrlUpdate });
     expect(screen.getByText('No products match these filters.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
@@ -225,7 +225,7 @@ describe('Products page', () => {
   });
 
   it('after "Show all" the search box is empty', async () => {
-    const query: ProductListQuery = { q: 'zzz', sort: 'name', page: 1 };
+    const query: ProductListQuery = { q: 'zzz', sort: 'name', page: 1, page_size: 10 };
     setup({ search: '?q=zzz', products: [[query, page([])], [DEFAULT, page([row()])]] });
     expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('zzz');
     fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
@@ -235,7 +235,7 @@ describe('Products page', () => {
 
   it('from ?sort=price, pressing Price sorts descending', async () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-    setup({ search: '?sort=price', products: [[{ sort: 'price', page: 1 }, page([row()])]], onUrlUpdate });
+    setup({ search: '?sort=price', products: [[{ sort: 'price', page: 1, page_size: 10 }, page([row()])]], onUrlUpdate });
     fireEvent.click(screen.getByRole('button', { name: /Price/ }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
     expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('?sort=-price');
@@ -243,8 +243,8 @@ describe('Products page', () => {
 
   it('choosing a category from ?page=3 sets the category and drops the page', async () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-    setup({ search: '?page=3', products: [[{ sort: 'name', page: 3 }, page([row()], { total: 120, page: 3 })]], onUrlUpdate });
-    const combobox = screen.getByRole('combobox');
+    setup({ search: '?page=3', products: [[{ sort: 'name', page: 3, page_size: 10 }, page([row()], { total: 120, page: 3 })]], onUrlUpdate });
+    const combobox = screen.getByRole('combobox', { name: 'Category' });
     combobox.focus();
     fireEvent.keyDown(combobox, { key: 'Enter' });
     const option = await screen.findByRole('option', { name: 'Abayas' });
@@ -255,9 +255,25 @@ describe('Products page', () => {
     expect(onUrlUpdate.mock.lastCall![0].options.history).toBe('push');
   });
 
+  it('shows 10 rows per page by default; choosing 25 writes size=25 and drops the page', async () => {
+    const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
+    setup({ search: '?page=2', products: [[{ sort: 'name', page: 2, page_size: 10 }, page([row()], { total: 23, page: 2 })]], onUrlUpdate });
+    expect(screen.getByText('11-11 of 23')).toBeTruthy();
+    const sizeSelect = screen.getByRole('combobox', { name: 'Rows per page' });
+    expect(sizeSelect.textContent).toContain('10');
+    sizeSelect.focus();
+    fireEvent.keyDown(sizeSelect, { key: 'Enter' });
+    const option = await screen.findByRole('option', { name: '25' });
+    option.focus();
+    fireEvent.keyDown(option, { key: 'Enter' });
+    await waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
+    expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('?size=25');
+    expect(onUrlUpdate.mock.lastCall![0].options.history).toBe('push');
+  });
+
   it('Previous from ?page=2 removes the page', async () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-    setup({ search: '?page=2', products: [[{ sort: 'name', page: 2 }, page([row()], { total: 120, page: 2 })]], onUrlUpdate });
+    setup({ search: '?page=2', products: [[{ sort: 'name', page: 2, page_size: 10 }, page([row()], { total: 120, page: 2 })]], onUrlUpdate });
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
     expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('');
@@ -310,9 +326,17 @@ describe('URL state and API path', () => {
     expect(serialize({ q: '', category: '', sort: 'name', page: 1 })).toBe('');
   });
   it('maps URL state to a safe API query and path', () => {
-    expect(toListQuery({ q: '  abaya ', category: '', sort: 'name', page: 0 })).toEqual({ q: 'abaya', sort: 'name', page: 1 });
+    expect(toListQuery({ q: '  abaya ', category: '', sort: 'name', page: 0 })).toEqual({ q: 'abaya', sort: 'name', page: 1, page_size: 10 });
     expect(toListQuery({ q: 'x'.repeat(150), category: 'c1', sort: 'price', page: 2 }).q).toHaveLength(100);
-    expect(productsPath({ q: 'a%b', category: 'c1', sort: '-price', page: 2 })).toBe('/v1/products?q=a%25b&category=c1&sort=-price&page=2');
+    expect(productsPath({ q: 'a%b', category: 'c1', sort: '-price', page: 2, page_size: 10 })).toBe('/v1/products?q=a%25b&category=c1&sort=-price&page=2');
     expect(productsPath(DEFAULT)).toBe('/v1/products');
+  });
+  it('carries the page size: default 10 left out, other allowed sizes sent, anything else falls back to 10', () => {
+    const serialize = createSerializer(productParams, { clearOnDefault: true });
+    expect(serialize({ size: 25 })).toBe('?size=25');
+    expect(serialize({ size: 10 })).toBe('');
+    expect(toListQuery({ q: '', category: '', sort: 'name', page: 1, size: 25 }).page_size).toBe(25);
+    expect(toListQuery({ q: '', category: '', sort: 'name', page: 1, size: 7 }).page_size).toBe(10);
+    expect(productsPath({ sort: 'name', page: 1, page_size: 50 })).toBe('/v1/products?page_size=50');
   });
 });

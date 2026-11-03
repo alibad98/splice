@@ -1,5 +1,5 @@
 import { BadRequestException, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Query, Req, Res } from '@nestjs/common';
-import { CATALOG_SYNC_RATE_LIMITED, PRODUCT_PAGE_SIZE, ProductListQuery, type CatalogSyncStatus, type CategoryListResponse, type ProductListResponse } from '@slips/contracts';
+import { CATALOG_SYNC_RATE_LIMITED, ProductListQuery, type CatalogSyncStatus, type CategoryListResponse, type ProductListResponse } from '@slips/contracts';
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../session/access.guard.js';
 import { ContentService } from '../content/content.service.js';
@@ -19,16 +19,16 @@ export class CatalogController {
   async products(@Req() req: AuthenticatedRequest, @Query() raw: unknown): Promise<ProductListResponse> {
     const parsed = ProductListQuery.safeParse(raw);
     if (!parsed.success) throw new BadRequestException({ message: 'The product list query is not valid', code: 'invalid_query' });
-    const { q, category, sort, page } = parsed.data;
+    const { q, category, sort, page, page_size } = parsed.data;
     const storeId = req.merchantSession!.storeId;
-    const { rows, total } = await this.catalog.listProducts(storeId, { search: q || undefined, category: category || undefined, sort, limit: PRODUCT_PAGE_SIZE, offset: (page - 1) * PRODUCT_PAGE_SIZE });
+    const { rows, total } = await this.catalog.listProducts(storeId, { search: q || undefined, category: category || undefined, sort, limit: page_size, offset: (page - 1) * page_size });
     // One batch call for the whole page (no per-row reads).
     const links = rows.length > 0 ? await this.content.getLinkCountsByProductIds(storeId, rows.map((r) => r.id)) : new Map<string, number>();
     return {
       v: 1,
       total,
       page,
-      page_size: PRODUCT_PAGE_SIZE,
+      page_size,
       items: rows.map((r) => ({
         id: r.id,
         external_id: r.externalId,

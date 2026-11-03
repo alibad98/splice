@@ -118,6 +118,15 @@ describe('API docs', () => {
     for (const ops of Object.values(doc.paths)) for (const o of Object.values(ops)) expect((o as Json).summary).toBeTruthy();
   });
 
+  it('documents the content list query and its ContentPage model (Story 3.2)', () => {
+    const list = op('/v1/content', 'get');
+    expect(list.parameters!.map((p) => p.name).sort()).toEqual(['page', 'page_size', 'q', 'sort', 'tab']);
+    expect(list.parameters!.find((p) => p.name === 'tab')!.schema).toMatchObject({ enum: ['all', 'published', 'scheduled', 'drafts'], default: 'all' });
+    expect(list.parameters!.find((p) => p.name === 'sort')!.schema).toMatchObject({ enum: ['-updated', 'updated', 'title', '-title'], default: '-updated' });
+    expect(jsonSchema(list.responses['200']!).$ref).toBe('#/components/schemas/ContentPage');
+    expect(JSON.stringify(doc.components.schemas.ContentPage)).toContain('#/components/schemas/ContentItem"');
+  });
+
   it('serves a Swagger UI page pointed at the spec', () => {
     expect(docsPage()).toContain("url: '/v1/openapi.json'");
   });

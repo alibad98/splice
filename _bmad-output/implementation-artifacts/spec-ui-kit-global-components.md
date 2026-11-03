@@ -80,7 +80,8 @@ context:
 | 3 | Field, Input, PasswordInput, Select, Textarea, Switch, Checkbox | one control look (`control.ts`), Field wires id/aria-describedby/aria-invalid via context; no native `<select>` or pickers anywhere | built (UI rework) |
 | 3 | OtpInput | LTR digit group, paste + iOS one-time-code autofill, Home/End/arrows | built (UI rework) |
 | 3 | Combobox | product picker | later |
-| 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses | built (UI rework 2) |
+| 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses. StatusChip: `variant` soft/outline and a leading `icon` node replacing the dot (ended, archived); pulse static under reduced motion | built (UI rework 2; outline/icon Story 3.2) |
+| 1 | DataTable | TanStack headless + shadcn Table: 56px rows, sortable headers (`aria-sort`), card list below `md`; optional `onRowActivate` (row `tabIndex=0`, click or `Enter` opens; clicks on controls/portals ignored) and `rowClassName` (e.g. failed 6% tint) | built (Story 2.2; row activation Story 3.2) |
 | 3 | Tabs (also the segmented control) | status tabs, Stories/Reels toggle | built (UI rework) |
 | 3 | ThemeToggle (+ THEME_INIT_SCRIPT) | animated sun/moon morph driven by the `dark` variant, circular View Transition reveal, saved choice applied before paint | built (UI rework) |
 | 1 | Pagination | named `<nav>` pager: "from-to of total" summary, optional rows-per-page Select (caller-given sizes), Previous/Next Buttons disabled at the ends; copy via props; Products uses 10/25/50 (default 10) kept in the URL | built (Products page size) |

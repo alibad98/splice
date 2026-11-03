@@ -140,6 +140,31 @@ context:
   - `[false]` `[reject]` (blind) The composition test hardcodes the port. Every composition test does; this is the CI convention.
   - `[false]` `[reject]` (edge) Grouped claim duplicates of the guard and `cta_url` rows above.
 
+### 2026-11-04 — Review pass 2 (bmad-code-review, 4 layers)
+
+- verdicts: 0 decision-needed, 3 patch (applied), 4 defer, 20 rejected
+- [x] [Review][Patch] No test created an `open_link` item with `cta_url`/`cta_style` through the API [apps/api/src/composition/content.test.ts:303] — fixed: Create test now round-trips both through POST, GET and the stored row.
+- [x] [Review][Patch] Guard regex missed `DELETE FROM`, `UPDATE ONLY`, `MERGE INTO` and drizzle `.delete(contentItems)` [apps/api/src/modules/content/status-guard.test.ts:8] — fixed with fixtures; the uninstall purge in `content.lifecycle.ts` is the only sanctioned hard delete.
+- [x] [Review][Patch] `deactivate.from` hard-coded `['published','scheduled']` instead of `REACTIVATE_STATUSES` [packages/contracts/src/v1/content.ts:86] — fixed.
+- [x] [Review][Defer] deactivated → archive → restore yields a `draft` with `reactivate_to` cleared, which the merchant could later publish past billing's deactivation — deferred: Story 7.4's limit gate on every transition into `published`/`scheduled` covers it (same as a fresh draft).
+- [x] [Review][Defer] Items archived while `deactivated` are skipped by billing's upgrade `reactivate` and stay `deactivated` after Undo — deferred: Epic 7 must define reactivation for `archived` rows with `reactivate_to` set.
+- [x] [Review][Defer] `undo_archive`/`reactivate` can return an item to `scheduled` after its go-live or end time passed — deferred: Epic 4 must re-check the schedule on `content.item.unarchived`/`reactivated`.
+- [x] [Review][Defer] Deleting an item while `processing` makes media's later `finish/fail_processing` hit `ContentNotFoundError` — deferred: Story 3.8/3.9 must treat not-found as terminal.
+- Rejected:
+  - `[false]` `tx` unused for writes: the `tx` callers pass *is* the ambient `StoreContext` (`withStoreContext` hands it in; nested calls join the parent), so writes and event share one transaction.
+  - `[false]` Uninstall purge hard-deletes: spec-mandated `StoreDataLifecycle` purge; "Never hard-delete" covers merchant deletes.
+  - `[false]` 13 events for 14 actions: the spec table maps both `publish` and `go_live` to `content.item.published`.
+  - `[low]` Drizzle schema lacks CHECKs and the partial index: migrations are hand-written with no drizzle snapshots (catalog precedent), so `generate` drift does not apply.
+  - `[low]` `cta_url` scheme / `cta_style` length only in Zod: the guard keeps the lifecycle as the single writer and it parses the contract; a new migration for a backstop is extra surface.
+  - `[low]` `ContentItem` response schema looser than input (`v` default, plain `cta_url`): response-side, no consumer validates it.
+  - `[low]` Matrix seeds `archived`/`deactivated` from one path only: separate tests pin the other paths; already rejected in pass 1.
+  - `[low]` `first_published_at` from app clock: skew is negligible at pilot scale.
+  - `[low]` No create throttle: plan limits arrive in Story 7.4.
+  - `[low]` Invalid `now`: internal parameter, callers never pass one.
+  - `[low]` 409 detail is English: developer `detail`; rejected in pass 1.
+  - Spec-edit findings rejected (fix edits the spec): I/O "First publish" row contradicts the table; flat create body vs "`cta`"; `cta_style` tighter than "nullable text"; guard stricter than spec.
+  - Spec `status: done` vs sprint `review`: resolved by this pass setting sprint to `done`.
+
 ## Verification
 
 **Commands:**

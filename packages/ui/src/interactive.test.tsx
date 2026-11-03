@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Button } from './button.js';
 import { Checkbox } from './checkbox.js';
+import { DataTable, type DataTableColumn } from './data-table.js';
 import { ConfirmDialog, DialogHost, dialog } from './alert-dialog.js';
 import { Sidebar, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from './sidebar.js';
 import { sidebarOpenFromCookie } from './sidebar-state.js';
@@ -607,5 +608,37 @@ describe('Pagination', () => {
     option.focus();
     fireEvent.keyDown(option, { key: 'Enter' });
     expect(onPageSizeChange).toHaveBeenCalledWith(50);
+  });
+});
+
+describe('DataTable row activation', () => {
+  interface Row {
+    id: string;
+    name: string;
+  }
+  const data: Row[] = [
+    { id: 'a', name: 'Abaya' },
+    { id: 'b', name: 'Bag' },
+  ];
+  const columns: DataTableColumn<Row>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name },
+    { id: 'menu', header: 'Actions', cell: (r) => <button type="button">Menu {r.name}</button> },
+  ];
+
+  it('activates a row on click or Enter on the focused row, but not from controls inside it', () => {
+    const onRowActivate = vi.fn();
+    render(<DataTable label="Items" columns={columns} data={data} getRowId={(r) => r.id} onRowActivate={onRowActivate} />);
+    fireEvent.click(screen.getByText('Abaya'));
+    expect(onRowActivate).toHaveBeenLastCalledWith(data[0]);
+    const rowB = screen.getByText('Bag').closest('tr')!;
+    expect(rowB.tabIndex).toBe(0);
+    rowB.focus();
+    fireEvent.keyDown(rowB, { key: 'Enter' });
+    expect(onRowActivate).toHaveBeenLastCalledWith(data[1]);
+    expect(onRowActivate).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Menu Bag' }));
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Menu Bag' }), { key: 'Enter' });
+    fireEvent.keyDown(rowB, { key: ' ' });
+    expect(onRowActivate).toHaveBeenCalledTimes(2);
   });
 });

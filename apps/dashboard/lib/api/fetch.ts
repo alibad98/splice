@@ -48,3 +48,17 @@ export async function postJson<S extends z.ZodType>(client: SessionClient, path:
   if (!parsed.success) throw new ApiError(res.status, 'invalid_response');
   return parsed.data;
 }
+
+/** DELETE a `v1` resource as the signed-in merchant (CSRF added by the session client). Resolves on any 2xx (usually 204). */
+export async function deleteResource(client: SessionClient, path: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await client.apiFetch(path, { method: 'DELETE', headers: { 'x-slips-client': 'dashboard' } });
+  } catch {
+    throw new ApiError(0);
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { code?: string } | null;
+    throw new ApiError(res.status, body?.code);
+  }
+}

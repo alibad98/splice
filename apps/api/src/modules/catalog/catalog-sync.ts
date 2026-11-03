@@ -76,8 +76,9 @@ export class CatalogSync {
    */
   async run(storeId: string, runId: string, opts: { finalAttempt: boolean }): Promise<SyncOutcome> {
     const begin = await this.begin(storeId, runId).catch(async (err: unknown) => {
-      // The last attempt failing before it even started (busy, database error) still ends the run as failed.
-      if (opts.finalAttempt) {
+      // The last attempt failing before it even started (database error) still ends the run as failed. Busy means
+      // another attempt of this run is still importing: that attempt decides the outcome, so leave the run alone.
+      if (opts.finalAttempt && !(err instanceof RunBusyError)) {
         await this.markFailed(storeId, runId, 'internal');
         this.telemetry.log.warn('catalog sync failed after its last attempt', { reason: 'internal', run_id: runId });
       }
@@ -249,6 +250,7 @@ export class CatalogSync {
       await withStoreContext(this.pool, storeId, async () => {
         const state = await this.repo.lockSyncState();
         if (state && state.runId !== runId) return; // a newer run owns the row
+        if (state?.status === 'succeeded') return; // a stalled attempt failing late never undoes a finished run
         await this.repo.failRun(runId, reason, new Date(this.now()));
       });
     } catch (err) {

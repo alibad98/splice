@@ -65,7 +65,7 @@ export class CatalogService {
 
   /**
    * A merchant asks for a sync (Story 2.3). In one store transaction: single-flight (a fresh `queued`/`running` run is
-   * returned as is), then the rate limit, then the run is recorded `queued` and `catalog.sync.requested` is published
+   * returned as is), then the rate limit (skipped after a failed run), then the run is recorded `queued` and `catalog.sync.requested` is published
    * through the outbox with the run id as its event id. The worker turns the event into the full-sync job; this never
    * waits for the sync itself.
    */
@@ -75,7 +75,8 @@ export class CatalogService {
       const state = await this.repo.lockSyncState();
       const active = state && (state.status === 'queued' || state.status === 'running') && now - state.updatedAt.getTime() < STALE_RUN_MS;
       if (active) return { kind: 'in_progress', view: toView(state, now) };
-      const sinceRequest = state?.requestedAt ? now - state.requestedAt.getTime() : Infinity;
+      // The failure toast offers Retry, so a failed run never holds the next request back; single-flight still applies.
+      const sinceRequest = state?.requestedAt && state.status !== 'failed' ? now - state.requestedAt.getTime() : Infinity;
       if (sinceRequest < SYNC_REQUEST_INTERVAL_MS) return { kind: 'rate_limited', retryAfterSeconds: Math.max(1, Math.ceil((SYNC_REQUEST_INTERVAL_MS - sinceRequest) / 1000)) };
       const runId = uuidv7(now);
       const row = await this.repo.queueRun(runId, new Date(now));

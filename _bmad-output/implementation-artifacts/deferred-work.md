@@ -88,3 +88,17 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-manual-sync.md`
   summary: No test proves the merchant layout mounts the Toaster.
   evidence: Tests render their own Toaster; the dashboard has no harness for async server layouts.
+
+## Deferred from: code review of spec-ui-kit-global-components (2026-11-03)
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Hard-coded colours outside tokens (Salla button teal, DotField canvas RGB, `bg-black/40` scrims).
+  evidence: Partner brand colour and canvas drawing need a token-reading helper; revisit with the next design pass.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Skeleton is not boneyard-based yet (only a `data-boneyard-bone` attribute and `animate-pulse`).
+  evidence: Registry row 1 says boneyard; wire it when the first skeleton-heavy page lands.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Wave-1 acceptance items still open (Products states on kit Alert/EmptyState/Skeleton, budget report, AA check, impeccable pass).
+  evidence: Tasks checkboxes unchecked; close with the wave-1 sign-off.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ui-kit-global-components.md`
+  summary: Two icon sets in the dashboard (`components/shell/Icon` and the kit `Icon`).
+  evidence: SessionActions.tsx and AppShell.tsx import both; migrate shell icons to the kit.

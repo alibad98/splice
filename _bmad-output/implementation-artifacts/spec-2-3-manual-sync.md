@@ -76,6 +76,25 @@ context:
 - Given the button is pending, when focused, then it stays focusable, announces busy, and Enter/clicks do nothing.
 - Given `pnpm turbo run lint typecheck test build`, then all new code passes, and `/products` first-load JS growth is reported.
 
+### Review Findings
+
+Code review 2026-11-03 (blind-hunter, edge-case-hunter, verification-gap, acceptance-auditor; covers Story 2.2 and 2.3 commits).
+
+- [x] [Review][Decision] Retry after a fast failure hits the 60 s rate limit — the failure toast offers Retry, but a run that fails within a minute of its request (e.g. auth failure) makes Retry return 429 "try again in N seconds". Exempt requests after a `failed` run from the limit, or keep the limit and change the toast. Resolved 2026-11-03: exempt requests after a `failed` run (patched + tested).
+- [x] [Review][Patch] Last attempt can mark a live or finished run failed: `begin()` throwing `RunBusyError` on the final attempt calls `markFailed`, and `markFailed` would also overwrite a `succeeded` row [apps/api/src/modules/catalog/catalog-sync.ts:78]
+- [x] [Review][Patch] Test: a run waiting for its retry (`reason` set) yields to a newer run id instead of being `superseded` [apps/api/src/composition/catalog.test.ts]
+- [x] [Review][Patch] Test: CORS exposes `retry-after` to the dashboard origin [apps/api/src/http.ts:142]
+- [x] [Review][Patch] Test: the worker passes `retryCount`/`retryLimit` through to handlers (final-attempt detection) [apps/api/src/worker/worker.ts]
+- [x] [Review][Patch] Test: `/ui` still redirects to login in production [apps/dashboard/proxy.ts]
+
+Rejected:
+- false — stranded run reads `failed` while backoff waits: retries are 30/60/120/240 s (4 retries), far below the 15 min stale window.
+- false — `/ui` open on staging: `next build` always runs with `NODE_ENV=production`.
+- false — install run overwriting a queued manual run drops the merchant's request: the newer run does the same full sync.
+- by design — stranded `queued`/`running` reads `failed/internal` (matrix row "stale running = idle").
+- already deferred — first-load budget (+15.2 KB), tooltip Escape, Toaster mount test, inline close SVG.
+- low — `never` keeps polling every 5 s; failure toast re-shows in a new tab (sessionStorage); success toast keyed by state not run id; no error state when the status query fails; `Retry-After` HTTP-date; clock-skewed `requested_at`; swallowed `markRetrying` write; `type` vs `code` naming on 429; `useNow` re-render; category/search truncation and `count(*)` per page (2.2, within spec).
+
 ## Implementation Notes
 
 - Run id = event id: `publishEvent` gained an `eventId` option so `requestSync` records the `queued` row and publishes `catalog.sync.requested` with the same UUIDv7.

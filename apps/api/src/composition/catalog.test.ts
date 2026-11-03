@@ -370,7 +370,7 @@ describe('full sync', () => {
     expect(await stateOf(storeId)).toMatchObject({ status: 'succeeded', created_count: 2 });
   });
 
-  it('on the last attempt, a failure before the import starts (busy run) still records failed', async () => {
+  it('on the last attempt, a busy run (another attempt of it is still importing) stays running, not failed, and the error is rethrown', async () => {
     const storeId = randomUUID();
     const runId = nextRun();
     await withStoreContext(app, storeId, (ctx) => ctx.query(`insert into catalog_sync_state (store_id, run_id, status, next_page) values ($1, $2, 'running', 2)`, [storeId, runId]));
@@ -378,7 +378,33 @@ describe('full sync', () => {
     await expect(sync.run(storeId, runId, NOT_LAST)).rejects.toBeInstanceOf(RunBusyError);
     expect(await stateOf(storeId)).toMatchObject({ status: 'running' });
     await expect(sync.run(storeId, runId, { finalAttempt: true })).rejects.toBeInstanceOf(RunBusyError);
-    expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason: 'internal' });
+    expect(await stateOf(storeId)).toMatchObject({ status: 'running', reason: null, next_page: 2 });
+  });
+
+  it('a run waiting for its retry (running + reason) yields to a newer run id, which starts and succeeds', async () => {
+    const storeId = randomUUID();
+    const older = nextRun();
+    const newer = nextRun();
+    const platform = new FakePlatform([[product('w1')]]);
+    platform.fail.set(1, new PlatformUnavailableError('down'));
+    const { sync } = syncFor(platform);
+    await expect(sync.run(storeId, older, NOT_LAST)).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(await stateOf(storeId)).toMatchObject({ run_id: older, status: 'running', reason: 'platform_unavailable' });
+    expect(await sync.run(storeId, newer, NOT_LAST)).toBe('succeeded');
+    expect(await stateOf(storeId)).toMatchObject({ run_id: newer, status: 'succeeded', reason: null });
+  });
+
+  it('a final-attempt failure of a run that another attempt already finished leaves it succeeded', async () => {
+    const storeId = randomUUID();
+    const runId = nextRun();
+    const platform = new FakePlatform([[product('f1')]]);
+    platform.onPage = async () => {
+      await admin.query(`update catalog_sync_state set status = 'succeeded', reason = null where store_id = $1`, [storeId]);
+    };
+    platform.fail.set(1, new PlatformUnavailableError('late'));
+    const { sync } = syncFor(platform);
+    await expect(sync.run(storeId, runId, { finalAttempt: true })).rejects.toBeInstanceOf(PlatformUnavailableError);
+    expect(await stateOf(storeId)).toMatchObject({ run_id: runId, status: 'succeeded', reason: null });
   });
 
   it('a second run while another is fresh and running is superseded; a stale running run is replaced', async () => {
@@ -684,6 +710,29 @@ describe('manual sync', () => {
     expect(retryAfter).toBeGreaterThanOrEqual(1);
     expect(retryAfter).toBeLessThanOrEqual(60);
     expect(await requestedEvents(storeId)).toHaveLength(1);
+  });
+
+  it('after a failed run requested < 60 s ago: 202 queued (not rate limited); a success < 60 s ago is still 429', async () => {
+    const { storeId, token } = await installedStore();
+    const first = CatalogSyncStatus.parse((await requestSync(token)).body);
+    const platform = new FakePlatform([[product('rf1')]]);
+    platform.fail.set(1, new PlatformAuthRejectedError());
+    await work(storeId, platform);
+    expect((await statusOf(token)).status).toBe('failed');
+    const { res, body } = await requestSync(token);
+    expect(res.status).toBe(202);
+    const next = CatalogSyncStatus.parse(body);
+    expect(next.status).toBe('queued');
+    expect(next.run_id).not.toBe(first.run_id);
+    await work(storeId, new FakePlatform([[product('rf2')]]));
+    expect((await statusOf(token)).status).toBe('succeeded');
+    expect((await requestSync(token)).res.status).toBe(429);
+  });
+
+  it('CORS: an allowed origin gets retry-after exposed to the browser', async () => {
+    const res = await fetch(`${base}/v1/catalog/sync`, { headers: { origin: 'http://localhost:3000' } });
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:3000');
+    expect(res.headers.get('access-control-expose-headers')?.toLowerCase()).toContain('retry-after');
   });
 
   it('after a success more than 60 s ago: 202 queued with a new run id, keeping the last sync time', async () => {

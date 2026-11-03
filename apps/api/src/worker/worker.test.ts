@@ -25,6 +25,22 @@ describe('registerQueues', () => {
     expect(worked).toEqual([['media.transcode', GROUP_POLICY.media.concurrency], ['integration.webhook', GROUP_POLICY.realtime.concurrency]]);
   });
 
+  it('passes the job retry metadata to the handler so the last attempt can be told', async () => {
+    let work: ((jobs: Array<{ id: string; data: unknown; retryCount: number; retryLimit: number }>) => Promise<void>) | undefined;
+    const boss = {
+      createQueue: async () => undefined,
+      work: async (_n: string, _o: unknown, h: typeof work) => void (work = h),
+    };
+    const seen: Array<{ retryCount?: number; retryLimit?: number }> = [];
+    const t = new PinoTelemetry({ role: 'worker', level: 'silent' });
+    await registerQueues(boss, t, [{ name: 'batch.rollup', group: 'batch' }], {
+      'batch.rollup': async (_data, job) => void seen.push({ retryCount: job.retryCount, retryLimit: job.retryLimit }),
+    });
+    const data = { v: 1, trace_id: 't', store_id: '00000000-0000-4000-8000-000000000001' };
+    await work!([{ id: 'j1', data, retryCount: 4, retryLimit: 4 }]);
+    expect(seen).toEqual([{ retryCount: 4, retryLimit: 4 }]);
+  });
+
   it('fails boot for a queue with no handler', async () => {
     const boss = { createQueue: async () => undefined, work: async () => undefined };
     const t = new PinoTelemetry({ role: 'worker', level: 'silent' });

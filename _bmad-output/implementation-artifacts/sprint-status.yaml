@@ -56,7 +56,7 @@ development_status:
   2-1-import-the-full-product-catalog-on-first-install: done
   2-2-browse-products-on-the-products-page: done
   2-3-sync-products-manually-and-see-last-sync-time: done
-  2-4-apply-product-webhooks-in-near-real-time: review
+  2-4-apply-product-webhooks-in-near-real-time: done
   2-5-handle-products-deleted-in-salla: backlog
   2-6-reconcile-the-catalog-daily: backlog
   2-7-pause-sync-when-disconnected-and-resume-on-reconnect: backlog

@@ -31,6 +31,11 @@ export const ar: Messages = {
       notConnected: 'غير متصل بسلة',
       hintNotConnected: 'اربط متجرك لتبدأ',
     },
+    disconnected: {
+      message: 'انقطع الاتصال بسلة، فتوقفت المزامنة. أعد الربط لتكمل.',
+      lastSynced: 'آخر مزامنة {time}',
+      reconnect: 'أعد الربط',
+    },
   },
   session: {
     signingIn: 'جارٍ تسجيل دخولك...',
@@ -122,6 +127,7 @@ export const ar: Messages = {
       failed: 'ما قدرنا نزامن منتجاتك. قائمتك الحالية باقية.',
       retry: 'حاول مرة ثانية',
       requestFailed: 'ما قدرنا نبدأ المزامنة. تحقق من اتصالك وجرّب مرة ثانية.',
+      reconnectToSync: 'أعد الربط لتزامن',
     },
     error: {
       title: 'لم نتمكن من تحميل منتجاتك',

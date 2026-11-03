@@ -9,7 +9,7 @@ import { uuidv7 } from '../../events/outbox.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CanonicalWebhook, type CommercePlatform, type MerchantProfile, type TokenSet, type WebhookRequest } from '../../ports/commerce-platform.js';
 import { Metric, type Telemetry } from '../../ports/telemetry.js';
 import type { TokenCipher } from '../../ports/token-cipher.js';
-import { InvalidWebhookPayloadError, StoreLifecycleConflictError } from './errors.js';
+import { InvalidWebhookPayloadError, StoreDisconnectedError, StoreLifecycleConflictError, StoreNotConnectedError } from './errors.js';
 import type { StoreLifecycle } from './store-lifecycle.js';
 
 /** An event for a store we do not know yet is retried for this long, then dead-lettered (never answered 404). */
@@ -162,7 +162,16 @@ export class WebhookInbox {
       if (!storeId) return 'parked';
       const consumer = this.consumers.get('product');
       if (!consumer) throw new Error('no consumer registered for product webhooks');
-      await consumer({ storeId, payload: row.payload, eventId: row.event_id, occurredAt: row.occurred_at ?? undefined });
+      try {
+        await consumer({ storeId, payload: row.payload, eventId: row.event_id, occurredAt: row.occurred_at ?? undefined });
+      } catch (err) {
+        // Story 2.7: a store without platform access pauses; the webhook is not retried. Reconnect queues a full sync.
+        if (err instanceof StoreDisconnectedError || err instanceof StoreNotConnectedError) {
+          this.telemetry.log.info('product webhook skipped', { store_id: storeId, inbox_id: row.id, webhook_type: row.type, reason: 'disconnected' });
+          return 'ignored';
+        }
+        throw err;
+      }
       return 'processed';
     }
     if (kind !== 'authorize' && kind !== 'installed' && kind !== 'uninstalled') return 'ignored';

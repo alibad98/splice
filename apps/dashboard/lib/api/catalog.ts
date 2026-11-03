@@ -64,7 +64,8 @@ export function useCategories() {
 
 /**
  * The latest catalog sync run; polled while it is queued or running (or has not started yet). When a run ends, every
- * products page and the categories are refetched, so the list never outlives the import. Use one instance per page.
+ * products page and the categories are refetched, so the list never outlives the import. Several instances (the products
+ * page and the shell banner) share the one query; each runs the end-of-run invalidation, which is idempotent.
  */
 export function useCatalogSync() {
   const { client, enabled } = useClient();

@@ -1,7 +1,7 @@
 import type { ConnectionStatus, SessionInfo } from '@slips/contracts';
 
-/** Connection state shown by the shell chip. */
-export type ShellConnection = { state: 'connected'; storeName: string } | { state: 'not-connected' };
+/** The store connection as the shell sees it: drives the chip, the shown store name and (Story 2.7) the disconnected banner. `disconnected`: the store lost platform access; the chip shows it like `not-connected`, but the banner appears and the store name stays. */
+export type ShellConnection = { state: 'connected'; storeName: string } | { state: 'disconnected'; storeName?: string } | { state: 'not-connected' };
 
 export interface ShellContext {
   connection: ShellConnection;
@@ -13,8 +13,9 @@ export interface ShellContext {
   storeUrl?: string;
 }
 
-/** Chip state for an API `ConnectionStatus` (Story 1.8). A disconnected store shows the same warning as no store. */
+/** Chip state for an API `ConnectionStatus` (Story 1.8). A disconnected store keeps its own state, for the banner (Story 2.7). */
 export function connectionFromStatus(status: ConnectionStatus): ShellConnection {
+  if (status.state === 'disconnected') return status.store_name ? { state: 'disconnected', storeName: status.store_name } : { state: 'disconnected' };
   return status.state === 'connected' && status.store_name ? { state: 'connected', storeName: status.store_name } : { state: 'not-connected' };
 }
 

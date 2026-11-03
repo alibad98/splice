@@ -67,7 +67,7 @@ export function catalogJobHandlers(sync: CatalogSync, reconcile: CatalogReconcil
 }
 
 /**
- * Queue a full sync when a store is installed or reinstalled. The job is sent on pg-boss's own connection (the app
+ * Queue a full sync when a store is installed, reinstalled or reconnected (Story 2.7). The job is sent on pg-boss's own connection (the app
  * role may only enqueue domain events); the event id is the run id, so a send repeated by a retried delivery resumes
  * or skips the same run instead of starting another.
  */
@@ -82,6 +82,14 @@ export function registerCatalogEventHandlers(registry: EventHandlerRegistry, bos
       if (!jobId) telemetry.log.info('catalog full sync already queued', { event: name, event_id: event.id });
     });
   }
+  // A reconnect (Story 2.7) must catch up even when a full-sync job (e.g. the one just refused as store_inactive) holds
+  // the current slot: move to the next slot instead of being dropped, and fail the delivery if nothing was queued.
+  registry.on('integration.store.reconnected', 'catalog.full-sync.on.integration.store.reconnected', async (event) => {
+    const storeId = event.payload.store_id;
+    const payload: FullSyncJob = { ...jobMeta(telemetry, storeId), store_id: storeId, run_id: event.id };
+    const jobId = await boss.send(CATALOG_FULL_SYNC_QUEUE, payload, { singletonKey: storeId, singletonSeconds: FULL_SYNC_SINGLETON_SECONDS, singletonNextSlot: true });
+    if (!jobId) throw new Error(`catalog full sync not queued for reconnect event ${event.id}`);
+  });
   // A merchant's manual sync (Story 2.3): the run is already recorded `queued` with this event id as its run id. Same
   // singleton key as install; a send that collides with a job queued in the current slot moves to the next slot instead
   // of being dropped, so the queued run is never left without a job.

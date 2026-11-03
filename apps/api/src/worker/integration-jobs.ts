@@ -41,9 +41,9 @@ export function integrationJobHandlers(service: IntegrationService, telemetry: T
   };
 }
 
-/** Lifecycle events have no module reacting yet (Epics 2-7 subscribe); a logging handler keeps the dispatcher from failing them. */
+/** Logs every lifecycle event. Other modules react through their own handlers (catalog queues a full sync on installed, reinstalled and reconnected). */
 export function registerIntegrationEventHandlers(registry: EventHandlerRegistry, telemetry: Telemetry): void {
-  const names = ['integration.store.installed', 'integration.store.disconnected', 'integration.store.uninstalled', 'integration.store.reinstalled', 'integration.store.purged'] as const satisfies readonly EventName[];
+  const names = ['integration.store.installed', 'integration.store.disconnected', 'integration.store.uninstalled', 'integration.store.reinstalled', 'integration.store.reconnected', 'integration.store.purged'] as const satisfies readonly EventName[];
   for (const name of names) {
     if (!isEventName(name)) continue;
     registry.on(name, `integration.log.${name}`, async (event) => {

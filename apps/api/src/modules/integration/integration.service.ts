@@ -131,8 +131,11 @@ export class IntegrationService {
               restored = true;
               return;
             }
+            const wasDisconnected = store.lifecycleState === 'disconnected';
             await this.repo.refreshStoreDetails({ name: profile.storeName, syncedDomains: profile.domains }, 'active');
             await this.persistInstall(existing, tokens, profile);
+            // Story 2.7: a reconnect resumes sync; catalog turns this into an immediate full sync.
+            if (wasDisconnected) await publishEvent(ctx, this.events, this.telemetry, 'integration.store.reconnected', { v: 1, store_id: existing, install_epoch: store.installEpoch });
           });
           return { storeId: existing, created: false, ...(restored ? { restored } : {}) };
         }

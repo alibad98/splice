@@ -117,3 +117,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-6-reconcile-catalog-daily.md`
   summary: UNVERIFIED (medium if true). A truncated or empty listing turns most live products into deletion candidates. That means unbounded sequential `products.get` calls, and a mass tombstone if Salla's 404 were systemic.
   evidence: Confirm-before-delete protects against a bad listing only while `get` answers correctly. Settle Salla's 404 behaviour with the webhook recorder (Story 2.5 deferred). If it is not trustworthy, add a candidate cap (e.g. abort and alert when more than X% of live products are absent).
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-pause-sync-disconnected.md`
+  summary: The dashboard's session connection is read only at sign-in or page load. A store that disconnects mid-session shows no banner, and Sync stays enabled, until the next full page load or re-sign-in.
+  evidence: `session-client.ts` derives `connection` once, and client navigation does not rerun the server layout. Fix with a session refresh, e.g. refetch the session describe when `GET /v1/catalog/sync` reports `failed`/`store_inactive`, or on window focus.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-pause-sync-disconnected.md`
+  summary: `integration.isStoreActive` (the storefront content-endpoint check, AD-20) returns false for `disconnected`, so a disconnected store's storefront would go empty. That contradicts the Story 2.7 rule "storefront content keeps serving last data".
+  evidence: Pre-existing and with no caller yet; the Epic 4 content endpoint will call it. Decide there: serve for `active` and `disconnected`, and empty only for uninstalled, purged and unknown stores. Then update the AD-20 wording.

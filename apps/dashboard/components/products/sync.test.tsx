@@ -41,12 +41,12 @@ interface FakeApi {
   calls: Array<{ method: string; path: string }>;
 }
 let api: FakeApi;
-let session: { client: { apiFetch: (path: string, init?: RequestInit) => Promise<Response> }; state: { status: 'signed-in' } } | null = null;
+let session: { client: { apiFetch: (path: string, init?: RequestInit) => Promise<Response> }; state: { status: 'signed-in'; connection: { state: 'connected' | 'disconnected' } } } | null = null;
 vi.mock('../session/SessionProvider', () => ({ useSession: () => session }));
 
-function setup(locale: Locale = 'en') {
+function setup(locale: Locale = 'en', connection: 'connected' | 'disconnected' = 'connected') {
   session = {
-    state: { status: 'signed-in' },
+    state: { status: 'signed-in', connection: { state: connection } },
     client: {
       apiFetch: async (path: string, init: RequestInit = {}) => {
         const method = init.method ?? 'GET';
@@ -284,5 +284,43 @@ describe('Sync products button', () => {
     await flush();
     expect(screen.getByText("We couldn't start the sync. Check your connection and try again.")).toBeTruthy();
     expect(syncButton().getAttribute('aria-busy')).toBeNull();
+  });
+});
+
+describe('disconnected store (Story 2.7)', () => {
+  it('Sync products is unavailable with a reason; a click sends nothing', async () => {
+    setup('en', 'disconnected');
+    await flush();
+    const button = syncButton();
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('aria-busy')).toBeNull();
+    const reason = document.getElementById(button.getAttribute('aria-describedby')!)!;
+    expect(reason.textContent).toBe('Reconnect to sync');
+    fireEvent.click(button);
+    button.click();
+    await flush();
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('Arabic reason', async () => {
+    setup('ar', 'disconnected');
+    await flush();
+    const button = syncButton('زامن المنتجات');
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)!.textContent).toBe('أعد الربط لتزامن');
+  });
+
+  it('a run failed with store_inactive raises no failure toast', async () => {
+    api.sync = status('failed', { run_id: crypto.randomUUID(), reason: 'store_inactive', last_synced_at: new Date(NOW - 3600_000).toISOString() });
+    setup('en', 'disconnected');
+    await flush();
+    expect(toast.list()).toHaveLength(0);
+    expect(screen.getByText('Last synced 1 hour ago')).toBeTruthy();
+  });
+
+  it('with a still-connected session (no banner yet), a store_inactive failure does show the failure toast', async () => {
+    api.sync = status('failed', { run_id: crypto.randomUUID(), reason: 'store_inactive', last_synced_at: new Date(NOW - 3600_000).toISOString() });
+    setup('en', 'connected');
+    await flush();
+    expect(screen.getAllByText("We couldn't sync your products. Your current list is still here.")).toHaveLength(1);
   });
 });

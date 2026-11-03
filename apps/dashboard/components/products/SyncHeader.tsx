@@ -1,23 +1,15 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import type { CatalogSyncStatus } from '@slips/contracts';
 import { Button, toast } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 import { formatDate, formatRelativeTime } from '../../i18n/format';
 import { isSyncActive, useRequestSync } from '../../lib/api/catalog';
 import { ApiError } from '../../lib/api/fetch';
+import { useNow } from '../../lib/use-now';
+import { useSession } from '../session/SessionProvider';
 import { fill } from './format';
-
-/** Re-render once a minute so "Last synced 5 minutes ago" stays true. */
-function useNow(intervalMs = 60_000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
 
 /** Failure toasts already shown in this browser session, by run id: a run's failure is shown once, across reloads. */
 const SHOWN_KEY = 'slips.catalog-sync.failure-shown';
@@ -56,12 +48,15 @@ export function SyncHeader({ sync }: { sync: CatalogSyncStatus | undefined }) {
   const now = useNow();
   const tipId = useId();
   const request = useRequestSync();
+  // Story 2.7: no platform access, so a sync can not run; the shell banner offers Reconnect.
+  const session = useSession();
+  const disconnected = session?.state.status === 'signed-in' && session.state.connection.state === 'disconnected';
   const requestSync = useRef<() => void>(() => undefined);
   // Set synchronously on click, so a double click never sends two requests (state updates land a render later).
   const inFlight = useRef(false);
 
   requestSync.current = () => {
-    if (inFlight.current) return;
+    if (inFlight.current || disconnected) return;
     inFlight.current = true;
     request.mutate(undefined, {
       onSettled: () => {
@@ -84,9 +79,10 @@ export function SyncHeader({ sync }: { sync: CatalogSyncStatus | undefined }) {
 
   // Failure: whenever the latest run is failed and its failure was not shown yet this session (live or on load).
   useEffect(() => {
-    if (sync?.status !== 'failed' || !sync.run_id || !markShown(sync.run_id)) return;
+    // While the disconnected banner is up, a run refused as store_inactive is explained by it, not a toast.
+    if (sync?.status !== 'failed' || !sync.run_id || (disconnected && sync.reason === 'store_inactive') || !markShown(sync.run_id)) return;
     toast({ id: `catalog-sync-failed-${sync.run_id}`, title: m.failed, tone: 'danger', action: { label: m.retry, onClick: () => requestSync.current() } });
-  }, [sync, m]);
+  }, [sync, m, disconnected]);
 
   const busy = request.isPending || isSyncActive(sync?.status);
   const last = sync?.last_synced_at ? new Date(sync.last_synced_at) : null;
@@ -113,7 +109,7 @@ export function SyncHeader({ sync }: { sync: CatalogSyncStatus | undefined }) {
           )}
         </p>
       ) : null}
-      <Button variant="secondary" pending={busy} onClick={() => requestSync.current()}>
+      <Button variant="secondary" pending={busy && !disconnected} unavailableReason={disconnected ? m.reconnectToSync : undefined} onClick={() => requestSync.current()}>
         {m.button}
       </Button>
     </div>

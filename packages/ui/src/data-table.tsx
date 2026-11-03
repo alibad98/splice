@@ -1,7 +1,7 @@
 'use client';
 
 import { createColumnHelper, tableFeatures, useTable, type RowData } from '@tanstack/react-table';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { cn } from './cn.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table.js';
 
@@ -31,7 +31,24 @@ export interface DataTableProps<T extends RowData> {
   renderCard?: (row: T) => ReactNode;
   /** Accessible name of the table and the card list. */
   label: string;
+  /**
+   * Makes each row focusable (`tabIndex=0`) and calls this on row click or `Enter` on the focused row (e.g. open the
+   * editor). Clicks on links, buttons and other controls inside the row, or in portals opened from it, are ignored.
+   */
+  onRowActivate?: (row: T) => void;
+  /** Extra classes for a row and its small-screen card item (e.g. a failed-state tint). */
+  rowClassName?: (row: T) => string | undefined;
   className?: string;
+}
+
+const INTERACTIVE = 'a, button, input, select, textarea, label, [role="menuitem"], [role="button"], [role="checkbox"]';
+
+/** True when the event started inside the row itself (not in a portal) and not on a control within the row. */
+function isPlainRowClick(e: MouseEvent<HTMLElement>): boolean {
+  const target = e.target as Element | null;
+  if (!target || !e.currentTarget.contains(target)) return false;
+  const control = target.closest(INTERACTIVE);
+  return !control || !e.currentTarget.contains(control);
 }
 
 const features = tableFeatures({});
@@ -50,7 +67,7 @@ function SortIcon({ dir }: { dir: 'asc' | 'desc' | 'none' }) {
  * Data table on TanStack Table v9 (headless) with shadcn Table markup: 56px rows, muted row hover, sortable headers
  * (`aria-sort`), and an optional card list below `md` so small screens never scroll sideways.
  */
-export function DataTable<T extends RowData>({ columns, data, getRowId, sort, onSortChange, renderCard, label, className }: DataTableProps<T>) {
+export function DataTable<T extends RowData>({ columns, data, getRowId, sort, onSortChange, renderCard, label, onRowActivate, rowClassName, className }: DataTableProps<T>) {
   const tableColumns = useMemo(() => {
     const helper = createColumnHelper<typeof features, T>();
     return helper.columns(columns.map((c) => helper.display({ id: c.id, header: () => c.header, cell: ({ row }) => c.cell(row.original) })));
@@ -92,7 +109,25 @@ export function DataTable<T extends RowData>({ columns, data, getRowId, sort, on
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id} data-row-id={row.id}>
+              <TableRow
+                key={row.id}
+                data-row-id={row.id}
+                className={cn(onRowActivate && 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring', rowClassName?.(row.original))}
+                {...(onRowActivate
+                  ? {
+                      tabIndex: 0,
+                      onClick: (e: MouseEvent<HTMLTableRowElement>) => {
+                        if (isPlainRowClick(e)) onRowActivate(row.original);
+                      },
+                      onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
+                        if (e.key === 'Enter' && e.target === e.currentTarget) {
+                          e.preventDefault();
+                          onRowActivate(row.original);
+                        }
+                      },
+                    }
+                  : {})}
+              >
                 {row.getAllCells().map((cell) => (
                   <TableCell key={cell.id} className={byId.get(cell.column.id)?.className}>
                     <table.FlexRender cell={cell} />
@@ -106,7 +141,7 @@ export function DataTable<T extends RowData>({ columns, data, getRowId, sort, on
       {renderCard ? (
         <ul aria-label={label} className="flex flex-col divide-y divide-border md:hidden">
           {data.map((row) => (
-            <li key={getRowId(row)} className="py-3">
+            <li key={getRowId(row)} className={cn('py-3', rowClassName?.(row))}>
               {renderCard(row)}
             </li>
           ))}

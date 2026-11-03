@@ -10,6 +10,8 @@ import {
   CardTitle,
   Checkbox,
   ConfirmDialog,
+  DataTable,
+  Icon,
   Dialog,
   DialogBody,
   DialogClose,
@@ -94,6 +96,8 @@ const COPY = {
       retried: 'Retrying...',
     },
     chips: { neutral: 'Draft', info: 'Scheduled', success: 'Published', warning: 'Deactivated', danger: 'Failed' } satisfies Record<StatusTone, string>,
+    chipExtras: { processing: 'Processing', ended: 'Ended', archived: 'Archived' },
+    table: { title: 'DataTable (row activation)', label: 'Stories', name: 'Title', status: 'Status', opened: 'Opened', rows: ['Summer abayas', 'Eid perfume'] },
     toaster: 'Notifications ({hotkey})',
     close: 'Close notification',
     kit: {
@@ -140,6 +144,8 @@ const COPY = {
       retried: 'نحاول مرة ثانية...',
     },
     chips: { neutral: 'مسودة', info: 'مجدول', success: 'منشور', warning: 'موقوف', danger: 'فشل' } satisfies Record<StatusTone, string>,
+    chipExtras: { processing: 'قيد المعالجة', ended: 'منتهي', archived: 'مؤرشف' },
+    table: { title: 'جدول البيانات (فتح الصف)', label: 'الستوريز', name: 'العنوان', status: 'الحالة', opened: 'فتحنا', rows: ['عبايات الصيف', 'عطر العيد'] },
     toaster: 'الإشعارات ({hotkey})',
     close: 'أغلق الإشعار',
     kit: {
@@ -258,6 +264,30 @@ export function Gallery() {
               {c.chips[t]}
             </StatusChip>
           ))}
+          <StatusChip tone="info" pulse>
+            {c.chipExtras.processing}
+          </StatusChip>
+          <StatusChip tone="neutral" variant="outline" dot={false}>
+            {c.chipExtras.ended}
+          </StatusChip>
+          <StatusChip tone="neutral" variant="outline" icon={<Icon name="archive" />}>
+            {c.chipExtras.archived}
+          </StatusChip>
+        </Section>
+
+        <Section title={c.table.title}>
+          <DataTable
+            className="w-full"
+            label={c.table.label}
+            data={c.table.rows.map((name, i) => ({ id: String(i), name, failed: i === 1 }))}
+            getRowId={(r) => r.id}
+            columns={[
+              { id: 'name', header: c.table.name, cell: (r) => <span dir="auto">{r.name}</span> },
+              { id: 'status', header: c.table.status, cell: (r) => (r.failed ? <StatusChip tone="danger">{c.chips.danger}</StatusChip> : <StatusChip tone="success">{c.chips.success}</StatusChip>) },
+            ]}
+            onRowActivate={(r) => toast({ title: `${c.table.opened}: ${r.name}` })}
+            rowClassName={(r) => (r.failed ? 'bg-destructive/6 hover:bg-destructive/10' : undefined)}
+          />
         </Section>
 
         <Section title={k.badge}>

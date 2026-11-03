@@ -10,6 +10,11 @@ import {
   ContentCreateInput,
   ContentItem,
   canTransition,
+  CONTENT_SORTS,
+  CONTENT_TABS,
+  ContentListQuery,
+  ContentListResponse,
+  TAB_STATUSES,
 } from './content.js';
 
 const item = {
@@ -103,5 +108,49 @@ describe('content contracts', () => {
     expect(ContentItem.parse(item)).toMatchObject({ v: 1, id: item.id, status: 'draft' });
     expect(ContentItem.safeParse({ ...item, status: 'ready' }).success).toBe(false);
     expect(ContentItem.safeParse({ ...item, format: 'carousel' }).success).toBe(false);
+  });
+});
+
+describe('content list contracts (Story 3.2)', () => {
+  it('maps tabs to statuses: drafts = draft, processing, failed; archived/deactivated/ended only under all', () => {
+    expect(CONTENT_TABS).toEqual(['all', 'published', 'scheduled', 'drafts']);
+    expect(TAB_STATUSES.all).toEqual(CONTENT_STATUSES);
+    expect(TAB_STATUSES.drafts).toEqual(['draft', 'processing', 'failed']);
+    expect(TAB_STATUSES.published).toEqual(['published']);
+    expect(TAB_STATUSES.scheduled).toEqual(['scheduled']);
+    for (const s of ['archived', 'deactivated', 'ended'] as const) {
+      expect(CONTENT_TABS.filter((t) => TAB_STATUSES[t].includes(s))).toEqual(['all']);
+    }
+  });
+
+  it('parses the list query with defaults and rejects bad values', () => {
+    expect(ContentListQuery.parse({})).toEqual({ tab: 'all', sort: '-updated', page: 1, page_size: 10 });
+    expect(ContentListQuery.parse({ tab: 'drafts', q: ' sale ', sort: 'title', page: '2', page_size: '25' })).toEqual({
+      tab: 'drafts',
+      q: 'sale',
+      sort: 'title',
+      page: 2,
+      page_size: 25,
+    });
+    expect(CONTENT_SORTS).toEqual(['-updated', 'updated', 'title', '-title']);
+    expect(ContentListQuery.safeParse({ tab: 'archived' }).success).toBe(false);
+    expect(ContentListQuery.safeParse({ sort: 'name' }).success).toBe(false);
+    expect(ContentListQuery.safeParse({ page: '0' }).success).toBe(false);
+    expect(ContentListQuery.safeParse({ page_size: '7' }).success).toBe(false);
+    expect(ContentListQuery.safeParse({ q: 'a'.repeat(101) }).success).toBe(false);
+    expect(ContentListQuery.safeParse({ q: 'a'.repeat(100) }).success).toBe(true);
+  });
+
+  it('parses a list response with counts', () => {
+    const parsed = ContentListResponse.parse({
+      items: [{ ...item, status: 'failed' }],
+      total: 1,
+      page: 1,
+      page_size: 10,
+      counts: { all: 3, published: 1, scheduled: 0, drafts: 2 },
+    });
+    expect(parsed.v).toBe(1);
+    expect(parsed.counts.drafts).toBe(2);
+    expect(ContentListResponse.safeParse({ items: [], total: 0, page: 1, page_size: 10 }).success).toBe(false);
   });
 });

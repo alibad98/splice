@@ -1,8 +1,11 @@
 import {
   AUTH_PROBLEM_CODES,
+  CONTENT_INVALID_TRANSITION,
   CatalogSyncStatus,
   CategoryListResponse,
   ConnectionStatus,
+  ContentCreateInput,
+  ContentItem,
   EmbeddedSession,
   ForgotPasswordInput,
   HealthResponse,
@@ -37,7 +40,7 @@ import { z } from 'zod';
 // ---------------------------------------------------------------------------------------------------------------
 
 const Problem = z.object({
-  type: z.string().describe('A stable problem type slug when the error has one (e.g. `sync-rate-limited`), else `about:blank`.'),
+  type: z.string().describe('A stable problem type slug when the error has one (e.g. `sync-rate-limited`, `invalid-transition`), else `about:blank`.'),
   title: z.string().describe('Short human-readable summary (English; the dashboard shows its own localized copy).'),
   status: z.number().int().describe('HTTP status code.'),
   detail: z.string().optional().describe('More detail, for 4xx responses.'),
@@ -76,6 +79,7 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [ProductListResponse, 'ProductPage', `One page of products: \`items\` (at most \`page_size\`), \`total\` matching products, \`page\` (1-based) and \`page_size\`.`],
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
+  [ContentItem, 'ContentItem', 'One content item (Story or Reel) and its lifecycle status.'],
 ];
 
 const inputs: Array<[z.ZodType, string, string]> = [
@@ -88,6 +92,7 @@ const inputs: Array<[z.ZodType, string, string]> = [
   [ResetPasswordInput, 'ResetPasswordRequest', 'New password with the token from `verify-otp`.'],
   [SetPasswordInput, 'SetPasswordRequest', "Owner's first password with the token from `verify-otp`."],
   [ResendOtpInput, 'ResendOtpRequest', 'Send the code again.'],
+  [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA.'],
 ];
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -122,7 +127,7 @@ function exportModels(list: Array<[z.ZodType, string, string]>, io: 'input' | 'o
 // Routes
 // ---------------------------------------------------------------------------------------------------------------
 
-type Method = 'get' | 'post';
+type Method = 'get' | 'post' | 'delete';
 type Auth = 'public' | 'merchant' | 'admin';
 
 interface QueryDoc {
@@ -225,6 +230,68 @@ export const ROUTES: RouteDoc[] = [
     errors: [401, 403, 429],
   },
 
+  {
+    method: 'post',
+    path: '/v1/content',
+    tag: 'Content',
+    summary: 'Create a content item',
+    description: 'Creates a draft Story or Reel with its title, format and CTA, and emits `content.item.created` in the same transaction. Invalid bodies answer 400 `invalid_body`.',
+    auth: 'merchant',
+    body: ContentCreateInput,
+    success: { status: 201, description: 'Created draft content item', body: ContentItem },
+    errors: [400, 401, 403],
+  },
+  {
+    method: 'get',
+    path: '/v1/content/:id',
+    tag: 'Content',
+    summary: 'Get a content item',
+    description: 'Returns a live content item of the signed-in store. Unknown, deleted or other-store items answer 404.',
+    auth: 'merchant',
+    success: { status: 200, description: 'Content item', body: ContentItem },
+    errors: [401, 404],
+  },
+  {
+    method: 'post',
+    path: '/v1/content/:id/archive',
+    tag: 'Content',
+    summary: 'Archive a content item',
+    description: `Moves any non-processing, non-archived item to \`archived\`, recording \`archived_from\` so \`undo-archive\` can return it. Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`.`,
+    auth: 'merchant',
+    success: { status: 200, description: 'Archived content item', body: ContentItem },
+    errors: [401, 403, 404, 409],
+  },
+  {
+    method: 'post',
+    path: '/v1/content/:id/undo-archive',
+    tag: 'Content',
+    summary: 'Undo archive on a content item',
+    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`.`,
+    auth: 'merchant',
+    success: { status: 200, description: 'Unarchived content item', body: ContentItem },
+    errors: [401, 403, 404, 409],
+  },
+  {
+    method: 'post',
+    path: '/v1/content/:id/restore',
+    tag: 'Content',
+    summary: 'Restore an archived content item to draft',
+    description: `Moves an \`archived\` item to \`draft\`. Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`.`,
+    auth: 'merchant',
+    success: { status: 200, description: 'Restored draft content item', body: ContentItem },
+    errors: [401, 403, 404, 409],
+  },
+  {
+    method: 'delete',
+    path: '/v1/content/:id',
+    tag: 'Content',
+    summary: 'Delete a content item',
+    description: 'Soft-deletes (`deleted_at` tombstone) any live content item of the store and emits `content.item.deleted`. Subsequent reads or deletes answer 404.',
+    auth: 'merchant',
+    success: { status: 204, description: 'Deleted' },
+    errors: [401, 403, 404],
+  },
+
   { method: 'post', path: '/v1/admin/sign-in', tag: 'Admin', summary: 'Slips Admin sign-in (not available yet)', description: 'Placeholder: always 403 until the admin identity provider is chosen.', auth: 'public', success: { status: 200, description: 'Signed in' }, errors: [403] },
   { method: 'get', path: '/v1/admin/session', tag: 'Admin', summary: 'Slips Admin session (not available yet)', auth: 'admin', success: { status: 200, description: 'Admin session' }, errors: [403] },
 ];
@@ -235,6 +302,7 @@ const TAGS = [
   { name: 'Password sign-in', description: 'Direct-link sign-in with email and password, set up from the invite sent on install.' },
   { name: 'Password reset & setup', description: 'Code-based flow shared by "forgot password" (purpose `reset`) and the first password of a new owner (purpose `setup`): request or receive a code → `verify-otp` → `reset-password` or `set-password`.' },
   { name: 'Catalog', description: "The store's products synced from Salla: listing, categories and the sync status." },
+  { name: 'Content', description: 'Stories and Reels created by the merchant and their status lifecycle.' },
   { name: 'Ops', description: 'Health and metrics for operations.' },
   { name: 'Admin', description: 'Internal Slips Admin (not available yet).' },
 ];
@@ -265,13 +333,15 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 - Session: ${SESSION_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Password sign-in: ${AUTH_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Queries: \`invalid_query\`
-- Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)`;
+- Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)
+- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`)`;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',
   401: 'Not signed in, session expired, or wrong credentials',
   403: 'Forbidden: missing/invalid CSRF token, store not installed, or admin only',
   404: 'Not found',
+  409: 'Conflict (`type` `invalid-transition` when a status change is not allowed)',
   429: 'Too many attempts; try again later (after `Retry-After` seconds when the header is sent)',
   503: 'A dependency (database or Salla) is unavailable',
 };

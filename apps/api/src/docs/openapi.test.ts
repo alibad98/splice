@@ -7,12 +7,13 @@ import { AdminController } from '../modules/admin/admin.controller.js';
 import { AuthController } from '../modules/auth/auth.controller.js';
 import { CredentialsController } from '../modules/auth/credentials.controller.js';
 import { CatalogController } from '../modules/catalog/catalog.controller.js';
+import { ContentController } from '../modules/content/content.controller.js';
 import { HealthController } from '../modules/health/health.controller.js';
 import { IntegrationController } from '../modules/integration/integration.controller.js';
 import { WebhookController } from '../modules/integration/webhook.controller.js';
 import { buildOpenApi, docsPage, ROUTES } from './openapi.js';
 
-const CONTROLLERS = [MetricsController, AdminController, AuthController, CredentialsController, CatalogController, HealthController, IntegrationController, WebhookController];
+const CONTROLLERS = [MetricsController, AdminController, AuthController, CredentialsController, CatalogController, ContentController, HealthController, IntegrationController, WebhookController];
 
 const join = (...parts: string[]) => `/${parts.flatMap((p) => p.split('/')).filter(Boolean).join('/')}`;
 const first = (v: unknown): string => (Array.isArray(v) ? String(v[0]) : String(v ?? ''));

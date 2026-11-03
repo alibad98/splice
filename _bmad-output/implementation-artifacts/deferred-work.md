@@ -123,3 +123,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-7-pause-sync-disconnected.md`
   summary: `integration.isStoreActive` (the storefront content-endpoint check, AD-20) returns false for `disconnected`, so a disconnected store's storefront would go empty. That contradicts the Story 2.7 rule "storefront content keeps serving last data".
   evidence: Pre-existing and with no caller yet; the Epic 4 content endpoint will call it. Decide there: serve for `active` and `disconnected`, and empty only for uninstalled, purged and unknown stores. Then update the AD-20 wording.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
+  summary: "`undo_archive` (and billing's `reactivate`) return an item to `published` or `scheduled` without any publish-eligibility or plan-limit check, so archive-then-undo could get around Epic 4 placement rules or Epic 7 limits."
+  evidence: "No eligibility or limit gate exists in Story 3.1. When Story 3.9 / Epic 4 adds the publish eligibility check and Story 7.4 adds limit enforcement in `content`, apply the same gate to every transition into `published`/`scheduled` (undo_archive, reactivate, go_live). Also consider limiting how long Undo stays available."
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
+  summary: "Nothing tests that `startWorker` registers a handler for every catalogued domain event (content, catalog, integration). A missing `register*EventHandlers` call would make every such event fail dispatch in production."
+  evidence: "Extract the three `register*EventHandlers` calls in `worker.ts` into an exported `registerAllEventHandlers(registry, boss, telemetry)`, and add a `worker.test.ts` case asserting `handlersFor(name).length > 0` for every `EVENT_CATALOG` name."

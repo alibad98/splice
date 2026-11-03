@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CONTENT_EVENT_NAMES } from './content.js';
 import { EVENT_CATALOG, EVENT_NAME_PATTERN, EVENT_OWNERS, EventEnvelope, isEventName, type EventName, type EventPayload } from './events.js';
 
 describe('event catalog', () => {
@@ -88,5 +89,23 @@ describe('catalog events', () => {
     expect(schema.safeParse({ ...ok, product_id: 'x' }).success).toBe(false);
     expect(schema.safeParse({ ...ok, v: 2 }).success).toBe(false);
     expect(schema.safeParse({ v: 1, store_id: id, product_id: run }).success).toBe(false);
+  });
+});
+
+describe('content events', () => {
+  const storeId = '11111111-1111-4111-8111-111111111111';
+  const contentId = '22222222-2222-4222-8222-222222222222';
+
+  it('catalogues all 13 content lifecycle events under owner content', () => {
+    for (const name of CONTENT_EVENT_NAMES) {
+      expect(EVENT_CATALOG[name].owner).toBe('content');
+    }
+    expect(EVENT_CATALOG['content.item.created'].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: null, to: 'draft' }).success).toBe(true);
+    for (const name of CONTENT_EVENT_NAMES.filter((n) => n !== 'content.item.created' && n !== 'content.item.deleted')) {
+      expect(EVENT_CATALOG[name].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'published' }).success).toBe(true);
+      expect(EVENT_CATALOG[name].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'ready' }).success).toBe(false);
+    }
+    expect(EVENT_CATALOG['content.item.deleted'].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft' }).success).toBe(true);
+    expect(EVENT_CATALOG['content.item.deleted'].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'archived' }).success).toBe(false);
   });
 });

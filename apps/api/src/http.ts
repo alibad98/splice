@@ -12,6 +12,7 @@ import { SendOnlyEventSender } from './adapters/pgboss/send-only-producer.js';
 import { DevSallaCommercePlatform, SallaCommercePlatform, unconfiguredPlatform } from './adapters/salla/index.js';
 import { sessionStoreData } from './modules/session/session.lifecycle.js';
 import { catalogStoreData } from './modules/catalog/catalog.lifecycle.js';
+import { contentStoreData } from './modules/content/content.lifecycle.js';
 import { ConsoleMailer } from './adapters/mailer/console-mailer.js';
 import { ownerInviteListener } from './modules/auth/owner-invite.js';
 import { denyAllAdminAccess } from './ports/admin-access.js';
@@ -122,7 +123,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     },
     adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
     mailer,
-    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData],
+    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),

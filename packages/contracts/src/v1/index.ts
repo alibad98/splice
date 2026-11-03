@@ -24,3 +24,22 @@ export type { AuthProblemCode } from './auth.js';
 export { CURRENCY_EXPONENTS, InvalidAmountError, UnknownCurrencyError, currencyExponent, toMinorUnits } from './money.js';
 export { Availability, CATALOG_SYNC_RATE_LIMITED, CATALOG_SYNC_STATES, CatalogSyncStatus, CategoryListResponse, PRODUCT_PAGE_SIZE, PRODUCT_PAGE_SIZES, PRODUCT_SEARCH_MAX, isProductPageSize, type ProductPageSize, PRODUCT_SORTS, ProductListQuery, ProductListResponse, ProductRow } from './catalog.js';
 export type { ProductListQueryInput, ProductSort } from './catalog.js';
+export {
+  ARCHIVABLE_STATUSES,
+  CONTENT_ACTIONS,
+  CONTENT_EVENT_NAMES,
+  CONTENT_FORMATS,
+  CONTENT_INVALID_TRANSITION,
+  CONTENT_STATUSES,
+  CONTENT_TRANSITIONS,
+  CTA_ACTIONS,
+  ContentAction,
+  ContentCreateInput,
+  ContentFormat,
+  ContentItem,
+  ContentStatus,
+  CtaAction,
+  REACTIVATE_STATUSES,
+  canTransition,
+} from './content.js';
+export type { ArchivableStatus, ContentEventName, ContentTransition, ContentTransitionTarget, ReactivateStatus } from './content.js';

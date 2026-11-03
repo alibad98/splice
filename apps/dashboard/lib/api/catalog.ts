@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CatalogSyncStatus, CategoryListResponse, ProductListResponse, type ProductListQuery } from '@slips/contracts';
+import { CatalogSyncStatus, CategoryListResponse, PRODUCT_PAGE_SIZE, ProductListResponse, type ProductListQuery } from '@slips/contracts';
 import { useSession } from '../../components/session/SessionProvider';
 import { ApiError, getJson, postJson } from './fetch';
 import { queryKeys } from './query-keys';
@@ -24,6 +24,7 @@ export function productsPath(query: ProductListQuery): string {
   if (query.category) params.set('category', query.category);
   if (query.sort !== 'name') params.set('sort', query.sort);
   if (query.page !== 1) params.set('page', String(query.page));
+  if (query.page_size !== PRODUCT_PAGE_SIZE) params.set('page_size', String(query.page_size));
   const qs = params.toString();
   return `/v1/products${qs ? `?${qs}` : ''}`;
 }

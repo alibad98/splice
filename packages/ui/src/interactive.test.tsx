@@ -13,6 +13,7 @@ import { sidebarOpenFromCookie } from './sidebar-state.js';
 import { Field } from './field.js';
 import { Input, PasswordInput } from './input.js';
 import { OtpInput } from './otp-input.js';
+import { Pagination, pageRange } from './pagination.js';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select.js';
 import { Spinner } from './spinner.js';
 import { Switch } from './switch.js';
@@ -565,5 +566,46 @@ describe('Sidebar', () => {
     const item = within(dialogEl).getByRole('button', { name: 'Products' });
     fireEvent.click(item);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('Pagination', () => {
+  const labels = { nav: 'Pages', summary: ({ from, to, total }: { from: number; to: number; total: number }) => `${from}-${to} of ${total}`, previous: 'Previous', next: 'Next', pageSize: 'Rows per page' };
+
+  it('computes the visible range, 0-0 when empty', () => {
+    expect(pageRange(1, 10, 23)).toEqual({ from: 1, to: 10 });
+    expect(pageRange(3, 10, 23)).toEqual({ from: 21, to: 23 });
+    expect(pageRange(2, 25, 23)).toEqual({ from: 0, to: 0 });
+    expect(pageRange(2, 10, 23, 4)).toEqual({ from: 11, to: 14 });
+  });
+
+  it('is a named nav with the summary; Previous is off on page 1 and Next on the last page', () => {
+    const onPageChange = vi.fn();
+    const { rerender } = render(<Pagination page={1} pageSize={10} total={23} onPageChange={onPageChange} labels={labels} />);
+    const nav = screen.getByRole('navigation', { name: 'Pages' });
+    expect(within(nav).getByText('1-10 of 23')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Previous' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(onPageChange).toHaveBeenCalledWith(2);
+    rerender(<Pagination page={3} pageSize={10} total={23} onPageChange={onPageChange} labels={labels} />);
+    expect(screen.getByText('21-23 of 23')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    expect(onPageChange).toHaveBeenLastCalledWith(2);
+    // No sizes given: no rows-per-page select.
+    expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('offers the page sizes in a labelled select and reports the choice', async () => {
+    const onPageSizeChange = vi.fn();
+    render(<Pagination page={1} pageSize={10} total={23} onPageChange={() => undefined} pageSizes={[10, 25, 50]} onPageSizeChange={onPageSizeChange} labels={labels} />);
+    const trigger = screen.getByRole('combobox', { name: 'Rows per page' });
+    expect(trigger.textContent).toContain('10');
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    const option = await screen.findByRole('option', { name: '50' });
+    option.focus();
+    fireEvent.keyDown(option, { key: 'Enter' });
+    expect(onPageSizeChange).toHaveBeenCalledWith(50);
   });
 });

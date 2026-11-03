@@ -1,17 +1,17 @@
 'use client';
 
 import { useCallback } from 'react';
-import { Card } from '@slips/ui';
+import { PRODUCT_PAGE_SIZES } from '@slips/contracts';
+import { Card, Pagination } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 import { isSyncActive, useCatalogSync, useCategories, useProducts } from '../../lib/api/catalog';
-import { fill, pageRange } from './format';
+import { fill } from './format';
 import { ProductFilters } from './ProductFilters';
 import { ProductsTable } from './ProductsTable';
 import { SyncHeader } from './SyncHeader';
 import { EmptyProducts, FilteredEmpty, ProductsError, ProductsSkeleton, useDelayed } from './ProductStates';
 import { toListQuery, useProductParams } from './url-state';
 
-const pager = 'inline-flex min-h-9 items-center rounded-pill border border-input-border px-4 font-semibold hover:bg-muted disabled:opacity-50 disabled:hover:bg-transparent';
 
 /** The Products page body: filters, the table and every loading, empty and error state. */
 export function ProductsView() {
@@ -49,24 +49,27 @@ export function ProductsView() {
     else body = <EmptyProducts kind={syncing ? 'syncing' : sync.data?.status === 'failed' ? 'failed' : 'none'} />;
   } else {
     const { page, page_size, total, items } = products.data;
-    const { from, to } = pageRange(page, page_size, items.length);
     body = (
       <>
         {products.isError ? <ProductsError onRetry={() => void products.refetch()} retrying={products.isFetching} /> : null}
         <ProductsTable rows={items} sort={query.sort} onSortChange={(sort) => void setParams({ sort, page: null })} />
-        <nav aria-label={m.pagination.label} className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-small text-muted-foreground">
-            <bdi className="tabular-nums">{fill(m.pagination.summary, { from, to, total })}</bdi>
-          </p>
-          <div className="flex gap-2">
-            <button type="button" className={pager} disabled={page <= 1} onClick={() => void setParams({ page: page - 1 > 1 ? page - 1 : null })}>
-              {m.pagination.previous}
-            </button>
-            <button type="button" className={pager} disabled={to >= total} onClick={() => void setParams({ page: page + 1 })}>
-              {m.pagination.next}
-            </button>
-          </div>
-        </nav>
+        <Pagination
+          page={page}
+          pageSize={page_size}
+          total={total}
+          shown={items.length}
+          onPageChange={(next) => void setParams({ page: next > 1 ? next : null })}
+          pageSizes={PRODUCT_PAGE_SIZES}
+          // A new page size starts again from page 1, so the first rows stay in view.
+          onPageSizeChange={(size) => void setParams({ size, page: null })}
+          labels={{
+            nav: m.pagination.label,
+            summary: (range) => fill(m.pagination.summary, range),
+            previous: m.pagination.previous,
+            next: m.pagination.next,
+            pageSize: m.pagination.pageSize,
+          }}
+        />
       </>
     );
   }

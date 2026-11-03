@@ -294,12 +294,18 @@ export class SallaCommercePlatform implements CommercePlatform {
       if (!parsed.success) throw new PlatformUnavailableError('Salla products response was not recognised');
       const items: CanonicalProduct[] = [];
       let skipped = 0;
+      const skippedExternalIds: string[] = [];
       for (const raw of parsed.data.data) {
         const p = SallaProduct.safeParse(raw);
         if (p.success) items.push(mapProduct(p.data));
-        else skipped++;
+        else {
+          skipped++;
+          // An unreadable product whose id is readable still exists in Salla: reconciliation must not treat it as absent.
+          const id = SallaId.safeParse((raw as { id?: unknown } | null | undefined)?.id);
+          if (id.success) skippedExternalIds.push(id.data);
+        }
       }
-      return { items, skipped, hasMore: parsed.data.pagination ? parsed.data.pagination.currentPage < parsed.data.pagination.totalPages : false };
+      return { items, skipped, skippedExternalIds, hasMore: parsed.data.pagination ? parsed.data.pagination.currentPage < parsed.data.pagination.totalPages : false };
     },
     get: async (session: PlatformSession, externalId: string): Promise<CanonicalProduct | null> => {
       // Response shape `{ data }` is unverified against a live store, like `list`. A 404 is Salla's answer that the

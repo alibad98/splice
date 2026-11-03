@@ -12,6 +12,7 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
+import { CATALOG_RECONCILE_SCHEDULE_QUEUE, CatalogReconcile, RECONCILE_CRON } from '../modules/catalog/catalog-reconcile.js';
 import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
 import { buildInfra } from '../http.js';
 import type { Env } from '../config/env.js';
@@ -116,9 +117,10 @@ export async function startWorker(
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
+  const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync), ...handlers };
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...handlers };
   let stopPoller = () => {};
   try {
     await boss.start();
@@ -126,6 +128,7 @@ export async function startWorker(
     await registerQueues(boss, telemetry, selected, allHandlers);
     await grantEventPublishing(pool, telemetry, EVENT_QUEUE);
     if (selected.some((q) => q.name === WEBHOOK_SWEEP_QUEUE)) await boss.schedule(WEBHOOK_SWEEP_QUEUE, SWEEP_CRON, { v: 1, trace_id: 'schedule' });
+    if (selected.some((q) => q.name === CATALOG_RECONCILE_SCHEDULE_QUEUE)) await boss.schedule(CATALOG_RECONCILE_SCHEDULE_QUEUE, RECONCILE_CRON, { v: 1, trace_id: 'schedule' });
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),

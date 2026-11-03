@@ -6,8 +6,12 @@ const { products, categories, catalogSyncState } = schema;
 /** Product fields a manifest shows (the `catalog.product.updated` `changed` values). */
 export type ProductVisibleField = (typeof PRODUCT_VISIBLE_FIELDS)[number];
 
-/** `restored`: a tombstoned product written again by a strictly newer source (Story 2.5); every visible field is `changed`. */
-export type ApplyProductResult = { outcome: 'created' | 'updated' | 'restored' | 'stale'; productId: string; changed: ProductVisibleField[] };
+/**
+ * `restored`: a tombstoned product written again by a strictly newer source (Story 2.5) or seen in the platform after its
+ * deletion (Story 2.6); every visible field is `changed`. `unchanged`: the stored row already equals the write; nothing
+ * was written.
+ */
+export type ApplyProductResult = { outcome: 'created' | 'updated' | 'restored' | 'unchanged' | 'stale'; productId: string; changed: ProductVisibleField[] };
 
 export type TombstoneOutcome = 'deleted' | 'already_deleted' | 'stale' | 'unknown';
 export interface TombstoneResult {
@@ -42,6 +46,24 @@ export interface CategoryWrite {
   name: string;
   sourceUpdatedAt: Date;
 }
+
+type StoredProductFields = Pick<ProductWrite, 'name' | 'imageUrl' | 'categoryExternalIds' | 'priceMinor' | 'salePriceMinor' | 'currency' | 'taxInclusive' | 'stock' | 'availability' | 'hasRequiredOptions' | 'visible' | 'sourceUpdatedAt'>;
+
+/** True when a stored row already holds exactly what a write would store (every written field, source time included). */
+const sameStoredFields = (a: StoredProductFields, b: StoredProductFields): boolean =>
+  a.name === b.name &&
+  a.imageUrl === b.imageUrl &&
+  a.categoryExternalIds.length === b.categoryExternalIds.length &&
+  a.categoryExternalIds.every((id, i) => id === b.categoryExternalIds[i]) &&
+  a.priceMinor === b.priceMinor &&
+  a.salePriceMinor === b.salePriceMinor &&
+  a.currency === b.currency &&
+  a.taxInclusive === b.taxInclusive &&
+  a.stock === b.stock &&
+  a.availability === b.availability &&
+  a.hasRequiredOptions === b.hasRequiredOptions &&
+  a.visible === b.visible &&
+  a.sourceUpdatedAt.getTime() === b.sourceUpdatedAt.getTime();
 
 /** Data access for the catalog tables; runs only inside `withStoreContext` (StoreScoped). */
 export class CatalogRepository extends StoreScoped {
@@ -123,6 +145,28 @@ export class CatalogRepository extends StoreScoped {
       .onConflictDoUpdate({ target: catalogSyncState.storeId, set: { status: 'failed', reason, finishedAt: at, updatedAt: at } });
   }
 
+  /**
+   * Move the last sync time to `at` after a reconcile (Story 2.6). Without a sync-state row yet, insert one as
+   * `succeeded` with run id `runId`; otherwise only `last_synced_at` changes, and only forwards (never the run, its status
+   * or `updated_at`).
+   */
+  async touchLastSynced(at: Date, runId: string): Promise<void> {
+    await this.db
+      .insert(catalogSyncState)
+      .values({ storeId: this.storeId, runId, status: 'succeeded', reason: null, startedAt: at, finishedAt: at, lastSyncedAt: at, updatedAt: at })
+      // Never backwards: a full sync that finished later keeps its time.
+      .onConflictDoUpdate({ target: catalogSyncState.storeId, set: { lastSyncedAt: sql`greatest(${catalogSyncState.lastSyncedAt}, excluded.last_synced_at)` } });
+  }
+
+  /** External ids of the store's live (not tombstoned) products on a platform. */
+  async liveExternalIds(platform: StorePlatform): Promise<string[]> {
+    const rows = await this.db
+      .select({ externalId: products.externalId })
+      .from(products)
+      .where(and(eq(products.storeId, this.storeId), eq(products.platform, platform), isNull(products.deletedAt)));
+    return rows.map((r) => r.externalId);
+  }
+
   /** Insert or update by (store, platform, external id), except where the stored name is from a newer source time. */
   async upsertCategories(rows: readonly CategoryWrite[]): Promise<void> {
     if (rows.length === 0) return;
@@ -186,26 +230,52 @@ export class CatalogRepository extends StoreScoped {
   }
 
   /**
-   * One product from a webhook (Story 2.4). Call under the store's product lock. Reads the stored visible fields
-   * `for update`, applies the guarded upsert, and reports which visible fields changed.
+   * One product from a webhook (Story 2.4) or a reconcile listing (Story 2.6). Call under the store's product lock.
+   * Reads the stored row `for update`, applies the guarded upsert, and reports which visible fields changed. A live row
+   * that already equals the write on every stored field (source time included) is `unchanged` and not written.
+   *
+   * `observedAt` is when the platform was seen to have the product (the reconcile listing or fetch time): a tombstoned
+   * row deleted before that is revived even when the product's own time is not newer (a false 404 keeps the platform's
+   * older time, Story 2.5), and is written with `source_updated_at = max(product time, observedAt)`.
    */
-  async applyProduct(row: ProductWrite): Promise<ApplyProductResult> {
+  async applyProduct(row: ProductWrite, opts: { observedAt?: Date } = {}): Promise<ApplyProductResult> {
     const existing = (
       await this.db
-        .select({ id: products.id, name: products.name, imageUrl: products.imageUrl, priceMinor: products.priceMinor, salePriceMinor: products.salePriceMinor, availability: products.availability, hasRequiredOptions: products.hasRequiredOptions, visible: products.visible, sourceUpdatedAt: products.sourceUpdatedAt, deletedAt: products.deletedAt })
+        .select({
+          id: products.id,
+          name: products.name,
+          imageUrl: products.imageUrl,
+          categoryExternalIds: products.categoryExternalIds,
+          priceMinor: products.priceMinor,
+          salePriceMinor: products.salePriceMinor,
+          currency: products.currency,
+          taxInclusive: products.taxInclusive,
+          stock: products.stock,
+          availability: products.availability,
+          hasRequiredOptions: products.hasRequiredOptions,
+          visible: products.visible,
+          sourceUpdatedAt: products.sourceUpdatedAt,
+          deletedAt: products.deletedAt,
+        })
         .from(products)
         .where(and(eq(products.storeId, this.storeId), eq(products.platform, row.platform), eq(products.externalId, row.externalId)))
         .for('update')
         .limit(1)
     )[0];
-    if (existing && row.sourceUpdatedAt.getTime() < existing.sourceUpdatedAt.getTime()) return { outcome: 'stale', productId: existing.id, changed: [] };
     if (existing?.deletedAt) {
-      // A tombstone is revived only by a strictly newer write: a same-time update delivered after the delete loses.
-      if (row.sourceUpdatedAt.getTime() <= existing.sourceUpdatedAt.getTime()) return { outcome: 'stale', productId: existing.id, changed: [] };
-      const revived = (await this.upsertGuarded([row], { restore: true }))[0];
+      const observed = opts.observedAt;
+      // A tombstone is revived by a strictly newer write (a same-time update delivered after the delete loses), or by a
+      // platform answer observed after the deletion (reconcile).
+      const newer = row.sourceUpdatedAt.getTime() > existing.sourceUpdatedAt.getTime();
+      const seenAfter = observed !== undefined && observed.getTime() > existing.deletedAt.getTime();
+      if (!newer && !seenAfter) return { outcome: 'stale', productId: existing.id, changed: [] };
+      const at = observed && observed.getTime() > row.sourceUpdatedAt.getTime() ? observed : row.sourceUpdatedAt;
+      const revived = (await this.upsertGuarded([{ ...row, sourceUpdatedAt: at }], { restore: true }))[0];
       if (!revived) return { outcome: 'stale', productId: existing.id, changed: [] };
       return { outcome: 'restored', productId: revived.id, changed: [...PRODUCT_VISIBLE_FIELDS] };
     }
+    if (existing && row.sourceUpdatedAt.getTime() < existing.sourceUpdatedAt.getTime()) return { outcome: 'stale', productId: existing.id, changed: [] };
+    if (existing && sameStoredFields(existing, row)) return { outcome: 'unchanged', productId: existing.id, changed: [] };
     const written = await this.upsertGuarded([row]);
     const w = written[0];
     // The guard lost a race with a newer write that landed after the read.

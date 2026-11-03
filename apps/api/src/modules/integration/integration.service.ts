@@ -175,6 +175,15 @@ export class IntegrationService {
   }
 
   /**
+   * One page of the ids of `active` stores, ascending, after `after` (keyset paging; null for the first page). The only
+   * cross-store list (Story 2.6 reconcile fan-out): read through `active_store_ids()`, so `stores` RLS stays closed.
+   */
+  async activeStoreIds(after: string | null, limit: number): Promise<string[]> {
+    const { rows } = await this.pool.query<{ id: string }>('select id::text as id from active_store_ids($1::uuid, $2::int) as id', [after, limit]);
+    return rows.map((r) => r.id);
+  }
+
+  /**
    * The only way to obtain a platform access token (AD-4). Returns a valid token, refreshing first when it is about
    * to expire. Refresh is single-flight per store under `pg_advisory_xact_lock`: the token row is re-read after the
    * lock, so a concurrent caller reuses the winner's new pair, which is persisted in the same transaction (refresh

@@ -132,11 +132,18 @@ describe('SallaCommercePlatform data', () => {
     expect(await p.products.list(session, 1)).toEqual({
       items: [{ externalId: '1', name: 'P', imageUrl: null, categories: [], price: '10', salePrice: null, currency: 'SAR', taxInclusive: true, stock: null, hasRequiredOptions: false, visible: true }],
       skipped: 1,
+      skippedExternalIds: ['2'],
       hasMore: true,
     });
     expect(String((f.mock.calls[0] as unknown[])[0])).toContain('/products?page=1');
     expect(await p.subscriptions.list(session)).toEqual([{ externalId: '9', planName: 'Pro', planType: 'recurring', status: 'active' }]);
     expect(String((f.mock.calls[1] as unknown[])[0])).toContain('/apps/app-1/subscriptions');
+  });
+
+  it('reports the ids of unreadable listed products when the id itself is readable', async () => {
+    const f = vi.fn().mockResolvedValueOnce(json({ data: [{ id: 'abc' }, { id: 77, price: 'x' }, { name: 'no id' }, null] }));
+    const page = await platform(f as unknown as typeof fetch).products.list({ storeId: 's1', accessToken: 'AT' }, 1);
+    expect(page).toMatchObject({ items: [], skipped: 4, skippedExternalIds: ['abc', '77'], hasMore: false });
   });
 });
 

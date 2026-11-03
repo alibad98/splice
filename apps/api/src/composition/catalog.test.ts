@@ -19,6 +19,7 @@ import { catalogStoreData } from '../modules/catalog/catalog.lifecycle.js';
 import { CatalogRepository } from '../modules/catalog/catalog.repository.js';
 import { CatalogService } from '../modules/catalog/catalog.service.js';
 import { CATALOG_FULL_SYNC_QUEUE, CatalogSync, FullSyncJob, RUN_HEARTBEAT_MS, RunBusyError, STALE_RUN_MS } from '../modules/catalog/catalog-sync.js';
+import type { CatalogReconcile } from '../modules/catalog/catalog-reconcile.js';
 import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integration/errors.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CanonicalProduct, type CommercePlatform, type ProductPage } from '../ports/commerce-platform.js';
 import { catalogJobHandlers, FULL_SYNC_SINGLETON_SECONDS, registerCatalogEventHandlers } from '../worker/catalog-jobs.js';
@@ -98,6 +99,9 @@ class FakeTokens {
 
 const syncFor = (platform: FakePlatform, tokens = new FakeTokens(), now = () => Date.now()) =>
   ({ sync: new CatalogSync(app, platform as unknown as CommercePlatform, tokens, telemetry, boss, now), tokens });
+
+/** The catalog job handlers around a full sync; reconcile (Story 2.6) is covered in catalog-reconcile.test.ts. */
+const handlersFor = (sync: CatalogSync) => catalogJobHandlers(sync, {} as CatalogReconcile, { activeStoreIds: async () => [] }, boss, telemetry);
 
 const productsOf = async (storeId: string) =>
   (await admin.query('select * from products where store_id = $1 order by external_id', [storeId])).rows as Array<Record<string, unknown>>;
@@ -183,7 +187,7 @@ describe('full sync', () => {
       [product('p3', { stock: null, price: '1.250', currency: 'KWD', categories: [{ externalId: 'c2', name: 'Gifts' }] }), product('p4', { stock: 6, visible: false, sourceUpdatedAt: undefined })],
     ]);
     const { sync, tokens } = syncFor(platform);
-    const handlers = catalogJobHandlers(sync);
+    const handlers = handlersFor(sync);
     await handlers[CATALOG_FULL_SYNC_QUEUE]!({ v: 1, trace_id: 't', store_id: storeId, run_id: runId }, { id: 'j', data: {} });
 
     expect(platform.calls).toEqual([1, 2]);
@@ -286,7 +290,7 @@ describe('full sync', () => {
     const storeId = randomUUID();
     const runId = nextRun();
     const platform = new FakePlatform([[product('l1')], [product('l2')]]);
-    const handler = catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
+    const handler = handlersFor(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
     const job = { v: 1, trace_id: 't', store_id: storeId, run_id: runId };
     for (let attempt = 0; attempt < 5; attempt++) {
       platform.fail.set(2, new PlatformUnavailableError('down'));
@@ -512,21 +516,26 @@ describe('products read API', () => {
     return { storeId, token: await bearerFor(storeId) };
   }
 
-  it('lists the first 50 of 120 products sorted by name with the total; later pages and descending order follow', async () => {
+  it('lists the first 10 of 120 products by default sorted by name with the total; page_size 25/50, later pages and descending order follow', async () => {
     const many = Array.from({ length: 120 }, (_, i) => product(`n${String(i).padStart(3, '0')}`, { name: `Item ${String(119 - i).padStart(3, '0')}` }));
     const { token } = await seededStore(many);
     const { res, body } = await get(token, '/v1/products');
     expect(res.status).toBe(200);
-    const page = ProductListResponse.parse(body);
+    const first = ProductListResponse.parse(body);
+    expect(first).toMatchObject({ total: 120, page: 1, page_size: 10 });
+    expect(first.items).toHaveLength(10);
+    expect(first.items[9]!.name).toBe('Item 009');
+    expect(await list(token, '?page_size=25&page=2')).toMatchObject({ page: 2, page_size: 25, items: expect.arrayContaining([expect.objectContaining({ name: 'Item 025' })]) });
+    const page = await list(token, '?page_size=50');
     expect(page).toMatchObject({ total: 120, page: 1, page_size: 50 });
     expect(page.items).toHaveLength(50);
     expect(page.items[0]!.name).toBe('Item 000');
     expect(page.items[49]!.name).toBe('Item 049');
-    const last = await list(token, '?page=3');
+    const last = await list(token, '?page_size=50&page=3');
     expect(last.items).toHaveLength(20);
     expect(last.items.at(-1)!.name).toBe('Item 119');
     expect((await list(token, '?sort=-name')).items[0]!.name).toBe('Item 119');
-    expect(await list(token, '?page=9')).toMatchObject({ items: [], total: 120 });
+    expect(await list(token, '?page=13')).toMatchObject({ items: [], total: 120 });
   });
 
   it('returns money in minor units with the sale price, the stored bucket, the first category (+N), 0 links and null orders; hidden products are excluded', async () => {
@@ -605,7 +614,7 @@ describe('products read API', () => {
     expect(cats.items.map((c) => c.name)).toEqual(['Abayas']);
   });
 
-  it.each(['page=0', 'page=abc', 'sort=x', `q=${'a'.repeat(101)}`, 'q=a&q=b'])('answers 400 problem+json for %s', async (qs) => {
+  it.each(['page=0', 'page=abc', 'page_size=7', 'page_size=100', 'sort=x', `q=${'a'.repeat(101)}`, 'q=a&q=b'])('answers 400 problem+json for %s', async (qs) => {
     const { token } = await seededStore([product('b1')]);
     const { res, body } = await get(token, `/v1/products?${qs}`);
     expect(res.status).toBe(400);
@@ -682,7 +691,7 @@ describe('manual sync', () => {
     registerCatalogEventHandlers(registry, { send: async (_q: string, data: object, options?: Record<string, unknown>) => (sent.push({ data: data as FullSyncJob, options }), 'job') }, telemetry);
     const dispatch = eventDispatcher(app, registry);
     for (const { data } of await requestedEvents(storeId)) await dispatch(data, { id: data.event_id, data });
-    const handler = catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
+    const handler = handlersFor(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!;
     for (const job of sent) await handler(job.data, { id: 'j', data: job.data, ...attempt });
     return sent;
   }
@@ -815,7 +824,7 @@ describe('manual sync', () => {
     expect(await requestedEvents(storeId)).toHaveLength(1);
     const job: FullSyncJob = { v: 1, trace_id: 't', store_id: storeId, run_id: (await statusOf(token)).run_id! };
     platform.fail.set(1, new PlatformUnavailableError('503'));
-    await expect(catalogJobHandlers(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!(job, { id: 'j', data: job, retryCount: 4, retryLimit: 4 })).rejects.toBeInstanceOf(PlatformUnavailableError);
+    await expect(handlersFor(syncFor(platform).sync)[CATALOG_FULL_SYNC_QUEUE]!(job, { id: 'j', data: job, retryCount: 4, retryLimit: 4 })).rejects.toBeInstanceOf(PlatformUnavailableError);
     expect(await statusOf(token)).toMatchObject({ status: 'failed', reason: 'platform_unavailable' });
   });
 

@@ -9,6 +9,7 @@ import {
   LoginInput,
   OtpPurpose,
   PRODUCT_PAGE_SIZE,
+  PRODUCT_PAGE_SIZES,
   PRODUCT_SEARCH_MAX,
   ProductListQuery,
   ProductListResponse,
@@ -72,7 +73,7 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [VerifyOtpResponse, 'VerifyOtpResult', 'Token to send with `reset-password` (purpose `reset`) or `set-password` (purpose `setup`).'],
   [OkMessage, 'OkMessage', 'Plain confirmation.'],
   [ProductRow, 'Product', 'One product row. Money is integer minor units of `currency` (e.g. SAR 120.50 = 12050).'],
-  [ProductListResponse, 'ProductPage', `One page of products: \`items\` (at most ${PRODUCT_PAGE_SIZE}), \`total\` matching products, \`page\` (1-based) and \`page_size\`.`],
+  [ProductListResponse, 'ProductPage', `One page of products: \`items\` (at most \`page_size\`), \`total\` matching products, \`page\` (1-based) and \`page_size\`.`],
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
 ];
@@ -194,7 +195,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/products',
     tag: 'Catalog',
     summary: 'List products (search, filter, sort, paginate)',
-    description: `Products of the signed-in store that are visible in Salla. Pages hold ${PRODUCT_PAGE_SIZE} items; use \`total\` and \`page_size\` to compute the page count. A page past the end returns empty \`items\` with the real \`total\`. Invalid parameters answer 400 \`invalid_query\`.`,
+    description: `Products of the signed-in store that are visible in Salla. Pages hold \`page_size\` items (${PRODUCT_PAGE_SIZES.join(', ')}; default ${PRODUCT_PAGE_SIZE}); use \`total\` and \`page_size\` to compute the page count. A page past the end returns empty \`items\` with the real \`total\`. Invalid parameters answer 400 \`invalid_query\`.`,
     auth: 'merchant',
     query: {
       schema: ProductListQuery,
@@ -203,6 +204,7 @@ export const ROUTES: RouteDoc[] = [
         category: 'Only products in this category. Use an `external_id` from `GET /v1/products/categories`.',
         sort: '`name` (default) or `price` (the effective price: sale price when set). Prefix with `-` for descending.',
         page: '1-based page number.',
+        page_size: `Items per page: one of ${PRODUCT_PAGE_SIZES.join(', ')} (default ${PRODUCT_PAGE_SIZE}). Any other value is a 400.`,
       },
       examples: { q: 'عباية' },
     },
@@ -252,7 +254,7 @@ Cookie sessions must send \`x-csrf-token\` (from \`GET /v1/session\`) on every P
 ## Conventions
 
 - **Money:** integer minor units plus an ISO 4217 \`currency\` (SAR 120.50 → \`12050\`, KWD 1.250 → \`1250\`). Prices carry \`tax_inclusive\`.
-- **Pagination:** \`page\` (1-based) in the query; responses return \`items\`, \`total\`, \`page\`, \`page_size\`.
+- **Pagination:** \`page\` (1-based) and \`page_size\` in the query; responses return \`items\`, \`total\`, \`page\`, \`page_size\`.
 - **Versioning:** responses carry \`v: 1\`; fields are only ever added within v1.
 - **Times:** ISO 8601 UTC.
 

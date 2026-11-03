@@ -83,6 +83,7 @@ context:
 | 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses | built (UI rework 2) |
 | 3 | Tabs (also the segmented control) | status tabs, Stories/Reels toggle | built (UI rework) |
 | 3 | ThemeToggle (+ THEME_INIT_SCRIPT) | animated sun/moon morph driven by the `dark` variant, circular View Transition reveal, saved choice applied before paint | built (UI rework) |
+| 1 | Pagination | named `<nav>` pager: "from-to of total" summary, optional rows-per-page Select (caller-given sizes), Previous/Next Buttons disabled at the ends; copy via props; Products uses 10/25/50 (default 10) kept in the URL | built (Products page size) |
 
 New components are added as rows; a wave moves to `in-progress` only after its rows are approved.
 

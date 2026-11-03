@@ -326,6 +326,45 @@ describe('product webhooks', () => {
   });
 });
 
+describe('disconnected store (Story 2.7)', () => {
+  const disconnect = (storeId: string) => admin.query("update stores set lifecycle_state = 'disconnected' where id = $1", [storeId]);
+
+  it('a product webhook that needs a fetch is ignored with reason disconnected: no platform call, no retry, no dead-letter, rows untouched', async () => {
+    // A sweep wired to the real token custody, as in the worker.
+    const sweep = new IntegrationService(app, platform, cipher, telemetry, boss, config);
+    registerProductWebhooks(sweep.inbox, sweep, app, platform, telemetry, boss);
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p20'));
+    const before = await productRow(storeId, 'p20');
+    await disconnect(storeId);
+    productAnswer = { data: sallaProduct('p20', { price: { amount: 1, currency: 'SAR' }, updated_at: '2026-10-30T12:00:00Z' }) };
+    const failures = counter.mock.calls.filter((c) => c[0] === Metric.WebhookFailures).length;
+    expect((await post(hook('product.updated', merchant, { id: 'p20', name: '' }, '2026-10-30T12:00:00Z'))).status).toBe(200);
+    const calls = fetchMock.mock.calls.filter((c) => String(c[0]).includes('/products/')).length;
+    lines.length = 0;
+    await sweep.inbox.processDue();
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'ignored', attempts: 0, last_error: null });
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('/products/')).length).toBe(calls);
+    expect(counter.mock.calls.filter((c) => c[0] === Metric.WebhookFailures)).toHaveLength(failures);
+    expect(await productRow(storeId, 'p20')).toEqual(before);
+    const skipped = lines.map((l) => JSON.parse(l) as Record<string, unknown>).find((l) => l.msg === 'product webhook skipped');
+    expect(skipped).toMatchObject({ reason: 'disconnected', store_id: storeId });
+    // Ignored rows are never picked up again.
+    await admin.query("update webhook_inbox set next_attempt_at = now() - interval '1 hour' where platform_store_id = $1", [merchant]);
+    await sweep.inbox.processDue();
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'ignored', attempts: 0 });
+  });
+
+  it('a product webhook with readable data still applies (no token needed)', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p21'));
+    await disconnect(storeId);
+    expect((await post(hook('product.updated', merchant, sallaProduct('p21', { price: { amount: 55, currency: 'SAR' }, updated_at: '2026-10-30T12:00:00Z' })))).status).toBe(200);
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'processed' });
+    expect(await productRow(storeId, 'p21')).toMatchObject({ price_minor: '5500' });
+  });
+});
+
 describe('product deletions (Story 2.5)', () => {
   const deleteHook = (merchant: string, id: unknown, createdAt = '2026-10-30T10:00:00Z', extra: Record<string, unknown> = {}) => hook('product.deleted', merchant, id === undefined ? { ...extra } : { id, ...extra }, createdAt);
 

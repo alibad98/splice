@@ -41,7 +41,7 @@ describe('shell context', () => {
     vi.stubGlobal('fetch', async () => Response.json(info));
     expect((await getShellContext()).connection).toEqual({ state: 'connected', storeName: 'متجر' });
     vi.stubGlobal('fetch', async () => Response.json({ ...info, connection: { v: 1, state: 'disconnected', store_name: 'متجر' } }));
-    expect((await getShellContext()).connection).toEqual({ state: 'not-connected' });
+    expect((await getShellContext()).connection).toEqual({ state: 'disconnected', storeName: 'متجر' });
     cookieValue = undefined;
     expect((await getShellContext()).connection).toEqual({ state: 'not-connected' });
     vi.unstubAllGlobals();

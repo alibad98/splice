@@ -59,7 +59,7 @@ development_status:
   2-4-apply-product-webhooks-in-near-real-time: done
   2-5-handle-products-deleted-in-salla: done
   2-6-reconcile-the-catalog-daily: review
-  2-7-pause-sync-when-disconnected-and-resume-on-reconnect: backlog
+  2-7-pause-sync-when-disconnected-and-resume-on-reconnect: review
   epic-2-retrospective: optional
 
   epic-3: backlog

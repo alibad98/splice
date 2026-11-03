@@ -153,6 +153,42 @@ describe('install event -> full-sync job', () => {
     expect(sent[1]!.data.run_id).toBe(reinstalled.event_id);
     expect(FullSyncJob.safeParse(sent[0]!.data).success).toBe(true);
   });
+  it('a reconnected store (Story 2.7) queues one full sync with the event id as run id, same singleton key and window', async () => {
+    const sent: Array<{ queue: string; data: Record<string, unknown>; options?: Record<string, unknown> }> = [];
+    const sender = { send: async (queue: string, data: object, options?: Record<string, unknown>) => (sent.push({ queue, data: data as Record<string, unknown>, options }), 'job-id') };
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, sender, telemetry);
+    const dispatch = eventDispatcher(app, registry);
+    const storeId = randomUUID();
+    const reconnected: EventEnvelope = { v: 1, trace_id: 't', store_id: storeId, event_id: uuidv7(), name: 'integration.store.reconnected', occurred_at: new Date().toISOString(), payload: { v: 1, store_id: storeId, install_epoch: 1 } };
+    await dispatch(reconnected, { id: 'j3', data: reconnected });
+    await dispatch(reconnected, { id: 'j3', data: reconnected }); // redelivery
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ queue: CATALOG_FULL_SYNC_QUEUE, data: { store_id: storeId, run_id: reconnected.event_id }, options: { singletonKey: storeId, singletonSeconds: FULL_SYNC_SINGLETON_SECONDS } });
+    expect(FullSyncJob.safeParse(sent[0]!.data).success).toBe(true);
+  });
+
+  it('a reconnect still queues its catch-up full sync when a full-sync job for the store already holds the current slot', async () => {
+    const storeId = randomUUID();
+    const fullSyncJobs = async () =>
+      (await admin.query<{ data: { run_id: string } }>(`select data from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2`, [CATALOG_FULL_SYNC_QUEUE, storeId])).rows.map((r) => r.data.run_id);
+    // The earlier job (e.g. the one refused as store_inactive) in the current singleton slot.
+    const earlier = uuidv7();
+    expect(await boss.send(CATALOG_FULL_SYNC_QUEUE, { v: 1, trace_id: 't', store_id: storeId, run_id: earlier }, { singletonKey: storeId, singletonSeconds: FULL_SYNC_SINGLETON_SECONDS })).toBeTruthy();
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, boss, telemetry);
+    const reconnected: EventEnvelope = { v: 1, trace_id: 't', store_id: storeId, event_id: uuidv7(), name: 'integration.store.reconnected', occurred_at: new Date().toISOString(), payload: { v: 1, store_id: storeId, install_epoch: 1 } };
+    await eventDispatcher(app, registry)(reconnected, { id: 'j4', data: reconnected });
+    expect((await fullSyncJobs()).sort()).toEqual([earlier, reconnected.event_id].sort());
+  });
+
+  it('a reconnected event whose job could not be queued fails the delivery so it is retried', async () => {
+    const registry = new EventHandlerRegistry();
+    registerCatalogEventHandlers(registry, { send: async () => null }, telemetry);
+    const storeId = randomUUID();
+    const reconnected: EventEnvelope = { v: 1, trace_id: 't', store_id: storeId, event_id: uuidv7(), name: 'integration.store.reconnected', occurred_at: new Date().toISOString(), payload: { v: 1, store_id: storeId, install_epoch: 1 } };
+    await expect(eventDispatcher(app, registry)(reconnected, { id: 'j5', data: reconnected })).rejects.toThrow(/not queued/);
+  });
 });
 
 describe('catalog.product.updated', () => {
@@ -328,6 +364,21 @@ describe('full sync', () => {
     expect((await productsOf(storeId)).map((r) => r.external_id)).toEqual(['u1']);
   });
 
+  it('a store disconnected before the run (Story 2.7) fails it as store_inactive at once, with no retry, and leaves the catalog untouched', async () => {
+    const storeId = randomUUID();
+    const { sync: first } = syncFor(new FakePlatform([[product('k1')]]));
+    await first.run(storeId, nextRun(), NOT_LAST);
+    const before = await productsOf(storeId);
+    const tokens = new FakeTokens();
+    tokens.failOn.set(1, new StoreDisconnectedError());
+    const platform = new FakePlatform([[product('k1', { name: 'Changed' })]]);
+    const { sync } = syncFor(platform, tokens);
+    expect(await sync.run(storeId, nextRun(), NOT_LAST)).toEqual({ failed: 'store_inactive' });
+    expect(platform.calls).toEqual([]);
+    expect(await stateOf(storeId)).toMatchObject({ status: 'failed', reason: 'store_inactive' });
+    expect(await productsOf(storeId)).toEqual(before);
+  });
+
   it('an unknown store currency (every product on the page) fails the run as unknown_currency without a retry and stores nothing', async () => {
     const storeId = randomUUID();
     const { sync } = syncFor(new FakePlatform([[product('m1', { currency: 'XYZ' }), product('m2', { currency: 'XYZ' })]]));
@@ -470,6 +521,21 @@ describe('catalog purge', () => {
     expect(await productsOf(storeId)).toHaveLength(0);
     expect((await admin.query('select 1 from categories where store_id = $1', [storeId])).rowCount).toBe(0);
     expect(await stateOf(storeId)).toBeUndefined();
+  });
+  it('restore (reinstall in grace) keeps every row and id; export returns the store products and categories only', async () => {
+    const storeId = randomUUID();
+    const other = randomUUID();
+    await syncFor(new FakePlatform([[product('e1'), product('e2')]])).sync.run(storeId, nextRun(), NOT_LAST);
+    await syncFor(new FakePlatform([[product('x1')]])).sync.run(other, nextRun(), NOT_LAST);
+    const before = await productsOf(storeId);
+    await withStoreContext(app, storeId, (tx) => catalogStoreData.restore!({ storeId, installEpoch: 2, tx }));
+    expect(await productsOf(storeId)).toEqual(before);
+    const exported = (await withStoreContext(app, storeId, (tx) => catalogStoreData.export!({ storeId, installEpoch: 1, tx }))) as { products: Array<Record<string, unknown>>; categories: Array<Record<string, unknown>> };
+    expect(exported.products.map((r) => r.external_id).sort()).toEqual(['e1', 'e2']);
+    expect(exported.products.map((r) => r.id).sort()).toEqual(before.map((r) => r.id).sort());
+    expect(exported.categories.map((r) => r.external_id)).toEqual(['c1']);
+    expect(exported.products[0]).not.toHaveProperty('store_id');
+    expect(JSON.stringify(exported)).not.toMatch(/AT-|token/i);
   });
 });
 

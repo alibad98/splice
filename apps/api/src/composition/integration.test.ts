@@ -355,6 +355,54 @@ describe('getAccessToken', () => {
   });
 });
 
+describe('reconnect (Story 2.7)', () => {
+  it('authorising a disconnected store makes it active and emits integration.store.reconnected once, in the same transaction', async () => {
+    const p = new FakePlatform();
+    const profile = uniqueStore();
+    const s = service(p);
+    const { storeId } = await s.installFromTokens({ ...p.issue('seed'), expiresAt: new Date(Date.now() - 1000) }, profile);
+    p.mode = 'rejected';
+    await expect(s.getAccessToken(storeId)).rejects.toBeInstanceOf(StoreDisconnectedError);
+    expect(await s.getConnection(storeId)).toMatchObject({ state: 'disconnected' });
+
+    p.mode = 'ok';
+    const again = await s.installFromTokens(p.issue('back'), profile);
+    expect(again).toEqual({ storeId, created: false });
+    expect((await admin.query('select lifecycle_state, install_epoch from stores where id = $1', [storeId])).rows[0]).toEqual({ lifecycle_state: 'active', install_epoch: 1 });
+    expect(await jobsFor(storeId, 'integration.store.reconnected')).toBe(1);
+    const job = (await admin.query(`select data from ${SCHEMA}.job where name = $1 and data->>'name' = 'integration.store.reconnected' and data->>'store_id' = $2`, [EVENT_QUEUE, storeId])).rows[0];
+    expect(job.data.payload).toEqual({ v: 1, store_id: storeId, install_epoch: 1 });
+    expect(await s.getAccessToken(storeId)).toBe('AT-back');
+    expect(await s.getConnection(storeId)).toMatchObject({ state: 'connected' });
+
+    // A later re-authorisation of the now-active store is not a reconnect.
+    await s.installFromTokens(p.issue('again'), profile);
+    expect(await jobsFor(storeId, 'integration.store.reconnected')).toBe(1);
+  });
+
+  it('re-authorising an active store emits no reconnected event', async () => {
+    const p = new FakePlatform();
+    const profile = uniqueStore();
+    const s = service(p);
+    const { storeId } = await s.installFromTokens(p.issue('a'), profile);
+    await s.installFromTokens(p.issue('b'), profile);
+    expect(await jobsFor(storeId, 'integration.store.reconnected')).toBe(0);
+    expect(await jobsFor(storeId, 'integration.store.installed')).toBe(1);
+  });
+
+  it('a reconnect that fails to persist rolls back the state and the event', async () => {
+    const p = new FakePlatform();
+    const profile = uniqueStore();
+    const s = service(p);
+    const { storeId } = await s.installFromTokens(p.issue('seed'), profile);
+    await admin.query("update stores set lifecycle_state = 'disconnected' where id = $1", [storeId]);
+    const failing = new IntegrationService(app, p, { ...cipher, keyId: cipher.keyId, encrypt: () => { throw new Error('kms down'); }, decrypt: cipher.decrypt.bind(cipher) }, telemetry, boss, config);
+    await expect(failing.installFromTokens(p.issue('back'), profile)).rejects.toThrow('kms down');
+    expect((await admin.query('select lifecycle_state from stores where id = $1', [storeId])).rows[0].lifecycle_state).toBe('disconnected');
+    expect(await jobsFor(storeId, 'integration.store.reconnected')).toBe(0);
+  });
+});
+
 describe('http role', () => {
   it('the send-only producer publishes events from an http process (no worker consumer needed)', async () => {
     const sender = new SendOnlyEventSender(ADMIN_URL, telemetry, SCHEMA);

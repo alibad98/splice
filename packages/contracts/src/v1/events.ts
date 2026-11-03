@@ -38,6 +38,14 @@ export const EVENT_CATALOG = {
     'integration',
     z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),
   ),
+  /**
+   * A `disconnected` store was authorised again (OAuth callback or Easy Mode authorize) and is `active` (Story 2.7).
+   * Published only on the disconnected-to-active transition. Consumer: `catalog`, which queues one full sync (run id = event id).
+   */
+  'integration.store.reconnected': defineEvent(
+    'integration',
+    z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),
+  ),
   'integration.store.purged': defineEvent(
     'integration',
     z.object({ v: z.literal(1), store_id: z.uuid(), install_epoch: z.number().int().nonnegative() }),

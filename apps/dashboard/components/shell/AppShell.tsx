@@ -8,6 +8,7 @@ import type { ShellContext } from '../../lib/shell';
 import { LocaleSwitch } from './LocaleSwitch';
 import { ThemeSwitch } from './ThemeSwitch';
 import { ConnectionChip } from './ConnectionChip';
+import { DisconnectedBanner } from './DisconnectedBanner';
 import { Icon } from './Icon';
 import { Logo } from './Logo';
 import { SessionActions, SignOutMenuItem } from '../session/SessionActions';
@@ -26,7 +27,7 @@ interface Props {
 
 export function AppShell({ locale, messages, context, sidebarOpen = true, children }: Props) {
   const m = messages.shell;
-  const storeName = context.connection.state === 'connected' ? context.connection.storeName : m.storeFallback;
+  const storeName = context.connection.state === 'not-connected' ? m.storeFallback : (context.connection.storeName ?? m.storeFallback);
   return (
     // The sidebar is pinned to the viewport's inline-start edge; only the page content is capped in width.
     <SidebarProvider defaultOpen={sidebarOpen} dir={directionOf(locale)} className="bg-page text-foreground">
@@ -107,6 +108,7 @@ export function AppShell({ locale, messages, context, sidebarOpen = true, childr
         <main id="main-content" tabIndex={-1} className="px-(--page-padding) py-6 outline-none">
           <div className="mx-auto grid w-full max-w-[1200px] grid-cols-12 gap-x-(--spacing-gutter)">
             <div className="col-span-12">
+              <DisconnectedBanner />
               <SessionGate>{children}</SessionGate>
             </div>
           </div>

@@ -35,7 +35,7 @@ const sync = (status: CatalogSyncStatus['status']): CatalogSyncStatus => ({ v: 1
 const DEFAULT: ProductListQuery = { sort: 'name', page: 1, page_size: 10 };
 
 /** The signed-in session the data hooks use; null (default) means nothing is fetched and seeded data is shown. */
-let session: { client: { apiFetch: (path: string) => Promise<Response> }; state: { status: 'signed-in' } } | null = null;
+let session: { client: { apiFetch: (path: string) => Promise<Response> }; state: { status: 'signed-in'; connection: { state: 'connected' } } } | null = null;
 vi.mock('../session/SessionProvider', () => ({ useSession: () => session }));
 
 interface Setup {
@@ -286,7 +286,7 @@ describe('Products page', () => {
       const paths: string[] = [];
       const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
       session = {
-        state: { status: 'signed-in' },
+        state: { status: 'signed-in', connection: { state: 'connected' } },
         client: {
           apiFetch: async (path: string) => {
             paths.push(path);

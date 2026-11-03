@@ -29,6 +29,11 @@ export const en = {
       notConnected: 'Not connected to Salla',
       hintNotConnected: 'Connect your store to start',
     },
+    disconnected: {
+      message: 'Your Salla connection dropped, so syncing paused. Reconnect to continue.',
+      lastSynced: 'Last synced {time}',
+      reconnect: 'Reconnect',
+    },
   },
   session: {
     signingIn: 'Signing you in...',
@@ -120,6 +125,7 @@ export const en = {
       failed: "We couldn't sync your products. Your current list is still here.",
       retry: 'Retry',
       requestFailed: "We couldn't start the sync. Check your connection and try again.",
+      reconnectToSync: 'Reconnect to sync',
     },
     error: {
       title: 'We could not load your products',

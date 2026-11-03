@@ -99,6 +99,13 @@
       "when": 1761264000000,
       "tag": "0013_catalog_sync_request",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1761350400000,
+      "tag": "0014_product_tombstones",
+      "breakpoints": true
     }
   ]
 }

@@ -39,7 +39,7 @@ export const SALLA_APP_EVENTS = {
 } as const;
 /** A delivery has no documented event id; the SHA-256 of the raw body stands in (a retry resends the same body). Verify in Story 1.13. */
 
-/** Product events that mean "this product changed" (Story 2.4). `product.deleted` is Story 2.5. Names from docs; verify on a real store. */
+/** Product events that mean "this product changed" (Story 2.4). Deletion is `SALLA_PRODUCT_DELETED_EVENT`. Names from docs; verify on a real store. */
 export const SALLA_PRODUCT_EVENTS = [
   'product.created',
   'product.updated',
@@ -48,3 +48,5 @@ export const SALLA_PRODUCT_EVENTS = [
   'product.available',
   'product.status.updated',
 ] as const;
+/** The product was deleted in Salla (Story 2.5); its `data` carries at least the product id. Name from docs; verify on a real store. */
+export const SALLA_PRODUCT_DELETED_EVENT = 'product.deleted';

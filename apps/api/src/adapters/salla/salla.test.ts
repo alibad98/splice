@@ -112,6 +112,16 @@ describe('SallaCommercePlatform data', () => {
     await expect(p.products.get(session, '3')).rejects.toBeInstanceOf(PlatformUnavailableError);
   });
 
+  it('answers null for a product Salla does not have (404), while list and orders still fail closed on a 404', async () => {
+    const notFound = () => new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
+    const f = vi.fn(async () => notFound());
+    const p = platform(f as unknown as typeof fetch);
+    const session = { storeId: 's1', accessToken: 'AT' };
+    expect(await p.products.get(session, '3')).toBeNull();
+    await expect(p.products.list(session, 1)).rejects.toBeInstanceOf(PlatformUnavailableError);
+    await expect(p.orders.get(session, '5')).rejects.toBeInstanceOf(PlatformUnavailableError);
+  });
+
   it('lists products with paging and subscriptions', async () => {
     const f = vi
       .fn()
@@ -177,7 +187,15 @@ describe('webhook parsing', () => {
     const e = parse({ event: 'product.updated', merchant: '9', data })!;
     expect(e.payload).toMatchObject({ event: 'product.updated', kind: 'product', product_id: '77', product: { externalId: '77', name: 'Abaya', price: '120', stock: 4, sourceUpdatedAt: '2026-10-30T09:00:00.000Z' } });
     expect(JSON.stringify(e.payload)).not.toMatch(/shopper@example.com|secret copy/);
-    expect(parse({ event: 'product.deleted', merchant: '9', data })!.kind).toBe('other');
+  });
+  it('reads product.deleted as a product deletion carrying only the id, and marks one without an id invalid', () => {
+    const data = { id: 77, name: 'Abaya', price: { amount: 120, currency: 'SAR' }, customer: { email: 'shopper@example.com' } };
+    const e = parse({ event: 'product.deleted', merchant: '9', created_at: '2026-10-30T09:00:01Z', data })!;
+    expect(e.kind).toBe('product');
+    expect(e.payload).toEqual({ event: 'product.deleted', kind: 'product', product_id: '77', deleted: true });
+    expect(e.occurredAt?.toISOString()).toBe('2026-10-30T09:00:01.000Z');
+    expect(parse({ event: 'product.deleted', merchant: '9', data: { name: 'x' } })!.payload).toEqual({ event: 'product.deleted', kind: 'product', invalid: true });
+    expect(parse({ event: 'product.deleted', merchant: '9' })!.payload).toEqual({ event: 'product.deleted', kind: 'product', invalid: true });
   });
   it('keeps only the product id when the data is unreadable, and marks an event without an id invalid', () => {
     const unreadable = parse({ event: 'product.updated', merchant: '9', data: { id: 5, name: '' } })!;

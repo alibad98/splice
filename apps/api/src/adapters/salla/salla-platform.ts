@@ -26,6 +26,7 @@ import {
   SALLA_EMBEDDED_APP_BASE,
   SALLA_INTROSPECT_SOURCE_HEADER,
   SALLA_INTROSPECT_URL,
+  SALLA_PRODUCT_DELETED_EVENT,
   SALLA_PRODUCT_EVENTS,
   SALLA_HEADERS,
   SALLA_SIGNATURE_STRATEGY,
@@ -145,7 +146,9 @@ const SallaProduct = z.object({
 type SallaProduct = z.infer<typeof SallaProduct>;
 
 const ProductResponse = z.object({ data: SallaProduct });
-const PRODUCT_EVENTS: ReadonlySet<string> = new Set(SALLA_PRODUCT_EVENTS);
+const PRODUCT_EVENTS: ReadonlySet<string> = new Set([...SALLA_PRODUCT_EVENTS, SALLA_PRODUCT_DELETED_EVENT]);
+/** `admin()`'s answer to a 404 when the caller asked to see one. */
+const NOT_FOUND: unique symbol = Symbol('not found');
 const HIDDEN_STATUSES = new Set(['hidden', 'deleted']);
 /** Only http(s) image URLs are kept; anything else (javascript:, data:, relative) becomes no image. */
 const HTTP_URL = /^https?:\/\/\S+$/i;
@@ -298,9 +301,12 @@ export class SallaCommercePlatform implements CommercePlatform {
       }
       return { items, skipped, hasMore: parsed.data.pagination ? parsed.data.pagination.currentPage < parsed.data.pagination.totalPages : false };
     },
-    get: async (session: PlatformSession, externalId: string): Promise<CanonicalProduct> => {
-      // Response shape `{ data }` is unverified against a live store, like `list`.
-      const parsed = ProductResponse.safeParse(await this.admin(session, `/products/${encodeURIComponent(externalId)}`));
+    get: async (session: PlatformSession, externalId: string): Promise<CanonicalProduct | null> => {
+      // Response shape `{ data }` is unverified against a live store, like `list`. A 404 is Salla's answer that the
+      // product does not exist (deleted, Story 2.5).
+      const body = await this.admin(session, `/products/${encodeURIComponent(externalId)}`, { notFound: 'null' });
+      if (body === NOT_FOUND) return null;
+      const parsed = ProductResponse.safeParse(body);
       if (!parsed.success) throw new PlatformUnavailableError('Salla product response was not recognised');
       return mapProduct(parsed.data.data);
     },
@@ -379,7 +385,11 @@ export class SallaCommercePlatform implements CommercePlatform {
       // Catalog data only (AD-5). The id is read on its own, so an unreadable product can still be fetched by id.
       const id = SallaId.safeParse((data as { id?: unknown } | undefined)?.id);
       if (!id.success || id.data.trim() === '') payload.invalid = true;
-      else {
+      else if (event === SALLA_PRODUCT_DELETED_EVENT) {
+        // A deletion carries only its id: nothing to map, nothing to fetch.
+        payload.product_id = id.data;
+        payload.deleted = true;
+      } else {
         payload.product_id = id.data;
         try {
           const product = toCanonicalProduct(data as z.input<typeof SallaProduct>);
@@ -412,9 +422,11 @@ export class SallaCommercePlatform implements CommercePlatform {
     return { accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: new Date(this.now() + t.expires_in * 1000), scopes: (t.scope ?? '').split(/\s+/).filter(Boolean) };
   }
 
-  private async admin(session: PlatformSession, path: string): Promise<unknown> {
+  private async admin(session: PlatformSession, path: string, opts?: { notFound: 'null' }): Promise<unknown> {
     const res = await this.http.request(session.storeId, `${SALLA_ADMIN_BASE}${path}`, { headers: { authorization: `Bearer ${session.accessToken}`, accept: 'application/json' } });
     if (res.status === 401) throw new PlatformAuthRejectedError('Salla rejected the access token');
+    // Only a caller that asked sees a 404 (`products.get`); every other caller keeps treating it as unavailable.
+    if (res.status === 404 && opts?.notFound === 'null') return NOT_FOUND;
     if (!res.ok) throw new PlatformUnavailableError(`Salla API failed (${res.status})`);
     return res.json();
   }

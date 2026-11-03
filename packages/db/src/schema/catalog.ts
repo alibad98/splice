@@ -45,6 +45,8 @@ export const products = pgTable('products', {
   hasRequiredOptions: boolean('has_required_options').notNull(),
   visible: boolean('visible').notNull(),
   sourceUpdatedAt: ts('source_updated_at').notNull(),
+  /** Tombstone (Story 2.5): set when the platform deleted the product; null = live. Never a hard delete. */
+  deletedAt: ts('deleted_at'),
   createdAt: ts('created_at').notNull().default(sql`now()`),
   updatedAt: ts('updated_at').notNull().default(sql`now()`),
 });

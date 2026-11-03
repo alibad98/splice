@@ -91,7 +91,8 @@ export class WebhookInbox {
     if (rows.length === 0) return { status: 200, duplicate: true, id: '' };
     this.telemetry.log.info('webhook received', { webhook_type: event.type, platform_store_id: event.platformStoreId });
     // A product event whose data was unreadable needs a platform call to be applied: that is left to the sweep.
-    const needsFetch = event.kind === 'product' && event.payload.invalid !== true && event.payload.product === undefined;
+    // A deletion carries only its id and needs no call (Story 2.5), so it is processed inline.
+    const needsFetch = event.kind === 'product' && event.payload.invalid !== true && event.payload.deleted !== true && event.payload.product === undefined;
     return { status: 200, duplicate: false, id, kind: event.kind, ...(needsFetch ? { needsFetch } : {}) };
   }
 

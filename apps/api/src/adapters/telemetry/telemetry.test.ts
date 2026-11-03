@@ -114,6 +114,7 @@ describe('PinoTelemetry', () => {
       expect(text).toContain(`# TYPE ${name} `);
     }
     expect(text).toContain('slips_api_requests_total{outcome="server_error"} 0');
+    for (const source of ['webhook', 'sync', 'reconcile']) expect(text).toContain(`slips_catalog_stale_writes_total{source="${source}"} 0`);
   });
 
   it('accepts a brand-new metric name without any port change', () => {

@@ -74,6 +74,13 @@ export const EVENT_CATALOG = {
       visible: z.boolean(),
     }),
   ),
+  /**
+   * A product the platform deleted is now tombstoned (Story 2.5): by a `product.deleted` webhook, a 404 on its fetch, or
+   * reconciliation (Story 2.6). Emitted once, on the live-to-deleted transition. Consumers: `content` (Story 3.4, flags
+   * linked content "Linked product deleted") and `publishing` (Epic 4, drops it from manifests); they dedupe on the event id.
+   * A later recreate of the same external id is announced as `catalog.product.updated` with every visible field changed.
+   */
+  'catalog.product.deleted': defineEvent('catalog', z.object({ v: z.literal(1), store_id: z.uuid(), product_id: z.uuid(), external_id: z.string().min(1) })),
 } as const;
 
 export type EventName = keyof typeof EVENT_CATALOG;

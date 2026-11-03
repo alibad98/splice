@@ -1,4 +1,4 @@
-// Story 2.4 composition tests: live Postgres (non-owner RLS role, real pg-boss outbox), signed POSTs to /v1/webhooks/salla
+// Story 2.4/2.5 composition tests: live Postgres (non-owner RLS role, real pg-boss outbox), signed POSTs to /v1/webhooks/salla
 // through the real Nest app (inline processing, catalog's consumer registered by CatalogModule), and a second integration
 // service standing in for the worker sweep. Salla HTTP is mocked.
 import 'reflect-metadata';
@@ -14,8 +14,9 @@ import { SallaCommercePlatform } from '../adapters/salla/index.js';
 import { PinoTelemetry } from '../adapters/telemetry/pino-telemetry.js';
 import { grantEventPublishing } from '../events/queue-grants.js';
 import { createHttpApp } from '../http.js';
-import { CatalogRepository, type ProductWrite } from '../modules/catalog/catalog.repository.js';
+import { CatalogReadRepository, CatalogRepository, type ProductWrite } from '../modules/catalog/catalog.repository.js';
 import { CATALOG_FULL_SYNC_QUEUE, CatalogSync } from '../modules/catalog/catalog-sync.js';
+import { deleteProducts } from '../modules/catalog/product-deletions.js';
 import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
 import { IntegrationService } from '../modules/integration/integration.service.js';
 import { MAX_ATTEMPTS } from '../modules/integration/webhook-inbox.js';
@@ -46,13 +47,16 @@ let base = '';
 let worker: IntegrationService;
 const T = (iso: string) => new Date(iso);
 
-const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 let userInfoFor = 'none';
+/** `productAnswer` value that makes GET /products/<id> answer 404 (the product does not exist in Salla). */
+const NOT_FOUND = Symbol('404');
 /** What GET /products/<id> answers; an Error is thrown as a network failure. */
 let productAnswer: unknown;
 const fetchMock = vi.fn(async (url: string | URL) => {
   if (String(url).includes('/products/')) {
     if (productAnswer instanceof Error) throw productAnswer;
+    if (productAnswer === NOT_FOUND) return json({ status: 404, success: false }, 404);
     return json(productAnswer);
   }
   return json({ data: { id: 1, name: 'Owner', email: 'owner@example.com', merchant: { id: userInfoFor, name: 'Shop', domain: 'https://shop.example.com/' } } });
@@ -108,6 +112,10 @@ const productRow = async (storeId: string, externalId: string) => (await admin.q
 const inboxOf = async (merchant: string) => (await admin.query('select status, attempts, last_error, payload from webhook_inbox where platform_store_id = $1 order by received_at desc', [merchant])).rows as Array<{ status: string; attempts: number; last_error: string | null; payload: Record<string, unknown> }>;
 const updatedEvents = async (storeId: string) =>
   (await admin.query<{ data: EventEnvelope }>(`select data from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2 and data->>'name' = 'catalog.product.updated' order by created_on`, [EVENT_QUEUE, storeId])).rows.map((r) => r.data);
+const deletedEvents = async (storeId: string) =>
+  (await admin.query<{ data: EventEnvelope }>(`select data from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2 and data->>'name' = 'catalog.product.deleted' order by created_on`, [EVENT_QUEUE, storeId])).rows.map((r) => r.data);
+const listed = async (storeId: string) =>
+  (await withStoreContext(app, storeId, () => new CatalogReadRepository().listProducts({ sort: 'name', limit: 50, offset: 0 }))).rows.map((r) => r.externalId);
 const staleCount = (source: string) => counter.mock.calls.filter((c) => c[0] === Metric.CatalogStaleWrites && (c[1] as Record<string, string>).source === source).reduce((n, c) => n + ((c[2] as number | undefined) ?? 1), 0);
 
 /** Install a store through the Easy Mode path (the sweep finishes it) and return its id. */
@@ -315,5 +323,171 @@ describe('product webhooks', () => {
     expect(received).toMatchObject({ status: 200, duplicate: false });
     expect(await bare.inbox.processOne((received as { id: string }).id)).toBe('retry');
     expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'pending', attempts: 1, last_error: 'internal' });
+  });
+});
+
+describe('product deletions (Story 2.5)', () => {
+  const deleteHook = (merchant: string, id: unknown, createdAt = '2026-10-30T10:00:00Z', extra: Record<string, unknown> = {}) => hook('product.deleted', merchant, id === undefined ? { ...extra } : { id, ...extra }, createdAt);
+
+  it('tombstones a live product on a signed product.deleted, inline, and emits catalog.product.deleted', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1'), row('p2'));
+    const calls = fetchMock.mock.calls.length;
+    expect((await post(deleteHook(merchant, 'p1'))).status).toBe(200);
+    // Inline, and without a platform call.
+    expect(fetchMock.mock.calls.length).toBe(calls);
+    const p1 = (await productRow(storeId, 'p1'))!;
+    expect(p1.deleted_at).toEqual(T('2026-10-30T10:00:00Z'));
+    expect(p1.source_updated_at).toEqual(T('2026-10-30T10:00:00Z'));
+    expect((await productRow(storeId, 'p2'))!.deleted_at).toBeNull();
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'processed', payload: { kind: 'product', product_id: 'p1', deleted: true } });
+    const events = await deletedEvents(storeId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toEqual({ v: 1, store_id: storeId, product_id: p1.id, external_id: 'p1' });
+    expect(await updatedEvents(storeId)).toHaveLength(0);
+    expect(await listed(storeId)).toEqual(['p2']);
+    expect(lines.some((l) => l.includes('"msg":"product deleted"') && l.includes(storeId) && l.includes('"source":"webhook"'))).toBe(true);
+  });
+
+  it('a repeated delete (different body) changes nothing and emits nothing', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1'));
+    await post(deleteHook(merchant, 'p1'));
+    expect((await post(deleteHook(merchant, 'p1', '2026-10-30T10:05:00Z'))).status).toBe(200);
+    const rows = await inboxOf(merchant);
+    expect(rows.filter((r) => r.payload.deleted === true).map((r) => r.status)).toEqual(['processed', 'processed']);
+    expect((await productRow(storeId, 'p1'))!.deleted_at).toEqual(T('2026-10-30T10:00:00Z'));
+    expect(await deletedEvents(storeId)).toHaveLength(1);
+  });
+
+  it('a delete of an external id never stored writes nothing and emits nothing', async () => {
+    const { merchant, storeId } = await installStore();
+    expect((await post(deleteHook(merchant, 'ghost'))).status).toBe(200);
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'processed' });
+    expect(await productRow(storeId, 'ghost')).toBeUndefined();
+    expect(await deletedEvents(storeId)).toHaveLength(0);
+  });
+
+  it('skips a delete older than the stored source time and counts it as a stale webhook write', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1', { sourceUpdatedAt: T('2026-10-30T12:00:00Z') }));
+    const before = staleCount('webhook');
+    await post(deleteHook(merchant, 'p1', '2026-10-30T11:00:00Z'));
+    expect((await productRow(storeId, 'p1'))!.deleted_at).toBeNull();
+    expect(staleCount('webhook')).toBe(before + 1);
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'processed' });
+    expect(await deletedEvents(storeId)).toHaveLength(0);
+    // A delete at the same time as the stored write wins the tie.
+    await post(deleteHook(merchant, 'p1', '2026-10-30T12:00:00Z'));
+    expect((await productRow(storeId, 'p1'))!.deleted_at).toEqual(T('2026-10-30T12:00:00Z'));
+    expect(await deletedEvents(storeId)).toHaveLength(1);
+  });
+
+  it('an update at or before the deletion time, delivered after it, never resurrects the product', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1'));
+    await post(deleteHook(merchant, 'p1', '2026-10-30T10:00:00Z'));
+    const before = staleCount('webhook');
+    await post(hook('product.updated', merchant, sallaProduct('p1', { price: { amount: 1, currency: 'SAR' }, updated_at: '2026-10-30T10:00:00Z' })));
+    await post(hook('product.updated', merchant, sallaProduct('p1', { price: { amount: 2, currency: 'SAR' }, updated_at: '2026-10-30T09:30:00Z' }), '2026-10-30T09:30:00Z'));
+    const p1 = (await productRow(storeId, 'p1'))!;
+    expect(p1).toMatchObject({ price_minor: '12000' });
+    expect(p1.deleted_at).toEqual(T('2026-10-30T10:00:00Z'));
+    expect(staleCount('webhook')).toBe(before + 2);
+    expect(await updatedEvents(storeId)).toHaveLength(0);
+    expect(await listed(storeId)).toEqual([]);
+  });
+
+  it('a strictly newer create/update of a deleted id restores it with every visible field in changed', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1'));
+    await post(deleteHook(merchant, 'p1', '2026-10-30T10:00:00Z'));
+    await post(hook('product.created', merchant, sallaProduct('p1', { name: 'Back again', price: { amount: 130, currency: 'SAR' }, updated_at: '2026-10-30T11:00:00Z' }), '2026-10-30T11:00:00Z'));
+    const p1 = (await productRow(storeId, 'p1'))!;
+    expect(p1).toMatchObject({ deleted_at: null, name: 'Back again', price_minor: '13000' });
+    expect(p1.source_updated_at).toEqual(T('2026-10-30T11:00:00Z'));
+    const events = await updatedEvents(storeId);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ product_id: p1.id, external_id: 'p1', changed: ['name', 'image_url', 'price_minor', 'sale_price_minor', 'availability', 'has_required_options', 'visible'], name: 'Back again', price_minor: 13000 });
+    expect(await listed(storeId)).toEqual(['p1']);
+    // Deleting it again is a new live-to-deleted transition.
+    await post(deleteHook(merchant, 'p1', '2026-10-30T12:00:00Z'));
+    expect(await deletedEvents(storeId)).toHaveLength(2);
+  });
+
+  it('treats a 404 on the product fetch as a deletion observed at fetch time, instead of retrying', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p9'));
+    productAnswer = NOT_FOUND;
+    expect((await post(hook('product.updated', merchant, { id: 'p9', name: '' }, '2026-10-30T10:10:00Z'))).status).toBe(200);
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'pending', attempts: 0 });
+    const before = Date.now();
+    await worker.inbox.processDue();
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'processed' });
+    const p9 = (await productRow(storeId, 'p9'))!;
+    expect((p9.deleted_at as Date).getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(p9.source_updated_at).toEqual(p9.deleted_at);
+    expect((await deletedEvents(storeId)).map((e) => e.payload)).toEqual([{ v: 1, store_id: storeId, product_id: p9.id, external_id: 'p9' }]);
+  });
+
+  it('dead-letters at once with invalid_payload when product.deleted has no readable id', async () => {
+    const { merchant } = await installStore();
+    expect((await post(deleteHook(merchant, undefined, '2026-10-30T10:00:00Z', { name: 'no id' }))).status).toBe(200);
+    expect((await inboxOf(merchant))[0]).toMatchObject({ status: 'dead_lettered', last_error: 'invalid_payload', payload: { invalid: true } });
+  });
+
+  it('a full sync updates a tombstoned product but leaves it deleted and emits nothing', async () => {
+    const { merchant, storeId } = await installStore();
+    await seed(storeId, row('p1'));
+    await post(deleteHook(merchant, 'p1', '2026-10-30T10:00:00Z'));
+    const newer: CanonicalProduct = {
+      externalId: 'p1', name: 'Synced name', imageUrl: null, categories: [], price: '50', salePrice: null, currency: 'SAR', taxInclusive: true, stock: 1,
+      hasRequiredOptions: false, visible: true, sourceUpdatedAt: T('2026-10-30T11:00:00Z'),
+    };
+    const listing = { platform: 'salla', products: { list: async () => ({ items: [newer], hasMore: false }) }, auth: {} } as unknown as CommercePlatform;
+    const runId = (await import('../events/outbox.js')).uuidv7();
+    await new CatalogSync(app, listing, tokens, telemetry, boss).run(storeId, runId, { finalAttempt: false });
+    const p1 = (await productRow(storeId, 'p1'))!;
+    expect(p1).toMatchObject({ name: 'Synced name', price_minor: '5000' });
+    expect(p1.deleted_at).toEqual(T('2026-10-30T10:00:00Z'));
+    expect(await updatedEvents(storeId)).toHaveLength(0);
+    expect(await deletedEvents(storeId)).toHaveLength(1);
+    expect(await listed(storeId)).toEqual([]);
+  });
+
+  it('deleteProducts batches several ids for reconcile: counts each outcome, one event per newly deleted product', async () => {
+    const { storeId } = await installStore();
+    const at = T('2026-10-30T10:00:00Z');
+    await seed(storeId, row('a'), row('b'), row('c', { sourceUpdatedAt: T('2026-10-30T11:00:00Z') }), row('d'));
+    const deps = { events: boss, telemetry };
+    const run = (ids: string[]) =>
+      withStoreContext(app, storeId, async (ctx) => {
+        await repo.lockProductWrites();
+        return deleteProducts(ctx, deps, { storeId, platform: 'salla', externalIds: ids, observedAt: at, source: 'reconcile' });
+      });
+    await run(['d']);
+    const before = staleCount('reconcile');
+    expect(await run(['a', 'b', 'c', 'd', 'e', 'a'])).toEqual({ deleted: 2, alreadyDeleted: 1, stale: 1, unknown: 1 });
+    expect(staleCount('reconcile')).toBe(before + 1);
+    const ids = new Map([['a', (await productRow(storeId, 'a'))!.id], ['b', (await productRow(storeId, 'b'))!.id], ['d', (await productRow(storeId, 'd'))!.id]]);
+    const payloads = (await deletedEvents(storeId)).map((e) => e.payload as { external_id: string }).sort((x, y) => x.external_id.localeCompare(y.external_id));
+    expect(payloads).toEqual(['a', 'b', 'd'].map((id) => ({ v: 1, store_id: storeId, product_id: ids.get(id), external_id: id })));
+    expect((await productRow(storeId, 'c'))!.deleted_at).toBeNull();
+    expect(await productRow(storeId, 'e')).toBeUndefined();
+    expect(lines.some((l) => l.includes('"msg":"product deleted"') && l.includes('"source":"reconcile"'))).toBe(true);
+  });
+
+  it('writes neither the tombstone nor the event when the transaction rolls back', async () => {
+    const { storeId } = await installStore();
+    await seed(storeId, row('p1'));
+    await expect(
+      withStoreContext(app, storeId, async (ctx) => {
+        await repo.lockProductWrites();
+        await deleteProducts(ctx, { events: boss, telemetry }, { storeId, platform: 'salla', externalIds: ['p1'], observedAt: T('2026-10-30T10:00:00Z'), source: 'webhook' });
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    expect((await productRow(storeId, 'p1'))!.deleted_at).toBeNull();
+    expect(await deletedEvents(storeId)).toHaveLength(0);
   });
 });

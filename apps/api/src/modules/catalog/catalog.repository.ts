@@ -1,12 +1,21 @@
-import type { PRODUCT_VISIBLE_FIELDS } from '@slips/contracts';
-import { schema, StoreScoped, and, eq, sql, type AvailabilityBucket, type CatalogSyncReason, type StorePlatform } from '@slips/db';
+import { PRODUCT_VISIBLE_FIELDS } from '@slips/contracts';
+import { schema, StoreScoped, and, eq, isNull, sql, type AvailabilityBucket, type CatalogSyncReason, type StorePlatform } from '@slips/db';
 
 const { products, categories, catalogSyncState } = schema;
 
 /** Product fields a manifest shows (the `catalog.product.updated` `changed` values). */
 export type ProductVisibleField = (typeof PRODUCT_VISIBLE_FIELDS)[number];
 
-export type ApplyProductResult = { outcome: 'created' | 'updated' | 'stale'; productId: string; changed: ProductVisibleField[] };
+/** `restored`: a tombstoned product written again by a strictly newer source (Story 2.5); every visible field is `changed`. */
+export type ApplyProductResult = { outcome: 'created' | 'updated' | 'restored' | 'stale'; productId: string; changed: ProductVisibleField[] };
+
+export type TombstoneOutcome = 'deleted' | 'already_deleted' | 'stale' | 'unknown';
+export interface TombstoneResult {
+  externalId: string;
+  outcome: TombstoneOutcome;
+  /** Absent only for `unknown`. */
+  productId?: string;
+}
 
 export type SyncStateRow = typeof catalogSyncState.$inferSelect;
 
@@ -140,19 +149,63 @@ export class CatalogRepository extends StoreScoped {
   }
 
   /**
+   * Tombstone products by external id (Story 2.5). Call under the store's product lock. A deletion observed at `at`
+   * applies to a live row whose `source_updated_at` is at or before `at` (ties go to the deletion) and stamps both
+   * `deleted_at` and `source_updated_at` with `at`, so any older update is then rejected by the write guard. Never
+   * removes a row. Returns one result per distinct external id.
+   */
+  async tombstoneProducts(platform: StorePlatform, externalIds: readonly string[], at: Date): Promise<TombstoneResult[]> {
+    const ids = [...new Set(externalIds)];
+    if (ids.length === 0) return [];
+    const existing = await this.db
+      .select({ id: products.id, externalId: products.externalId, deletedAt: products.deletedAt, sourceUpdatedAt: products.sourceUpdatedAt })
+      .from(products)
+      .where(and(eq(products.storeId, this.storeId), eq(products.platform, platform), sql`${products.externalId} = any(${sql.param(ids)}::text[])`))
+      .orderBy(products.id)
+      .for('update');
+    const byExternalId = new Map(existing.map((r) => [r.externalId, r]));
+    const results: TombstoneResult[] = [];
+    const toDelete: string[] = [];
+    for (const externalId of ids) {
+      const row = byExternalId.get(externalId);
+      if (!row) results.push({ externalId, outcome: 'unknown' });
+      else if (row.deletedAt) results.push({ externalId, outcome: 'already_deleted', productId: row.id });
+      else if (at.getTime() < row.sourceUpdatedAt.getTime()) results.push({ externalId, outcome: 'stale', productId: row.id });
+      else {
+        results.push({ externalId, outcome: 'deleted', productId: row.id });
+        toDelete.push(row.id);
+      }
+    }
+    if (toDelete.length > 0) {
+      await this.db
+        .update(products)
+        .set({ deletedAt: at, sourceUpdatedAt: at, updatedAt: sql`now()` })
+        .where(and(eq(products.storeId, this.storeId), sql`${products.id} = any(${sql.param(toDelete)}::uuid[])`));
+    }
+    return results;
+  }
+
+  /**
    * One product from a webhook (Story 2.4). Call under the store's product lock. Reads the stored visible fields
    * `for update`, applies the guarded upsert, and reports which visible fields changed.
    */
   async applyProduct(row: ProductWrite): Promise<ApplyProductResult> {
     const existing = (
       await this.db
-        .select({ id: products.id, name: products.name, imageUrl: products.imageUrl, priceMinor: products.priceMinor, salePriceMinor: products.salePriceMinor, availability: products.availability, hasRequiredOptions: products.hasRequiredOptions, visible: products.visible, sourceUpdatedAt: products.sourceUpdatedAt })
+        .select({ id: products.id, name: products.name, imageUrl: products.imageUrl, priceMinor: products.priceMinor, salePriceMinor: products.salePriceMinor, availability: products.availability, hasRequiredOptions: products.hasRequiredOptions, visible: products.visible, sourceUpdatedAt: products.sourceUpdatedAt, deletedAt: products.deletedAt })
         .from(products)
         .where(and(eq(products.storeId, this.storeId), eq(products.platform, row.platform), eq(products.externalId, row.externalId)))
         .for('update')
         .limit(1)
     )[0];
     if (existing && row.sourceUpdatedAt.getTime() < existing.sourceUpdatedAt.getTime()) return { outcome: 'stale', productId: existing.id, changed: [] };
+    if (existing?.deletedAt) {
+      // A tombstone is revived only by a strictly newer write: a same-time update delivered after the delete loses.
+      if (row.sourceUpdatedAt.getTime() <= existing.sourceUpdatedAt.getTime()) return { outcome: 'stale', productId: existing.id, changed: [] };
+      const revived = (await this.upsertGuarded([row], { restore: true }))[0];
+      if (!revived) return { outcome: 'stale', productId: existing.id, changed: [] };
+      return { outcome: 'restored', productId: revived.id, changed: [...PRODUCT_VISIBLE_FIELDS] };
+    }
     const written = await this.upsertGuarded([row]);
     const w = written[0];
     // The guard lost a race with a newer write that landed after the read.
@@ -170,7 +223,11 @@ export class CatalogRepository extends StoreScoped {
     return { outcome: 'updated', productId: w.id, changed };
   }
 
-  private async upsertGuarded(rows: readonly ProductWrite[]): Promise<Array<{ id: string; inserted: boolean }>> {
+  /**
+   * The guarded upsert. Leaves `deleted_at` untouched (the full sync never deletes or revives), except with `restore`,
+   * which clears it (a strictly newer webhook write of a tombstoned product, see `applyProduct`).
+   */
+  private async upsertGuarded(rows: readonly ProductWrite[], opts: { restore?: boolean } = {}): Promise<Array<{ id: string; inserted: boolean }>> {
     return this.db
       .insert(products)
       .values(rows.map((r) => ({ storeId: this.storeId, ...r })))
@@ -191,6 +248,7 @@ export class CatalogRepository extends StoreScoped {
           visible: sql`excluded.visible`,
           sourceUpdatedAt: sql`excluded.source_updated_at`,
           updatedAt: sql`now()`,
+          ...(opts.restore ? { deletedAt: sql`null` } : {}),
         },
       })
       // xmax = 0 only on a freshly inserted row version. A row skipped by the guard is not returned.
@@ -229,7 +287,8 @@ export const escapeLike = (term: string): string => term.replace(/[\\%_]/g, (c) 
 
 export class CatalogReadRepository extends StoreScoped {
   private where(filter: Pick<ProductListFilter, 'search' | 'category'>) {
-    const conditions = [eq(products.storeId, this.storeId), eq(products.visible, true)];
+    // Tombstoned products (deleted in the platform, Story 2.5) are never listed.
+    const conditions = [eq(products.storeId, this.storeId), eq(products.visible, true), isNull(products.deletedAt)];
     if (filter.search) conditions.push(sql`${products.name} ilike ${`%${escapeLike(filter.search)}%`}`);
     if (filter.category) conditions.push(sql`${products.categoryExternalIds} @> array[${filter.category}]::text[]`);
     return and(...conditions);

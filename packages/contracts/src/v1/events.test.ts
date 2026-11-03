@@ -78,4 +78,14 @@ describe('catalog events', () => {
     expect(schema.safeParse({ ...ok, availability: 'gone' }).success).toBe(false);
     expect(schema.safeParse({ ...ok, product_id: 'x' }).success).toBe(false);
   });
+  it('product.deleted carries the store, product and external id', () => {
+    const schema = EVENT_CATALOG['catalog.product.deleted'].schema;
+    const ok = { v: 1, store_id: id, product_id: run, external_id: 'p1' };
+    expect(EVENT_CATALOG['catalog.product.deleted'].owner).toBe('catalog');
+    expect(schema.safeParse(ok).success).toBe(true);
+    expect(schema.safeParse({ ...ok, external_id: '' }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, product_id: 'x' }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, v: 2 }).success).toBe(false);
+    expect(schema.safeParse({ v: 1, store_id: id, product_id: run }).success).toBe(false);
+  });
 });

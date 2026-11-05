@@ -147,3 +147,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-4-link-product-picker.md`
   summary: `lifecycle.test.ts` "the sweep finishes pending webhooks and queues a purge…" fails once the shared test DB holds over 100 due `store_purge_schedule` rows, because `duePurges` takes the 100 oldest.
   evidence: 2026-11-05 the Docker test DB (5436) had 132 leftover schedules from earlier runs; the test passed after clearing them. Fix: give the test its own due window/limit or clean schedules in its setup.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-5-upload-media-directly-to-storage.md`
+  summary: Replace the dev-only `EicarMalwareScanner` with a real `MalwareScanner` adapter, and refuse to boot in production without one.
+  evidence: Story 3.5 ships no vendor (AD-15, Q-05 hosting undecided); the EICAR adapter is wired in every environment today.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-5-upload-media-directly-to-storage.md`
+  summary: Stream media inspection (hash, sniff, scan) instead of buffering whole files, and do storage I/O outside the asset-row transaction.
+  evidence: Story 3.5 buffers up to 200 MB per job (media concurrency 2) and holds a DB transaction across storage calls; revisit with 3.8 video processing.

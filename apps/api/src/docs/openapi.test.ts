@@ -8,12 +8,13 @@ import { AuthController } from '../modules/auth/auth.controller.js';
 import { CredentialsController } from '../modules/auth/credentials.controller.js';
 import { CatalogController } from '../modules/catalog/catalog.controller.js';
 import { ContentController } from '../modules/content/content.controller.js';
+import { MediaController } from '../modules/media/media.controller.js';
 import { HealthController } from '../modules/health/health.controller.js';
 import { IntegrationController } from '../modules/integration/integration.controller.js';
 import { WebhookController } from '../modules/integration/webhook.controller.js';
 import { buildOpenApi, docsPage, ROUTES } from './openapi.js';
 
-const CONTROLLERS = [MetricsController, AdminController, AuthController, CredentialsController, CatalogController, ContentController, HealthController, IntegrationController, WebhookController];
+const CONTROLLERS = [MetricsController, AdminController, AuthController, CredentialsController, CatalogController, ContentController, MediaController, HealthController, IntegrationController, WebhookController];
 
 const join = (...parts: string[]) => `/${parts.flatMap((p) => p.split('/')).filter(Boolean).join('/')}`;
 const first = (v: unknown): string => (Array.isArray(v) ? String(v[0]) : String(v ?? ''));
@@ -145,6 +146,19 @@ describe('API docs', () => {
     expect(JSON.stringify(doc.components.schemas.ContentCreateRequest)).toContain('product_id');
     expect(JSON.stringify(doc.components.schemas.ContentItem)).toContain('#/components/schemas/ContentProduct"');
     expect(JSON.stringify(doc.components.schemas.Product)).toContain('has_required_options');
+  });
+
+  it('documents the media upload routes, their models and problems (Story 3.5)', () => {
+    const issue = op('/v1/media/uploads', 'post');
+    expect(Object.keys(issue.responses)).toEqual(expect.arrayContaining(['201', '422', '429']));
+    expect(String(issue.description)).toContain('media-type-not-allowed');
+    expect(String(issue.description)).toContain('Retry-After');
+    const complete = op('/v1/media/uploads/:upload_id/complete', 'post');
+    expect(Object.keys(complete.responses)).toEqual(expect.arrayContaining(['200', '404', '409', '410', '422']));
+    expect(jsonSchema(complete.responses['200']!).$ref).toBe('#/components/schemas/MediaAsset');
+    expect(jsonSchema(op('/v1/media/:id', 'get').responses['200']!).$ref).toBe('#/components/schemas/MediaAsset');
+    expect(JSON.stringify(doc.components.schemas.MediaUploadRequest)).toContain('sha256');
+    expect(JSON.stringify(doc.components.schemas.MediaUploadGrant)).toContain('expires_at');
   });
 
   it('serves a Swagger UI page pointed at the spec', () => {

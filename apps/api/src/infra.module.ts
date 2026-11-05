@@ -10,6 +10,8 @@ import { FEATURE_FLAGS, type FeatureFlags } from './ports/feature-flags.js';
 import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from './ports/store-data-lifecycle.js';
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 import { MAILER, type Mailer } from './ports/mailer.js';
+import { MALWARE_SCANNER, type MalwareScanner } from './ports/malware-scanner.js';
+import { OBJECT_STORAGE, type ObjectStorage } from './ports/object-storage.js';
 import { STORE_INSTALL_LISTENERS, type StoreInstallListener } from './ports/store-install-listener.js';
 
 export const APP_INFO = Symbol('APP_INFO');
@@ -18,6 +20,12 @@ export const DB_POOL = Symbol('DB_POOL');
 export const EVENT_SENDER = Symbol('EVENT_SENDER');
 export const INTEGRATION_CONFIG = Symbol('INTEGRATION_CONFIG');
 export const SESSION_CONFIG = Symbol('SESSION_CONFIG');
+export const MEDIA_CONFIG = Symbol('MEDIA_CONFIG');
+
+export interface MediaConfig {
+  /** Upload URLs one store may be issued per throttle window (`MEDIA_UPLOAD_RATE_LIMIT`). */
+  uploadRateLimit: number;
+}
 
 export interface IntegrationConfig {
   /** Where the merchant lands after the install flow. */
@@ -72,6 +80,11 @@ export interface InfraDeps {
   session: SessionConfig;
   adminAccess: AdminAccess;
   mailer: Mailer;
+  /** The media bucket (Story 3.5). */
+  storage: ObjectStorage;
+  /** Malware scanning of uploaded media (dev: EICAR only). */
+  scanner: MalwareScanner;
+  media: MediaConfig;
   /** Modules that hold tenant data, registered for uninstall, reinstall and purge (the integration module adds its own, last). */
   lifecycles: readonly StoreDataLifecycle[];
   /** Modules told about each committed install, on the webhook and the OAuth path alike (the owner invite). */
@@ -97,6 +110,9 @@ export class InfraModule {
       { provide: SESSION_CONFIG, useValue: deps.session },
       { provide: ADMIN_ACCESS, useValue: deps.adminAccess },
       { provide: MAILER, useValue: deps.mailer },
+      { provide: OBJECT_STORAGE, useValue: deps.storage },
+      { provide: MALWARE_SCANNER, useValue: deps.scanner },
+      { provide: MEDIA_CONFIG, useValue: deps.media },
       { provide: STORE_DATA_LIFECYCLES, useValue: deps.lifecycles },
       { provide: STORE_INSTALL_LISTENERS, useValue: deps.installListeners },
     ];

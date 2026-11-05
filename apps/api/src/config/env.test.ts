@@ -76,10 +76,35 @@ describe('parseEnv', () => {
       try {
         parseEnv({ ...base, NODE_ENV: 'production' });
       } catch (err) {
-        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI']);
+        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI', 'S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY']);
       }
-      const ok = parseEnv({ ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: key, OAUTH_STATE_SECRET: 's'.repeat(32), SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://api.example.com/cb' });
+      const ok = parseEnv({
+        ...base,
+        NODE_ENV: 'production',
+        TOKEN_ENCRYPTION_KEY: key,
+        OAUTH_STATE_SECRET: 's'.repeat(32),
+        SALLA_CLIENT_ID: 'id',
+        SALLA_CLIENT_SECRET: 'secret-123',
+        SALLA_REDIRECT_URI: 'https://api.example.com/cb',
+        S3_ENDPOINT: 'https://s3.example.com',
+        S3_ACCESS_KEY: 'access',
+        S3_SECRET_KEY: 'secret',
+      });
       expect(ok.TOKEN_ENCRYPTION_KEY).toBe(key);
+    });
+  });
+
+  describe('media storage and upload throttle', () => {
+    it('defaults region, bucket, path style and the rate limit; endpoint and keys stay optional outside production', () => {
+      const env = parseEnv(base);
+      expect(env).toMatchObject({ S3_REGION: 'us-east-1', S3_BUCKET: 'slips-media', S3_FORCE_PATH_STYLE: true, MEDIA_UPLOAD_RATE_LIMIT: 60 });
+      expect(env.S3_ENDPOINT).toBeUndefined();
+      const set = parseEnv({ ...base, S3_ENDPOINT: 'http://localhost:9000', S3_FORCE_PATH_STYLE: 'false', MEDIA_UPLOAD_RATE_LIMIT: '5', S3_BUCKET: 'my-bucket' });
+      expect(set).toMatchObject({ S3_ENDPOINT: 'http://localhost:9000', S3_FORCE_PATH_STYLE: false, MEDIA_UPLOAD_RATE_LIMIT: 5, S3_BUCKET: 'my-bucket' });
+    });
+    it('rejects a bad bucket name or rate limit', () => {
+      expect(() => parseEnv({ ...base, S3_BUCKET: 'Bad_Bucket' })).toThrow(/S3_BUCKET/);
+      expect(() => parseEnv({ ...base, MEDIA_UPLOAD_RATE_LIMIT: '0' })).toThrow(/MEDIA_UPLOAD_RATE_LIMIT/);
     });
   });
 });

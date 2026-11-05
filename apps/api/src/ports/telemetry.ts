@@ -28,6 +28,10 @@ export const Metric = {
   QueueDepth: 'slips_queue_depth',
   /** Gauge, label `queue`: age in seconds of the oldest ready job. */
   QueueOldestAgeSeconds: 'slips_queue_oldest_age_seconds',
+  /** Counter: upload-URL requests refused by the per-store media upload throttle (abuse signal, Story 3.5). */
+  MediaUploadThrottled: 'slips_media_upload_throttled_total',
+  /** Counter: bytes of media stored, added when an asset is scanned (per-store metering is `MediaService.storedBytes`). */
+  MediaStoredBytes: 'slips_media_stored_bytes_total',
   /** Gauge: 1 while the worker's last DB check succeeded (worker liveness). */
   WorkerUp: 'slips_worker_up',
 } as const;

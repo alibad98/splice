@@ -13,6 +13,11 @@ import { DevSallaCommercePlatform, SallaCommercePlatform, unconfiguredPlatform }
 import { sessionStoreData } from './modules/session/session.lifecycle.js';
 import { catalogStoreData } from './modules/catalog/catalog.lifecycle.js';
 import { contentStoreData } from './modules/content/content.lifecycle.js';
+import { mediaStoreData } from './modules/media/media.lifecycle.js';
+import { S3ObjectStorage } from './adapters/storage/s3-storage.js';
+import { EicarMalwareScanner } from './adapters/scanner/eicar-scanner.js';
+import { unconfiguredStorage, type ObjectStorage } from './ports/object-storage.js';
+import type { Telemetry } from './ports/telemetry.js';
 import { ConsoleMailer } from './adapters/mailer/console-mailer.js';
 import { ownerInviteListener } from './modules/auth/owner-invite.js';
 import { denyAllAdminAccess } from './ports/admin-access.js';
@@ -47,6 +52,13 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'SALLA_WEBHOOK_SECRET'
       | 'DASHBOARD_URL'
       | 'SESSION_COOKIE_DOMAIN'
+      | 'S3_ENDPOINT'
+      | 'S3_REGION'
+      | 'S3_BUCKET'
+      | 'S3_ACCESS_KEY'
+      | 'S3_SECRET_KEY'
+      | 'S3_FORCE_PATH_STYLE'
+      | 'MEDIA_UPLOAD_RATE_LIMIT'
     >
   >;
 
@@ -56,6 +68,28 @@ function unconfiguredCipher(): TokenCipher {
     throw new Error('TOKEN_ENCRYPTION_KEY is not configured');
   };
   return { keyId: 'unconfigured', encrypt: fail, decrypt: fail };
+}
+
+/** S3 storage when the endpoint and keys are set (required in production); otherwise a storage that fails on use. */
+function buildStorage(env: HttpEnv): ObjectStorage {
+  if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY || !env.S3_SECRET_KEY) return unconfiguredStorage();
+  return new S3ObjectStorage({
+    endpoint: env.S3_ENDPOINT,
+    region: env.S3_REGION ?? 'us-east-1',
+    bucket: env.S3_BUCKET ?? 'slips-media',
+    accessKeyId: env.S3_ACCESS_KEY,
+    secretAccessKey: env.S3_SECRET_KEY,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE ?? true,
+  });
+}
+
+/** Development boot: create the media bucket when missing. A storage that is down only logs; uploads fail until it is up. */
+export async function ensureDevBucket(storage: ObjectStorage, telemetry: Telemetry): Promise<void> {
+  try {
+    await storage.ensureBucket?.();
+  } catch (err) {
+    telemetry.log.warn('media bucket not ensured', { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /** Build the default adapters from env. Tests override pieces via `overrides`. */
@@ -94,6 +128,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
   const recorder = env.NODE_ENV === 'production' ? undefined : createWebhookRecorder(env.WEBHOOK_RECORD_DIR);
   const dashboardUrl = env.DASHBOARD_URL ?? 'http://localhost:3000';
   const mailer = overrides.mailer ?? new ConsoleMailer(telemetry);
+  const storage = overrides.storage ?? buildStorage(env);
   return {
     telemetry,
     pool,
@@ -123,7 +158,11 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     },
     adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
     mailer,
-    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData],
+    storage,
+    // Development-only adapter: flags the EICAR test string. A real scanner is a deferred decision (no vendor chosen).
+    scanner: overrides.scanner ?? new EicarMalwareScanner(),
+    media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60 },
+    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage)],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),
@@ -134,6 +173,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
 
 export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> = {}): Promise<INestApplication> {
   const deps = buildInfra(env, 'http', overrides);
+  if (env.NODE_ENV === 'development') await ensureDevBucket(deps.storage, deps.telemetry);
   const app = await NestFactory.create(AppModule.register(deps), { logger: new NestTelemetryLogger(deps.telemetry), rawBody: true });
   app.use(requestTelemetry(deps.telemetry));
   app.enableCors({

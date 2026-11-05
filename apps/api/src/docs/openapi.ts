@@ -19,6 +19,15 @@ import {
   ForgotPasswordInput,
   HealthResponse,
   LoginInput,
+  MEDIA_LIMITS,
+  MEDIA_TOO_LARGE,
+  MEDIA_TYPE_NOT_ALLOWED,
+  MEDIA_UPLOAD_EXPIRED,
+  MEDIA_UPLOAD_MISSING,
+  MEDIA_UPLOAD_RATE_LIMITED,
+  MediaAsset,
+  MediaUploadGrant,
+  MediaUploadRequest,
   OtpPurpose,
   PRODUCT_PAGE_SIZE,
   PRODUCT_PAGE_SIZES,
@@ -90,6 +99,8 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
   [ContentProductSummary, 'ContentProduct', 'The product linked to a content item, as the catalog has it now. `deleted`: the product was deleted in the store (the item shows "Linked product deleted"); it clears if the product is re-created.'],
   [ContentItem, 'ContentItem', 'One content item (Story or Reel), its lifecycle status and its linked `product` (or null).'],
+  [MediaUploadGrant, 'MediaUploadGrant', 'A pre-signed upload: PUT the file to `url` with `headers` before `expires_at` (15 minutes). The URL signs `Content-Length`, `Content-Type` and `x-amz-checksum-sha256`, so only the declared file is accepted.'],
+  [MediaAsset, 'MediaAsset', 'An uploaded media file and its status: `uploaded` (waiting for inspection), `scanned` (type checked, metadata stripped, malware-scanned), `processed` (publishable) or `failed` with `failure_reason`.'],
   [ContentListResponse, 'ContentPage', 'One page of content items for a tab: `items` (at most `page_size`), `total` matching items, `page`, `page_size`, and `counts` for every tab (counts ignore search and page).'],
 ];
 
@@ -104,6 +115,7 @@ const inputs: Array<[z.ZodType, string, string]> = [
   [SetPasswordInput, 'SetPasswordRequest', "Owner's first password with the token from `verify-otp`."],
   [ResendOtpInput, 'ResendOtpRequest', 'Send the code again.'],
   [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA and, optionally, the one linked product (`product_id`).'],
+  [MediaUploadRequest, 'MediaUploadRequest', "`kind`, the file's `content_type`, its exact `size_bytes` and its SHA-256 (64 lower-case hex characters)."],
   [ContentUpdateInput, 'ContentUpdateRequest', 'Any non-empty subset of the editable fields (title, format, CTA, `product_id`; `null` unlinks). The open-link rule applies to the merged item.'],
 ];
 
@@ -161,6 +173,8 @@ export interface RouteDoc {
   success: { status: number; description: string; body?: z.ZodType; contentType?: string; headers?: Record<string, string>; example?: unknown };
   errors?: number[];
 }
+
+const MB = 1024 * 1024;
 
 const productExample = {
   v: 1,
@@ -337,6 +351,38 @@ export const ROUTES: RouteDoc[] = [
     errors: [401, 403, 404],
   },
 
+  {
+    method: 'post',
+    path: '/v1/media/uploads',
+    tag: 'Media',
+    summary: 'Get an upload URL',
+    description: `A pre-signed PUT URL for one file, valid 15 minutes, under the store's own prefix and addressed by the file's SHA-256. Images: ${MEDIA_LIMITS.image.content_types.join(', ')} up to ${MEDIA_LIMITS.image.max_bytes / MB} MB; videos: ${MEDIA_LIMITS.video.content_types.join(', ')} up to ${MEDIA_LIMITS.video.max_bytes / MB} MB. Another type (SVG included) answers 422 with problem \`type\` \`${MEDIA_TYPE_NOT_ALLOWED}\`; a larger file 422 \`${MEDIA_TOO_LARGE}\`. Too many URLs for the store in 10 minutes answers 429 \`${MEDIA_UPLOAD_RATE_LIMITED}\` with a \`Retry-After\` header (seconds). Then PUT the file with the returned headers and call \`complete\`. Cookie sessions need \`x-csrf-token\`.`,
+    auth: 'merchant',
+    body: MediaUploadRequest,
+    success: { status: 201, description: 'Upload URL', body: MediaUploadGrant },
+    errors: [400, 401, 403, 422, 429],
+  },
+  {
+    method: 'post',
+    path: '/v1/media/uploads/:upload_id/complete',
+    tag: 'Media',
+    summary: 'Complete an upload',
+    description: `Records the uploaded file as an \`uploaded\` asset and queues its inspection (hash check, type sniffing, metadata stripping, malware scan). Repeating the call returns the same asset. Not uploaded yet: 409 \`${MEDIA_UPLOAD_MISSING}\`; URL expired without an upload: 410 \`${MEDIA_UPLOAD_EXPIRED}\`; stored size differs from the declared one: 422 \`${MEDIA_TOO_LARGE}\` (the object is deleted). Unknown or other-store uploads answer 404.`,
+    auth: 'merchant',
+    success: { status: 200, description: 'The asset', body: MediaAsset },
+    errors: [401, 403, 404, 409, 410, 422],
+  },
+  {
+    method: 'get',
+    path: '/v1/media/:id',
+    tag: 'Media',
+    summary: 'Get a media asset',
+    description: 'Returns a media asset of the signed-in store and its inspection status. Unknown or other-store assets answer 404.',
+    auth: 'merchant',
+    success: { status: 200, description: 'Media asset', body: MediaAsset },
+    errors: [401, 404],
+  },
+
   { method: 'post', path: '/v1/admin/sign-in', tag: 'Admin', summary: 'Slips Admin sign-in (not available yet)', description: 'Placeholder: always 403 until the admin identity provider is chosen.', auth: 'public', success: { status: 200, description: 'Signed in' }, errors: [403] },
   { method: 'get', path: '/v1/admin/session', tag: 'Admin', summary: 'Slips Admin session (not available yet)', auth: 'admin', success: { status: 200, description: 'Admin session' }, errors: [403] },
 ];
@@ -348,6 +394,7 @@ const TAGS = [
   { name: 'Password reset & setup', description: 'Code-based flow shared by "forgot password" (purpose `reset`) and the first password of a new owner (purpose `setup`): request or receive a code → `verify-otp` → `reset-password` or `set-password`.' },
   { name: 'Catalog', description: "The store's products synced from Salla: listing, categories and the sync status." },
   { name: 'Content', description: 'Stories and Reels created by the merchant and their status lifecycle.' },
+  { name: 'Media', description: 'Direct-to-storage uploads of images and videos and the inspection status of each asset.' },
   { name: 'Ops', description: 'Health and metrics for operations.' },
   { name: 'Admin', description: 'Internal Slips Admin (not available yet).' },
 ];
@@ -379,14 +426,16 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 - Password sign-in: ${AUTH_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Queries: \`invalid_query\`
 - Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)
-- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`), \`product_not_linkable\` (422, problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\`)`;
+- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`), \`product_not_linkable\` (422, problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\`)
+- Media: \`invalid_body\`, \`media_type_not_allowed\` (422, \`${MEDIA_TYPE_NOT_ALLOWED}\`), \`media_too_large\` (422, \`${MEDIA_TOO_LARGE}\`), \`media_upload_rate_limited\` (429, \`${MEDIA_UPLOAD_RATE_LIMITED}\`, with \`Retry-After\`), \`media_upload_missing\` (409, \`${MEDIA_UPLOAD_MISSING}\`), \`media_upload_expired\` (410, \`${MEDIA_UPLOAD_EXPIRED}\`), \`media_upload_not_found\`, \`media_not_found\``;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',
   401: 'Not signed in, session expired, or wrong credentials',
   403: 'Forbidden: missing/invalid CSRF token, store not installed, or admin only',
   404: 'Not found',
-  409: 'Conflict (`type` `invalid-transition` when a status change or edit is not allowed)',
+  409: 'Conflict (`type` `invalid-transition` when a status change or edit is not allowed, `media-upload-missing` before the file is uploaded)',
+  410: 'Gone (`type` `media-upload-expired`: the upload URL expired unused)',
   422: 'Unprocessable (`type` says which rule, e.g. `cta-url-not-store-domain`)',
   429: 'Too many attempts; try again later (after `Retry-After` seconds when the header is sent)',
   503: 'A dependency (database or Salla) is unavailable',

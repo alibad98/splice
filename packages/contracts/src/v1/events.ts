@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CONTENT_STATUSES, ContentFields } from './content.js';
 import { JobMeta } from './job-meta.js';
+import { MEDIA_FAILURE_REASONS, MEDIA_KINDS } from './media.js';
 
 /** Modules that may own a domain event (the spine's module list). */
 export const EVENT_OWNERS = ['integration', 'catalog', 'content', 'media', 'publishing', 'analytics', 'attribution', 'billing', 'admin'] as const;
@@ -132,6 +133,18 @@ export const EVENT_CATALOG = {
       changed: z.array(ContentFields.keyof()).min(1),
     }),
   ),
+  /** An upload was completed and recorded as `uploaded` (Story 3.5). Consumer: the worker queues `media.asset.inspect`. */
+  'media.asset.uploaded': defineEvent(
+    'media',
+    z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), kind: z.enum(MEDIA_KINDS), content_type: z.string().min(1), size_bytes: z.number().int().positive() }),
+  ),
+  /** Inspection passed: the clean copy is stored and the malware scan found nothing (`scanned`). Processing (Story 3.8) follows. */
+  'media.asset.scanned': defineEvent(
+    'media',
+    z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), kind: z.enum(MEDIA_KINDS), size_bytes: z.number().int().positive() }),
+  ),
+  /** The asset `failed`; `reason` says why. */
+  'media.asset.failed': defineEvent('media', z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), reason: z.enum(MEDIA_FAILURE_REASONS) })),
 } as const;
 
 export type EventName = keyof typeof EVENT_CATALOG;

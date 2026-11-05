@@ -12,11 +12,13 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { registerContentEventHandlers } from './content-jobs.js';
+import { mediaJobHandlers, registerMediaEventHandlers } from './media-jobs.js';
+import { MediaInspector } from '../modules/media/media-inspect.js';
 import { ContentLifecycle } from '../modules/content/content-lifecycle.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
 import { CATALOG_RECONCILE_SCHEDULE_QUEUE, CatalogReconcile, RECONCILE_CRON } from '../modules/catalog/catalog-reconcile.js';
 import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
-import { buildInfra } from '../http.js';
+import { buildInfra, ensureDevBucket } from '../http.js';
 import type { Env } from '../config/env.js';
 import type { DatabaseProbe } from '../ports/database-probe.js';
 import { Metric, type Telemetry } from '../ports/telemetry.js';
@@ -119,13 +121,16 @@ export async function startWorker(
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
   registerContentEventHandlers(events, telemetry, new ContentLifecycle(boss, telemetry));
+  registerMediaEventHandlers(events, boss, telemetry);
+  const inspector = new MediaInspector(infra.storage, infra.scanner, boss, telemetry);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...handlers };
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector), ...handlers };
   let stopPoller = () => {};
   try {
+    if (env.NODE_ENV === 'development') await ensureDevBucket(infra.storage, telemetry);
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
     await registerQueues(boss, telemetry, selected, allHandlers);

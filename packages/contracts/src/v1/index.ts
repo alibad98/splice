@@ -67,3 +67,27 @@ export {
   isContentPageSize,
 } from './content.js';
 export type { ContentListQueryInput, ContentPageSize, ContentSort, ArchivableStatus, ContentEventName, ContentTransition, ContentTransitionTarget, ReactivateStatus } from './content.js';
+export {
+  MEDIA_ASSET_STATUSES,
+  MEDIA_FAILURE_REASONS,
+  MEDIA_INSPECT_QUEUE,
+  MEDIA_KINDS,
+  MEDIA_LIMITS,
+  MEDIA_TOO_LARGE,
+  MEDIA_TYPE_NOT_ALLOWED,
+  MEDIA_UPLOAD_EXPIRED,
+  MEDIA_UPLOAD_MISSING,
+  MEDIA_UPLOAD_RATE_LIMITED,
+  MEDIA_UPLOAD_TTL_SECONDS,
+  MEDIA_UPLOAD_WINDOW_SECONDS,
+  MediaAsset,
+  MediaAssetStatus,
+  MediaFailureReason,
+  MediaInspectJob,
+  MediaKind,
+  MediaUploadGrant,
+  MediaUploadRequest,
+  Sha256Hex,
+  isAllowedMediaType,
+} from './media.js';
+export type { MediaContentType } from './media.js';

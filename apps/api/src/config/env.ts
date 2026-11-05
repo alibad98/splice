@@ -74,12 +74,21 @@ export const EnvSchema = z
   API_DOCS: z.preprocess(emptyToUndefined, z.stringbool().optional()),
   /** Where the merchant lands after install. */
   DASHBOARD_URL: z.url().default('http://localhost:3000'),
+  /** Media object storage (S3 API; MinIO locally). Endpoint and keys are required in production. Keys are never logged. */
+  S3_ENDPOINT: z.preprocess(emptyToUndefined, z.url().optional()),
+  S3_REGION: z.preprocess(emptyToUndefined, z.string().min(1).default('us-east-1')),
+  S3_BUCKET: z.preprocess(emptyToUndefined, z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/).default('slips-media')),
+  S3_ACCESS_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  S3_SECRET_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  S3_FORCE_PATH_STYLE: z.preprocess(emptyToUndefined, z.stringbool().default(true)),
+  /** Upload URLs one store may be issued per 10 minutes before 429 `media-upload-rate-limited` (Story 3.5). */
+  MEDIA_UPLOAD_RATE_LIMIT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(100_000).default(60)),
 })
   .refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' })
   .superRefine((e, ctx) => {
     if (e.NODE_ENV !== 'production') return;
     if (e.WEBHOOK_RECORD_DIR) ctx.addIssue({ code: 'custom', path: ['WEBHOOK_RECORD_DIR'], message: 'must not be set in production (dev-only fixture recorder)' });
-    for (const name of ['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI'] as const) {
+    for (const name of ['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI', 'S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY'] as const) {
       if (!e[name]) ctx.addIssue({ code: 'custom', path: [name], message: 'is required in production' });
     }
   });

@@ -12,3 +12,4 @@ export { and, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
 export type { LifecycleState, SessionMode, StorePlatform } from './schema/integration.js';
 export type { AvailabilityBucket, CatalogSyncReason, CatalogSyncStatus } from './schema/catalog.js';
 export type { ContentFormat, ContentStatus, CtaAction } from './schema/content.js';
+export type { MediaAssetStatus, MediaKind } from './schema/media.js';

@@ -75,7 +75,7 @@ describe('webhook recorder', () => {
     const base = { ROLE: 'http', DATABASE_URL: 'postgres://slips:slips@localhost:5432/slips' };
     expect(parseEnv(base).WEBHOOK_RECORD_DIR).toBeUndefined();
     expect(parseEnv({ ...base, WEBHOOK_RECORD_DIR: '/tmp/x' }).WEBHOOK_RECORD_DIR).toBe('/tmp/x');
-    const prod = { ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'), OAUTH_STATE_SECRET: 'x'.repeat(32), SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://a.example/cb' };
+    const prod = { ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'), OAUTH_STATE_SECRET: 'x'.repeat(32), SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://a.example/cb', S3_ENDPOINT: 'https://s3.example.com', S3_ACCESS_KEY: 'a', S3_SECRET_KEY: 's' };
     expect(() => parseEnv({ ...prod, WEBHOOK_RECORD_DIR: '/tmp/x' })).toThrow(/WEBHOOK_RECORD_DIR/);
     expect(parseEnv(prod).WEBHOOK_RECORD_DIR).toBeUndefined();
   });

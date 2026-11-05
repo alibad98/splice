@@ -1,0 +1,78 @@
+// S3 adapter: the presigned PUT URL (offline), plus a live MinIO round-trip that is skipped when port 9000 is down.
+import { createHash, randomUUID } from 'node:crypto';
+import { connect } from 'node:net';
+import { describe, expect, it } from 'vitest';
+import { S3ObjectStorage } from './s3-storage.js';
+
+const config = {
+  endpoint: 'http://127.0.0.1:9000',
+  region: 'us-east-1',
+  bucket: 'slips-media-test',
+  accessKeyId: 'slips',
+  secretAccessKey: 'slips-local-only',
+  forcePathStyle: true,
+};
+
+const minioUp = await new Promise<boolean>((resolve) => {
+  const socket = connect({ host: '127.0.0.1', port: 9000, timeout: 500 });
+  socket.once('connect', () => {
+    socket.destroy();
+    resolve(true);
+  });
+  socket.once('error', () => resolve(false));
+  socket.once('timeout', () => {
+    socket.destroy();
+    resolve(false);
+  });
+});
+
+const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+
+describe('S3ObjectStorage presignPut (offline)', () => {
+  it('signs content-type, content-length and the sha256 checksum header, and expires in 15 minutes', async () => {
+    const storage = new S3ObjectStorage(config);
+    const body = Buffer.from('hello');
+    const grant = await storage.presignPut({ key: 'stores/s1/uploads/abc', contentType: 'image/png', sizeBytes: body.length, sha256Hex: sha(body), expiresInSeconds: 900 });
+    const url = new URL(grant.url);
+    expect(url.pathname).toBe('/slips-media-test/stores/s1/uploads/abc');
+    expect(url.searchParams.get('X-Amz-Expires')).toBe('900');
+    const signed = url.searchParams.get('X-Amz-SignedHeaders')!.split(';');
+    expect(signed).toEqual(expect.arrayContaining(['content-length', 'content-type', 'host', 'x-amz-checksum-sha256']));
+    // The checksum stays a header (storage verifies the body against it); it is not hoisted into the query.
+    expect(url.searchParams.has('x-amz-checksum-sha256')).toBe(false);
+    expect(grant).toMatchObject({ method: 'PUT', headers: { 'content-type': 'image/png', 'x-amz-checksum-sha256': Buffer.from(sha(body), 'hex').toString('base64') } });
+    storage.destroy();
+  });
+});
+
+describe.skipIf(!minioUp)('S3ObjectStorage against MinIO (live)', () => {
+  it('round-trips a presigned PUT, refuses a different body, and deletes by prefix', async () => {
+    const storage = new S3ObjectStorage(config);
+    await storage.ensureBucket();
+    const prefix = `stores/${randomUUID()}/`;
+    const body = Buffer.from('slips media round trip');
+    const key = `${prefix}uploads/${sha(body)}`;
+    const grant = await storage.presignPut({ key, contentType: 'image/png', sizeBytes: body.length, sha256Hex: sha(body), expiresInSeconds: 900 });
+
+    const tampered = Buffer.from('slips media round trlp');
+    const bad = await fetch(grant.url, { method: 'PUT', headers: grant.headers, body: tampered });
+    expect(bad.ok).toBe(false);
+    expect(await storage.head(key)).toBeNull();
+
+    const res = await fetch(grant.url, { method: 'PUT', headers: grant.headers, body });
+    expect(res.status).toBe(200);
+    expect(await storage.head(key)).toEqual({ sizeBytes: body.length, contentType: 'image/png' });
+    const stream = await storage.getStream(key);
+    const chunks: Buffer[] = [];
+    for await (const c of stream!) chunks.push(Buffer.from(c as Buffer));
+    expect(Buffer.concat(chunks).equals(body)).toBe(true);
+
+    await storage.put(`${prefix}assets/a/original.png`, body, 'image/png');
+    expect(await storage.deletePrefix(prefix, 1)).toEqual({ deleted: 1, done: false });
+    expect(await storage.deletePrefix(prefix, 10)).toEqual({ deleted: 1, done: true });
+    expect(await storage.head(key)).toBeNull();
+    expect(await storage.getStream(key)).toBeNull();
+    await storage.delete(key);
+    storage.destroy();
+  });
+});

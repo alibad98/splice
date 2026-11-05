@@ -129,3 +129,18 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
   summary: "Nothing tests that `startWorker` registers a handler for every catalogued domain event (content, catalog, integration). A missing `register*EventHandlers` call would make every such event fail dispatch in production."
   evidence: "Extract the three `register*EventHandlers` calls in `worker.ts` into an exported `registerAllEventHandlers(registry, boss, telemetry)`, and add a `worker.test.ts` case asserting `handlersFor(name).length > 0` for every `EVENT_CATALOG` name."
+
+## Deferred from: code review of spec-3-1-content-model-lifecycle.md (2026-11-04)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
+  summary: "deactivated → archive → restore yields a `draft` with `reactivate_to` cleared, which the merchant can later publish past billing's deactivation."
+  evidence: "Story 7.4's limit gate must apply to every transition into `published`/`scheduled` (including publish from a restored draft), as recorded above."
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
+  summary: "Items archived while `deactivated` are skipped by billing's upgrade `reactivate` (it targets `status = 'deactivated'`); after Undo they return to `deactivated` and stay there."
+  evidence: "Epic 7: on upgrade, also handle `archived` rows with `reactivate_to` set (e.g. clear the deactivation so Undo returns to `reactivate_to`)."
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
+  summary: "`undo_archive`/`reactivate` can return an item to `scheduled` after its go-live or end time passed while it was archived/deactivated."
+  evidence: "Epic 4: re-check the schedule on `content.item.unarchived`/`content.item.reactivated` (go live or end immediately)."
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
+  summary: "Deleting an item while `processing` makes media's later `finish_processing`/`fail_processing` hit `ContentNotFoundError`."
+  evidence: "Story 3.8/3.9: treat `ContentNotFoundError` as terminal in the media job (ack, clean up the upload)."

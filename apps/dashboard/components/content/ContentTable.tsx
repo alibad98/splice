@@ -1,0 +1,132 @@
+'use client';
+
+import { useMemo } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { ARCHIVABLE_STATUSES, type ContentFormat, type ContentItem, type ContentSort } from '@slips/contracts';
+import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, type DataTableColumn } from '@slips/ui';
+import { useI18n } from '../../i18n/provider';
+import { directionOf } from '../../i18n/config';
+import type { Messages } from '../../i18n/messages';
+import { fill } from '../products/format';
+import { ContentStatusChip } from './ContentStatusChip';
+import { columnToSort, sortToColumn } from './url-state';
+
+type M = Messages['content'];
+
+export const contentHref = (id: string) => `/content/${encodeURIComponent(id)}`;
+
+const FORMAT_ICON = { story: 'content', reel: 'play' } as const satisfies Record<ContentFormat, string>;
+
+/** 9:16 muted box with the format icon until slides and posters exist (Stories 3.6/3.8). */
+function Thumb({ format }: { format: ContentFormat }) {
+  return (
+    <span aria-hidden="true" data-testid="content-thumb" className="inline-flex aspect-9/16 h-10 shrink-0 items-center justify-center rounded-sm bg-muted text-muted-foreground">
+      <Icon name={FORMAT_ICON[format]} className="size-3.5" />
+    </span>
+  );
+}
+
+const None = ({ m }: { m: M }) => <span className="text-muted-foreground">{m.none}</span>;
+
+const canArchive = (item: ContentItem) => (ARCHIVABLE_STATUSES as readonly string[]).includes(item.status);
+
+function RowMenu({ item, m, onArchive, onDelete }: { item: ContentItem; m: M; onArchive: (item: ContentItem) => void; onDelete: (item: ContentItem) => void }) {
+  const { locale } = useI18n();
+  return (
+    <DropdownMenu dir={directionOf(locale)}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" aria-label={fill(m.menu.label, { title: item.title })} className="px-2">
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="currentColor">
+            <circle cx="5" cy="12" r="1.75" />
+            <circle cx="12" cy="12" r="1.75" />
+            <circle cx="19" cy="12" r="1.75" />
+          </svg>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {canArchive(item) ? (
+          <DropdownMenuItem onSelect={() => onArchive(item)}>
+            <Icon name="archive" className="size-4" />
+            {m.menu.archive}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem tone="danger" onSelect={() => onDelete(item)}>
+          {m.menu.delete}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+interface Actions {
+  onArchive: (item: ContentItem) => void;
+  onDelete: (item: ContentItem) => void;
+}
+
+function contentColumns(m: M, actions: Actions): DataTableColumn<ContentItem>[] {
+  return [
+    { id: 'thumb', header: <span className="sr-only">{m.columns.thumb}</span>, className: 'w-12', cell: (row) => <Thumb format={row.format} /> },
+    {
+      id: 'title',
+      header: m.columns.title,
+      sortable: true,
+      className: 'min-w-56',
+      cell: (row) => (
+        <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
+          {row.title}
+        </Link>
+      ),
+    },
+    { id: 'format', header: m.columns.format, cell: (row) => m.formats[row.format] },
+    { id: 'placement', header: m.columns.placement, cell: () => <None m={m} /> },
+    { id: 'status', header: m.columns.status, cell: (row) => <ContentStatusChip status={row.status} labels={m.statuses} /> },
+    { id: 'views', header: m.columns.views, cell: () => <None m={m} /> },
+    { id: 'clicks', header: m.columns.clicks, cell: () => <None m={m} /> },
+    { id: 'actions', header: <span className="sr-only">{m.columns.actions}</span>, className: 'w-12 text-end', cell: (row) => <RowMenu item={row} m={m} {...actions} /> },
+  ];
+}
+
+function ContentCard({ row, m, actions }: { row: ContentItem; m: M; actions: Actions }) {
+  return (
+    <div className="flex items-start gap-3">
+      <Thumb format={row.format} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
+          {row.title}
+        </Link>
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted-foreground">
+          {m.formats[row.format]}
+          <ContentStatusChip status={row.status} labels={m.statuses} />
+        </span>
+      </div>
+      <RowMenu item={row} m={m} {...actions} />
+    </div>
+  );
+}
+
+interface Props extends Actions {
+  rows: readonly ContentItem[];
+  sort: ContentSort;
+  onSortChange: (sort: ContentSort) => void;
+}
+
+/** The content table (cards below `md`). Clicking a row or pressing `Enter` on it opens the item. */
+export function ContentTable({ rows, sort, onSortChange, onArchive, onDelete }: Props) {
+  const router = useRouter();
+  const m = useI18n().messages.content;
+  const columns = useMemo(() => contentColumns(m, { onArchive, onDelete }), [m, onArchive, onDelete]);
+  return (
+    <DataTable
+      label={m.tableLabel}
+      columns={columns}
+      data={rows}
+      getRowId={(r) => r.id}
+      sort={sortToColumn(sort)}
+      onSortChange={(next) => onSortChange(columnToSort(next.desc))}
+      onRowActivate={(row) => router.push(contentHref(row.id))}
+      rowClassName={(row) => (row.status === 'failed' ? 'bg-destructive/6 hover:bg-destructive/10' : undefined)}
+      renderCard={(row) => <ContentCard row={row} m={m} actions={{ onArchive, onDelete }} />}
+    />
+  );
+}

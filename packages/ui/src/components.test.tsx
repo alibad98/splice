@@ -59,6 +59,22 @@ describe('StatusChip', () => {
   it('can drop the dot', () => {
     expect(renderToStaticMarkup(<StatusChip tone="neutral" dot={false}>Ended</StatusChip>)).not.toContain('aria-hidden');
   });
+  it('outline variant with an icon replaces the dot (ended / archived)', () => {
+    const html = renderToStaticMarkup(
+      <StatusChip tone="neutral" variant="outline" icon={<Icon name="archive" />}>
+        Archived
+      </StatusChip>,
+    );
+    expect(html).toContain('data-variant="outline"');
+    expect(html).toContain('data-icon="archive"');
+    expect(html).not.toContain('rounded-full');
+    expect(renderToStaticMarkup(<StatusChip tone="neutral" variant="outline" dot={false}>Ended</StatusChip>)).toContain('data-variant="outline"');
+  });
+  it('pulse is static under reduced motion', () => {
+    const html = renderToStaticMarkup(<StatusChip tone="info" pulse>Processing</StatusChip>);
+    expect(html).toContain('animate-ping');
+    expect(html).toContain('motion-reduce:animate-none');
+  });
 });
 
 describe('Badge', () => {
@@ -118,6 +134,19 @@ describe('DataTable', () => {
     expect(html).toContain('hidden md:block');
     expect(html).toMatch(/<ul aria-label="Products" class="[^"]*md:hidden/);
     expect(html).toContain('<p>card Abaya</p>');
+  });
+  it('rows are focusable and take rowClassName only when asked', () => {
+    const plain = renderToStaticMarkup(<DataTable label="Products" columns={columns} data={rows} getRowId={(r) => r.id} />);
+    expect(plain).not.toContain('tabindex');
+    const html = renderToStaticMarkup(
+      <DataTable label="Products" columns={columns} data={rows} getRowId={(r) => r.id} onRowActivate={() => undefined} rowClassName={(r) => (r.id === 'b' ? 'bg-destructive/6' : undefined)} />,
+    );
+    expect(html.match(/<tr[^>]*tabindex="0"/g)).toHaveLength(2);
+    expect(html).toMatch(/<tr[^>]*data-row-id="b"[^>]*bg-destructive\/6|<tr[^>]*bg-destructive\/6[^>]*data-row-id="b"/);
+    // The small-screen card item gets the same classes.
+    const cards = renderToStaticMarkup(<DataTable label="Products" columns={columns} data={rows} getRowId={(r) => r.id} renderCard={(r) => <p>{r.name}</p>} rowClassName={(r) => (r.id === 'b' ? 'bg-destructive/6' : undefined)} />);
+    expect(cards).toMatch(/<li class="py-3 bg-destructive\/6"><p>Bag<\/p>/);
+    expect(cards).toMatch(/<li class="py-3"><p>Abaya<\/p>/);
   });
 });
 

@@ -83,7 +83,7 @@ export const CONTENT_TRANSITIONS: Readonly<Record<ContentAction, ContentTransiti
   schedule: { action: 'schedule', from: ['draft'], to: 'scheduled', event: 'content.item.scheduled' },
   go_live: { action: 'go_live', from: ['scheduled'], to: 'published', event: 'content.item.published' },
   end: { action: 'end', from: ['published', 'scheduled'], to: 'ended', event: 'content.item.ended' },
-  deactivate: { action: 'deactivate', from: ['published', 'scheduled'], to: 'deactivated', event: 'content.item.deactivated' },
+  deactivate: { action: 'deactivate', from: REACTIVATE_STATUSES, to: 'deactivated', event: 'content.item.deactivated' },
   reactivate: { action: 'reactivate', from: ['deactivated'], to: 'reactivate_to', event: 'content.item.reactivated' },
   archive: { action: 'archive', from: ARCHIVABLE_STATUSES, to: 'archived', event: 'content.item.archived' },
   undo_archive: { action: 'undo_archive', from: ['archived'], to: 'archived_from', event: 'content.item.unarchived' },
@@ -135,3 +135,62 @@ export const ContentItem = z.object({
   updated_at: z.iso.datetime(),
 });
 export type ContentItem = z.infer<typeof ContentItem>;
+
+/** Content list tabs (Story 3.2). `all` is every non-deleted status; archived, deactivated and ended appear only there. */
+export const CONTENT_TABS = ['all', 'published', 'scheduled', 'drafts'] as const;
+export type ContentTab = (typeof CONTENT_TABS)[number];
+export const ContentTab = z.enum(CONTENT_TABS);
+
+/** The statuses each tab lists. */
+export const TAB_STATUSES: Readonly<Record<ContentTab, readonly ContentStatus[]>> = {
+  all: CONTENT_STATUSES,
+  published: ['published'],
+  scheduled: ['scheduled'],
+  drafts: ['draft', 'processing', 'failed'],
+} as const;
+
+/** Content list sort keys; a leading `-` sorts descending. `-updated` (most recently changed first) is the default. */
+export const CONTENT_SORTS = ['-updated', 'updated', 'title', '-title'] as const;
+export type ContentSort = (typeof CONTENT_SORTS)[number];
+
+/** Page sizes the content list offers; the first is the default. */
+export const CONTENT_PAGE_SIZES = [10, 25, 50] as const;
+export type ContentPageSize = (typeof CONTENT_PAGE_SIZES)[number];
+export const CONTENT_PAGE_SIZE: ContentPageSize = CONTENT_PAGE_SIZES[0];
+export const isContentPageSize = (n: number): n is ContentPageSize => (CONTENT_PAGE_SIZES as readonly number[]).includes(n);
+export const CONTENT_SEARCH_MAX = 100;
+
+/** `GET /v1/content` query string. Unknown keys are ignored; a bad value is a 400 `invalid_query`. */
+export const ContentListQuery = z.object({
+  tab: ContentTab.default('all'),
+  q: z.string().trim().max(CONTENT_SEARCH_MAX).optional(),
+  sort: z.enum(CONTENT_SORTS).default('-updated'),
+  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  page_size: z.coerce
+    .number()
+    .int()
+    .refine(isContentPageSize, { message: `page_size must be one of ${CONTENT_PAGE_SIZES.join(', ')}` })
+    .default(CONTENT_PAGE_SIZE),
+});
+export type ContentListQuery = z.infer<typeof ContentListQuery>;
+export type ContentListQueryInput = z.input<typeof ContentListQuery>;
+
+/** Per-tab counts; they ignore the search and the page so tab badges stay stable while searching. */
+export const ContentTabCounts = z.object({
+  all: z.number().int().min(0),
+  published: z.number().int().min(0),
+  scheduled: z.number().int().min(0),
+  drafts: z.number().int().min(0),
+});
+export type ContentTabCounts = z.infer<typeof ContentTabCounts>;
+
+/** `GET /v1/content` response: one page of the tab plus the counts for every tab. */
+export const ContentListResponse = z.object({
+  v: z.literal(1).default(1),
+  items: z.array(ContentItem),
+  total: z.number().int().min(0),
+  page: z.number().int().min(1),
+  page_size: z.number().int().min(1),
+  counts: ContentTabCounts,
+});
+export type ContentListResponse = z.infer<typeof ContentListResponse>;

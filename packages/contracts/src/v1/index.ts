@@ -41,5 +41,16 @@ export {
   CtaAction,
   REACTIVATE_STATUSES,
   canTransition,
+  CONTENT_PAGE_SIZE,
+  CONTENT_PAGE_SIZES,
+  CONTENT_SEARCH_MAX,
+  CONTENT_SORTS,
+  CONTENT_TABS,
+  ContentListQuery,
+  ContentListResponse,
+  ContentTab,
+  ContentTabCounts,
+  TAB_STATUSES,
+  isContentPageSize,
 } from './content.js';
-export type { ArchivableStatus, ContentEventName, ContentTransition, ContentTransitionTarget, ReactivateStatus } from './content.js';
+export type { ContentListQueryInput, ContentPageSize, ContentSort, ArchivableStatus, ContentEventName, ContentTransition, ContentTransitionTarget, ReactivateStatus } from './content.js';

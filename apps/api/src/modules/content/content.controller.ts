@@ -11,11 +11,15 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
   CONTENT_INVALID_TRANSITION,
   ContentCreateInput,
+  ContentListQuery,
+  TAB_STATUSES,
+  type ContentListResponse,
   type ContentAction,
   type ContentItem,
 } from '@slips/contracts';
@@ -62,6 +66,20 @@ export class ContentController {
     const storeId = req.merchantSession!.storeId;
     const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.create(tx, storeId, parsed.data));
     return toContentItem(row);
+  }
+
+  /** Content list (Story 3.2): one page of the tab plus counts for every tab (counts ignore search and page). */
+  @Get('content')
+  async list(@Req() req: AuthenticatedRequest, @Query() raw: unknown): Promise<ContentListResponse> {
+    const parsed = ContentListQuery.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException({ message: 'The content list query is not valid', code: 'invalid_query' });
+    const { tab, q, sort, page, page_size } = parsed.data;
+    const storeId = req.merchantSession!.storeId;
+    const { rows, total, counts } = await withStoreContext(this.pool, storeId, async () => {
+      const result = await this.repo.list({ statuses: TAB_STATUSES[tab], search: q || undefined, sort, limit: page_size, offset: (page - 1) * page_size });
+      return { ...result, counts: await this.repo.countByTab() };
+    });
+    return { v: 1, total, page, page_size, counts, items: rows.map(toContentItem) };
   }
 
   @Get('content/:id')

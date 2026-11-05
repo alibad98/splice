@@ -6,6 +6,11 @@ import {
   ConnectionStatus,
   ContentCreateInput,
   ContentItem,
+  CONTENT_PAGE_SIZE,
+  CONTENT_PAGE_SIZES,
+  CONTENT_SEARCH_MAX,
+  ContentListQuery,
+  ContentListResponse,
   EmbeddedSession,
   ForgotPasswordInput,
   HealthResponse,
@@ -80,6 +85,7 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
   [ContentItem, 'ContentItem', 'One content item (Story or Reel) and its lifecycle status.'],
+  [ContentListResponse, 'ContentPage', 'One page of content items for a tab: `items` (at most `page_size`), `total` matching items, `page`, `page_size`, and `counts` for every tab (counts ignore search and page).'],
 ];
 
 const inputs: Array<[z.ZodType, string, string]> = [
@@ -230,6 +236,27 @@ export const ROUTES: RouteDoc[] = [
     errors: [401, 403, 429],
   },
 
+  {
+    method: 'get',
+    path: '/v1/content',
+    tag: 'Content',
+    summary: 'List content (tab, search, sort, paginate)',
+    description: `Live (non-deleted) content items of the signed-in store for one tab, plus \`counts\` for every tab that ignore \`q\` and the page. Tabs: \`all\` (every status), \`published\`, \`scheduled\`, \`drafts\` (draft, processing, failed); archived, deactivated and ended items appear only under \`all\`. Pages hold \`page_size\` items (${CONTENT_PAGE_SIZES.join(', ')}; default ${CONTENT_PAGE_SIZE}); a page past the end returns empty \`items\` with the real \`total\`. Invalid parameters answer 400 \`invalid_query\`.`,
+    auth: 'merchant',
+    query: {
+      schema: ContentListQuery,
+      descriptions: {
+        tab: '`all` (default), `published`, `scheduled` or `drafts`. Any other value is a 400.',
+        q: `Search titles (case-insensitive substring; \`%\` and \`_\` match literally). Max ${CONTENT_SEARCH_MAX} characters.`,
+        sort: '`-updated` (default, most recently changed first), `updated`, `title` or `-title`.',
+        page: '1-based page number.',
+        page_size: `Items per page: one of ${CONTENT_PAGE_SIZES.join(', ')} (default ${CONTENT_PAGE_SIZE}). Any other value is a 400.`,
+      },
+      examples: { q: 'عباية' },
+    },
+    success: { status: 200, description: 'One page of content items with tab counts', body: ContentListResponse },
+    errors: [400, 401],
+  },
   {
     method: 'post',
     path: '/v1/content',

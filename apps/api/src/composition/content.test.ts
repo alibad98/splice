@@ -13,6 +13,7 @@ import {
   CONTENT_STATUSES,
   CONTENT_TRANSITIONS,
   ContentItem,
+  ContentListResponse,
   EVENT_QUEUE,
   canTransition,
   type ContentAction,
@@ -305,6 +306,16 @@ describe('merchant content API & I/O matrix', () => {
     expect(getRes.res.status).toBe(200);
     expect(ContentItem.parse(getRes.body)).toEqual(created);
 
+    // open_link with a URL and a style: both survive create, GET and the stored row
+    const linkInput = { ...validCreateInput, cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' };
+    const linkRes = await request(token, 'POST', '/v1/content', linkInput);
+    expect(linkRes.res.status).toBe(201);
+    const linkItem = ContentItem.parse(linkRes.body);
+    expect(linkItem).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' });
+    const linkGet = await request(token, 'GET', `/v1/content/${linkItem.id}`);
+    expect(ContentItem.parse(linkGet.body)).toEqual(linkItem);
+    expect(await rowById(linkItem.id)).toMatchObject({ cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' });
+
     // Invalid bodies -> 400 invalid_body
     for (const bad of [
       { ...validCreateInput, title: '' },
@@ -502,6 +513,93 @@ describe('merchant content API & I/O matrix', () => {
     expect(rowAfter!.status).toBe('draft');
     expect(rowAfter!.first_published_at).toBeNull();
     expect(await eventsForContent(storeId, draft.id)).toHaveLength(eventsBefore.length);
+  });
+
+  // ---- Story 3.2: GET /v1/content list matrix ----
+
+  const seedTitled = async (storeId: string, title: string, target: ContentStatus = 'draft') =>
+    withStoreContext(app, storeId, async (tx) => {
+      let row = await lifecycle.create(tx, storeId, { ...validCreateInput, title });
+      for (const step of PATH_TO_STATUS[target]) row = await lifecycle.apply(tx, storeId, row.id, step);
+      return row;
+    });
+
+  const list = async (token: string, qs = '') => {
+    const { res, body } = await request(token, 'GET', `/v1/content${qs}`);
+    return { status: res.status, body, page: res.status === 200 ? ContentListResponse.parse(body) : null };
+  };
+
+  it('List tab filter: drafts lists draft, processing, failed; counts cover all 8 live items and never the deleted one', async () => {
+    const { storeId, token } = await installedStore();
+    for (const s of CONTENT_STATUSES) await seedItemInStatus(storeId, s);
+    const gone = await seedItemInStatus(storeId, 'draft');
+    await withStoreContext(app, storeId, (tx) => lifecycle.apply(tx, storeId, gone.id, 'delete'));
+
+    const drafts = (await list(token, '?tab=drafts')).page!;
+    expect(drafts.items.map((i) => i.status).sort()).toEqual(['draft', 'failed', 'processing']);
+    expect(drafts.total).toBe(3);
+    expect(drafts.counts).toEqual({ all: 8, published: 1, scheduled: 1, drafts: 3 });
+    expect(drafts.items.map((i) => i.id)).not.toContain(gone.id);
+
+    const all = (await list(token)).page!;
+    expect(all.items.map((i) => i.status).sort()).toEqual([...CONTENT_STATUSES].sort());
+    expect(all.counts).toEqual(drafts.counts);
+    expect((await list(token, '?tab=published')).page!.items.map((i) => i.status)).toEqual(['published']);
+    expect((await list(token, '?tab=scheduled')).page!.items.map((i) => i.status)).toEqual(['scheduled']);
+  });
+
+  it('List search: q matches title case-insensitively and leaves counts unchanged; q over 100 chars answers 400 invalid_query', async () => {
+    const { storeId, token } = await installedStore();
+    await seedTitled(storeId, 'Summer sale');
+    await seedTitled(storeId, 'Reel');
+    await seedTitled(storeId, '50%_off');
+
+    const found = (await list(token, '?q=SALE')).page!;
+    expect(found.items.map((i) => i.title)).toEqual(['Summer sale']);
+    expect(found.total).toBe(1);
+    expect(found.counts).toEqual({ all: 3, published: 0, scheduled: 0, drafts: 3 });
+    // LIKE wildcards match literally
+    expect((await list(token, `?q=${encodeURIComponent('%_')}`)).page!.items.map((i) => i.title)).toEqual(['50%_off']);
+
+    const tooLong = await list(token, `?q=${'a'.repeat(101)}`);
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body).toMatchObject({ code: 'invalid_query' });
+  });
+
+  it('List sort + page: 12 items, sort=title page 2 of 10 returns items 11-12 with total 12; a page past the end is empty with the same total', async () => {
+    const { storeId, token } = await installedStore();
+    const titles = Array.from({ length: 12 }, (_, i) => `Item ${String(i + 1).padStart(2, '0')}`);
+    for (const t of [...titles].reverse()) await seedTitled(storeId, t);
+
+    const p2 = (await list(token, '?sort=title&page=2&page_size=10')).page!;
+    expect(p2.items.map((i) => i.title)).toEqual(['Item 11', 'Item 12']);
+    expect(p2).toMatchObject({ total: 12, page: 2, page_size: 10 });
+
+    const desc = (await list(token, '?sort=-title')).page!;
+    expect(desc.items[0]!.title).toBe('Item 12');
+    // Default -updated: the most recently created (Item 01, seeded last) comes first
+    expect((await list(token)).page!.items[0]!.title).toBe('Item 01');
+    expect((await list(token, '?sort=updated')).page!.items[0]!.title).toBe('Item 12');
+
+    const past = (await list(token, '?page=5&page_size=10')).page!;
+    expect(past.items).toEqual([]);
+    expect(past.total).toBe(12);
+  });
+
+  it('List cross-store and bad query: store B never sees store A rows or counts; bad tab, sort or page_size answers 400 invalid_query', async () => {
+    const storeA = await installedStore();
+    const storeB = await installedStore();
+    await seedItemInStatus(storeA.storeId, 'published');
+    const b = (await list(storeB.token)).page!;
+    expect(b.items).toEqual([]);
+    expect(b.counts).toEqual({ all: 0, published: 0, scheduled: 0, drafts: 0 });
+
+    for (const qs of ['?tab=archived', '?sort=name', '?page_size=7', '?page=0']) {
+      const bad = await list(storeA.token, qs);
+      expect(bad.status, qs).toBe(400);
+      expect(bad.body).toMatchObject({ code: 'invalid_query' });
+    }
+    expect((await fetch(`${base}/v1/content`)).status).toBe(401);
   });
 });
 

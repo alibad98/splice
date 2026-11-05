@@ -114,6 +114,7 @@ export function ContentView() {
         onConfirm: async () => {
           try {
             await remove(item.id);
+            toast.dismiss(`content-archived-${item.id}`);
             toast({ title: m.delete.done, tone: 'success' });
           } catch {
             // 404/409: the item changed elsewhere; the list is refetched either way.
@@ -129,28 +130,39 @@ export function ContentView() {
   // A placeholder (the previous query's page) says nothing about this query, e.g. right after "Show all".
   const placeholderEmpty = list.isPlaceholderData && data?.items.length === 0;
   // A page past the end (hand-edited URL, or the last row of the last page archived/deleted): go to the last real page.
-  const pastEnd = Boolean(data && !list.isPlaceholderData && data.items.length === 0 && data.total > 0 && query.page > 1);
+  const pastEnd = Boolean(data && !list.isPlaceholderData && data.items.length === 0 && query.page > 1);
   const lastPage = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
   useEffect(() => {
     if (pastEnd) void setParams({ page: lastPage > 1 ? lastPage : null }, { history: 'replace' });
   }, [pastEnd, lastPage, setParams]);
   const showSkeleton = useDelayed(list.isPending || placeholderEmpty || pastEnd);
+  const err = list.isError ? <ContentError onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null;
 
   let body;
-  if (list.isError && !data) {
-    body = <ContentError onRetry={() => void list.refetch()} retrying={list.isFetching} />;
+  if (list.isError && (!data || placeholderEmpty || pastEnd)) {
+    body = err;
   } else if (!data || placeholderEmpty || pastEnd) {
     body = showSkeleton ? <ContentSkeleton /> : null;
   } else if (data.counts.all === 0) {
-    body = <EmptyContent />;
+    body = (
+      <>
+        {err}
+        <EmptyContent />
+      </>
+    );
   } else if (data.items.length === 0) {
-    body = <FilteredEmpty tabLabel={query.tab === 'all' ? null : m.tabs[query.tab]} onShowAll={showAll} />;
+    body = (
+      <>
+        {err}
+        <FilteredEmpty tabLabel={query.tab === 'all' ? null : m.tabs[query.tab]} onShowAll={showAll} />
+      </>
+    );
   } else {
     const { page, page_size, total, items } = data;
     const p = messages.products.pagination;
     body = (
       <>
-        {list.isError ? <ContentError onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null}
+        {err}
         <ContentTable rows={items} sort={query.sort} onSortChange={onSort} onArchive={onArchive} onDelete={onDelete} />
         <Pagination
           page={page}

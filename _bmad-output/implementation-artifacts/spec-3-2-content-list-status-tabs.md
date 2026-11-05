@@ -5,7 +5,7 @@ created: '2026-11-04'
 status: 'done'
 route: 'dispatch'
 baseline_commit: 'b24bf2238426e9bea1e7e77a6a176a7b6c0bfe66'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
 ---
@@ -85,6 +85,33 @@ context:
 - Given a row menu, when Archive is chosen, then the item moves to `archived`, counts update, and the Undo toast restores the prior status; when Delete is confirmed, then the row disappears.
 - Given reduced motion, then the processing dot does not animate.
 - Given `pnpm turbo run lint typecheck test build`, then all pass (except the known Windows-only `@slips/player#build`).
+
+### Review Findings
+
+- [x] [Review][Patch] Error alert (`<ContentError />`) is hidden when a list fetch/refetch fails while `data.items` is empty (`placeholderEmpty`, `pastEnd`, or empty tab/store refetch) [apps/dashboard/components/content/ContentView.tsx:140]
+- [x] [Review][Patch] `DataTable` small-screen card list (`renderCard`) omits `onRowActivate` click and `Enter` key handlers [packages/ui/src/data-table.tsx:141]
+- [x] [Review][Patch] Search input state is not verified after "Show all" or concurrent typing during debounce [apps/dashboard/components/content/content.test.tsx:177]
+- [x] [Review][Patch] Undo-archive toast replacement, Undo failure toast, and Delete success toast are unverified [apps/dashboard/components/content/content.test.tsx:375]
+- [x] [Review][Patch] Deleting an item does not dismiss its persistent "Undo archive" toast [apps/dashboard/components/content/ContentView.tsx:114]
+- [x] [Review][Patch] `pastEnd` page clamping in `ContentView` does not clear `page > 1` when `data.total === 0` [apps/dashboard/components/content/ContentView.tsx:132]
+- [x] [Review][Patch] `status-guard.test.ts` exempts `content-lifecycle.ts` from the hard-delete guard [apps/api/src/modules/content/status-guard.test.ts:31]
+- [x] [Review][Patch] `placeholderEmpty` transition after clicking "Show all" is unverified [apps/dashboard/components/content/content.test.tsx:177]
+- [x] [Review][Patch] Title column header descending sort toggle and `aria-sort="descending"` are unverified [apps/dashboard/components/content/content.test.tsx:213]
+- [x] [Review][Patch] Row menu `canArchive` guard is not verified for `processing` items [apps/dashboard/components/content/content.test.tsx:393]
+
+#### Rejected
+
+- `[low]` (`blind-hunter`) Double-clicking "Undo" on the closing archive toast during its 180 ms exit animation can send a duplicate `undo-archive` request — unlikely in everyday use and requires adding per-item in-flight mutation guards.
+- `[low]` (`blind-hunter`) Typing into search when `q` is already `""` and clicking "Show all" within the 300 ms debounce window lets the pending timer commit — unlikely in everyday use and requires adding a reset-token prop or lifting input state.
+- `[low]` (`edge-case-hunter`) Typing into search when URL `q` is empty and clicking "Show all" before the 300 ms debounce fires re-applies the typed search term — unlikely in everyday use and requires adding a reset-token prop or lifting input state.
+- `[low]` (`blind-hunter`) `GET /v1/content` runs `list()` and `countByTab()` as separate `READ COMMITTED` queries — negligible at pilot scale and counts self-correct on the next fetch.
+- `[low]` (`blind-hunter`) `DataTable` `isPlainRowClick` does not filter modifier keys, text selection, or extra ARIA roles — the title `<Link>` handles modifier-clicks and `ContentTable` rows only contain links and menu buttons; adding extra guards expands shared UI kit surface.
+- `[low]` (`blind-hunter`) `fill()` interpolates `item.title` into localized toast, dialog, and aria-label strings without explicit Unicode FSI/PDI bidi isolates — purely cosmetic edge case inside paired guillemets (`«...»`).
+- `[false]` (`blind-hunter`) `StatusChip` defines `icon?: ReactNode` instead of forwarding `Badge`'s `icon?: IconName` — `icon?: ReactNode` on `StatusChip` is explicitly required by `spec-3-2-content-list-status-tabs.md:65` and `spec-ui-kit-global-components.md:54`.
+- `[false]` (`blind-hunter`) `columnToSort(desc: boolean)` in `apps/dashboard/components/content/url-state.ts` ignores the column ID — `title` is the only column in `ContentTable` that is sortable in `CONTENT_SORTS`.
+- `[low]` (`edge-case-hunter`) Entering whitespace-only text in the search box writes `?q=+` and resets `page` to `1` — `toContentQuery` trims `q` so results are unaffected, and trimming in `onSearch` would desynchronize `latest.current` from `params.q`.
+- `[false]` (`edge-case-hunter`) `ContentRepository.list` does not guard against an empty `filter.statuses` array — `list` is only called with `TAB_STATUSES[tab]`, where every tab maps to a non-empty status tuple in `@slips/contracts`.
+- `[low]` (`edge-case-hunter`) `useContentMutation` checks `client` rather than `enabled && client` — matches `useRequestSync` in `catalog.ts`; `MerchantGate` unmounts the view when not signed in and the API rejects expired tokens with 401.
 
 ## Implementation Notes
 

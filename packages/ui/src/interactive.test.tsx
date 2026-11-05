@@ -625,9 +625,23 @@ describe('DataTable row activation', () => {
     { id: 'menu', header: 'Actions', cell: (r) => <button type="button">Menu {r.name}</button> },
   ];
 
-  it('activates a row on click or Enter on the focused row, but not from controls inside it', () => {
+  it('activates a row on click or Enter on the focused row (including small-screen cards), but not from controls inside it', () => {
     const onRowActivate = vi.fn();
-    render(<DataTable label="Items" columns={columns} data={data} getRowId={(r) => r.id} onRowActivate={onRowActivate} />);
+    render(
+      <DataTable
+        label="Items"
+        columns={columns}
+        data={data}
+        getRowId={(r) => r.id}
+        onRowActivate={onRowActivate}
+        renderCard={(r) => (
+          <div>
+            <span>Card {r.name}</span>
+            <button type="button">CardMenu {r.name}</button>
+          </div>
+        )}
+      />,
+    );
     fireEvent.click(screen.getByText('Abaya'));
     expect(onRowActivate).toHaveBeenLastCalledWith(data[0]);
     const rowB = screen.getByText('Bag').closest('tr')!;
@@ -640,5 +654,16 @@ describe('DataTable row activation', () => {
     fireEvent.keyDown(screen.getByRole('button', { name: 'Menu Bag' }), { key: 'Enter' });
     fireEvent.keyDown(rowB, { key: ' ' });
     expect(onRowActivate).toHaveBeenCalledTimes(2);
+
+    const cardA = screen.getByText('Card Abaya').closest('li')!;
+    expect(cardA.tabIndex).toBe(0);
+    fireEvent.click(screen.getByText('Card Abaya'));
+    expect(onRowActivate).toHaveBeenLastCalledWith(data[0]);
+    const cardB = screen.getByText('Card Bag').closest('li')!;
+    cardB.focus();
+    fireEvent.keyDown(cardB, { key: 'Enter' });
+    expect(onRowActivate).toHaveBeenLastCalledWith(data[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'CardMenu Bag' }));
+    expect(onRowActivate).toHaveBeenCalledTimes(4);
   });
 });

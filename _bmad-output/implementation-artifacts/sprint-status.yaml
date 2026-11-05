@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 10-25-2026 19:00
-last_updated: 11-04-2026
+last_updated: 11-05-2026
 project: splice
 project_key: NOKEY
 tracking_system: file-system
@@ -64,7 +64,7 @@ development_status:
 
   epic-3: in-progress
   3-1-model-content-items-and-their-status-lifecycle: done
-  3-2-list-and-filter-content-with-status-tabs: review
+  3-2-list-and-filter-content-with-status-tabs: done
   3-3-create-a-story-or-reel-with-title-format-and-cta: backlog
   3-4-link-a-product-with-the-product-picker: backlog
   3-5-upload-media-directly-to-storage-safely: backlog

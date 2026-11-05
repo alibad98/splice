@@ -178,10 +178,35 @@ describe('Videos & Stories page', () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
     const query: ContentListQuery = { tab: 'scheduled', q: 'eid', sort: '-updated', page: 1, page_size: 10 };
     setup({ search: '?tab=scheduled&q=eid', lists: [[query, page([])]], onUrlUpdate });
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('eid');
     expect(screen.getByTestId('content-filtered-empty').textContent).toContain('No Scheduled items');
     fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
     await waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
     expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('');
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('');
+  });
+
+  it('clicking "Show all" from a filtered-empty view hides the empty state and shows the skeleton after 150 ms while the unfiltered fetch is pending', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined }));
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    try {
+      session = {
+        state: { status: 'signed-in', connection: { state: 'connected' } },
+        client: { apiFetch: () => new Promise<Response>(() => undefined) },
+      };
+      const query: ContentListQuery = { tab: 'scheduled', sort: '-updated', page: 1, page_size: 10 };
+      setup({ search: '?tab=scheduled', lists: [[query, page([])]] });
+      expect(screen.getByTestId('content-filtered-empty')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
+      expect(screen.queryByTestId('content-filtered-empty')).toBeNull();
+      expect(screen.queryByTestId('content-skeleton')).toBeNull();
+      await act(async () => void vi.advanceTimersByTime(160));
+      expect(screen.getByTestId('content-skeleton')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('empty search on All: the filtered-empty sentence with "Show all"', () => {
@@ -210,13 +235,25 @@ describe('Videos & Stories page', () => {
     expect(onUrlUpdate.mock.lastCall![0].options.history).toBe('push');
   });
 
-  it('pressing the Title header sorts by title (push)', async () => {
+  it('pressing the Title header sorts by title (push), and pressing again from ?sort=title flips to ?sort=-title (descending)', async () => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-    setup({ lists: [[DEFAULT, page([item()])]], onUrlUpdate });
+    setup({
+      lists: [
+        [DEFAULT, page([item()])],
+        [{ ...DEFAULT, sort: 'title' }, page([item()])],
+        [{ ...DEFAULT, sort: '-title' }, page([item()])],
+      ],
+      onUrlUpdate,
+    });
     fireEvent.click(screen.getByRole('button', { name: /Title/ }));
-    await waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
+    await waitFor(() => expect(onUrlUpdate).toHaveBeenCalledTimes(1));
     expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('?sort=title');
     expect(onUrlUpdate.mock.lastCall![0].options.history).toBe('push');
+    expect(screen.getByRole('columnheader', { name: /Title/ }).getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(screen.getByRole('button', { name: /Title/ }));
+    await waitFor(() => expect(onUrlUpdate).toHaveBeenCalledTimes(2));
+    expect(onUrlUpdate.mock.lastCall![0].queryString).toBe('?sort=-title');
+    expect(screen.getByRole('columnheader', { name: /Title/ }).getAttribute('aria-sort')).toBe('descending');
   });
 
   it('the Sort by select writes ?sort=-title and drops the page', async () => {
@@ -256,6 +293,7 @@ describe('Videos & Stories page', () => {
   it.each([
     ['?page=5', 12, '?page=2'],
     ['?page=3', 4, ''],
+    ['?page=3', 0, ''],
   ])('a page past the end (%s, total %i) goes to the last page instead of a false empty state', async (search, total, expected) => {
     const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
     const pageNo = Number(search.split('=')[1]);
@@ -266,16 +304,25 @@ describe('Videos & Stories page', () => {
     expect(onUrlUpdate.mock.lastCall![0].options.history).toBe('replace');
   });
 
-  it('debounces the search by 300 ms, writes q with history replace and drops the page', async () => {
+  it('debounces the search by 300 ms, writes q with history replace, drops the page, and preserves characters typed while the URL catches up', async () => {
     vi.useFakeTimers();
     try {
       const onUrlUpdate = vi.fn<OnUrlUpdateFunction>();
-      setup({ search: '?page=3', lists: [[{ ...DEFAULT, page: 3 }, page([item()], { total: 30, page: 3 })]], onUrlUpdate });
-      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'عيد' } });
+      setup({
+        search: '?page=3',
+        lists: [
+          [{ ...DEFAULT, page: 3 }, page([item()], { total: 30, page: 3 })],
+          [{ ...DEFAULT, q: 'عيد' }, page([item()])],
+        ],
+        onUrlUpdate,
+      });
+      const box = screen.getByRole('searchbox') as HTMLInputElement;
+      fireEvent.change(box, { target: { value: 'عيد' } });
       await act(async () => void vi.advanceTimersByTime(250));
       expect(onUrlUpdate).not.toHaveBeenCalled();
       await act(async () => void vi.advanceTimersByTime(100));
-      await act(async () => void vi.runOnlyPendingTimers());
+      fireEvent.change(box, { target: { value: 'عيد الفطر' } });
+      expect(box.value).toBe('عيد الفطر');
       expect(onUrlUpdate).toHaveBeenCalledTimes(1);
       const qs = new URLSearchParams(onUrlUpdate.mock.lastCall![0].queryString);
       expect(qs.get('q')).toBe('عيد');
@@ -339,6 +386,21 @@ describe('Videos & Stories page', () => {
     expect(screen.getByRole('table').textContent).toContain('Kept');
   });
 
+  it('API failure when cached data has 0 items still renders the inline error alert', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.getQueryCache().build(client, { queryKey: queryKeys.content.list(DEFAULT) }).setState({ status: 'error', data: page([], { counts: { all: 0, published: 0, scheduled: 0, drafts: 0 } }), error: new Error('down'), fetchStatus: 'idle' });
+    render(
+      <I18nProvider locale="en" messages={getMessages('en')}>
+        <QueryClientProvider client={client}>
+          <NuqsTestingAdapter>
+            <ContentView />
+          </NuqsTestingAdapter>
+        </QueryClientProvider>
+      </I18nProvider>,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('We could not load your videos and stories');
+  });
+
   describe('row menu', () => {
     const live = (initial: ContentItem[]) => {
       let items = [...initial];
@@ -372,7 +434,7 @@ describe('Videos & Stories page', () => {
       return { calls, drop: (id: string) => void (items = items.filter((i) => i.id !== id)) };
     };
 
-    it('Archive moves the item to archived, counts refresh, and Undo restores the prior status', async () => {
+    it('Archive moves the item to archived, counts refresh, and Undo restores the prior status and replaces the toast', async () => {
       const a = item({ title: 'Summer sale', status: 'published' });
       const { calls } = live([a]);
       setup();
@@ -388,23 +450,39 @@ describe('Videos & Stories page', () => {
       act(() => toast.list().find((t) => t.action)!.action!.onClick());
       await waitFor(() => expect(calls).toContainEqual(['POST', `/v1/content/${a.id}/undo-archive`]));
       await waitFor(() => expect(screen.getByTestId('count-published').textContent).toBe('1'));
+      await waitFor(() => expect(toast.list().some((t) => t.id === `content-archived-${a.id}` && t.title === 'Moved back' && t.tone === 'success' && !t.action)).toBe(true));
     });
 
-    it('archived rows have no Archive item', async () => {
-      live([item({ title: 'Old', status: 'archived', archived_from: 'draft' })]);
+    it('a 404 on Undo replaces the archive toast with the undoFailed danger toast', async () => {
+      const a = item({ title: 'Summer sale', status: 'published' });
+      const { drop } = live([a]);
       setup();
       await screen.findByRole('table');
-      const menu = await openRowMenu('Old');
+      const menu = await openRowMenu('Summer sale');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Archive' }));
+      await waitFor(() => expect(toast.list().some((t) => t.id === `content-archived-${a.id}` && t.action)).toBe(true));
+      drop(a.id);
+      act(() => toast.list().find((t) => t.action)!.action!.onClick());
+      await waitFor(() => expect(toast.list().some((t) => t.id === `content-archived-${a.id}` && t.tone === 'danger' && t.title === getMessages('en').content.archive.undoFailed && !t.action)).toBe(true));
+    });
+
+    it.each(['archived', 'processing'] as const)('%s rows have no Archive item', async (status) => {
+      live([item({ title: 'Locked', status, ...(status === 'archived' ? { archived_from: 'draft' } : {}) })]);
+      setup();
+      await screen.findByRole('table');
+      const menu = await openRowMenu('Locked');
       expect(within(menu).queryByRole('menuitem', { name: 'Archive' })).toBeNull();
       expect(within(menu).getByRole('menuitem', { name: 'Delete' })).toBeTruthy();
     });
 
-    it('Delete asks in a dialog naming the item, then the row disappears', async () => {
-      const a = item({ title: 'Eid perfume' });
+    it('Delete asks in a dialog naming the item, dismisses any archive toast, emits Deleted toast, and removes the row', async () => {
+      const a = item({ title: 'Eid perfume', status: 'published' });
       const b = item({ title: 'Keep me' });
       const { calls } = live([a, b]);
       setup();
       await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu('Eid perfume')).getByRole('menuitem', { name: 'Archive' }));
+      await waitFor(() => expect(toast.list().some((t) => t.id === `content-archived-${a.id}` && t.open)).toBe(true));
       const menu = await openRowMenu('Eid perfume');
       fireEvent.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
       const dlg = await screen.findByRole('alertdialog');
@@ -415,6 +493,8 @@ describe('Videos & Stories page', () => {
       await waitFor(() => expect(calls).toContainEqual(['DELETE', `/v1/content/${a.id}`]));
       await waitFor(() => expect(screen.getByRole('table').textContent).not.toContain('Eid perfume'));
       expect(screen.getByRole('table').textContent).toContain('Keep me');
+      expect(toast.list().find((t) => t.id === `content-archived-${a.id}`)?.open).toBe(false);
+      expect(toast.list().some((t) => t.tone === 'success' && t.title === 'Deleted')).toBe(true);
     });
 
     it('a 404 on archive shows an error toast and refetches the list', async () => {

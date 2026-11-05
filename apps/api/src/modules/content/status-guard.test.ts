@@ -27,12 +27,19 @@ export function checkStatusWriteViolations(files: ReadonlyArray<{ relPath: strin
   for (const { relPath, source } of files) {
     const normalized = relPath.split(sep).join('/');
     if (normalized.startsWith('modules/content/')) {
-      // Inside modules/content, only content-lifecycle.ts may insert or update content_items / contentItems.
-      if (normalized !== 'modules/content/content-lifecycle.ts' && normalized !== 'modules/content/status-guard.test.ts') {
-        if (SQL_WRITE_RE.test(source) || /\.(insert|update|delete)\s*\(\s*(?:schema\.)?contentItems\s*\)/.test(source)) {
-          violations.push(`${normalized}: writes content_items outside content-lifecycle.ts`);
-        } else if (normalized !== PURGE_FILE && SQL_DELETE_RE.test(source)) {
+      // Inside modules/content, only content-lifecycle.ts may insert or update content_items / contentItems,
+      // and only the uninstall purge (content.lifecycle.ts) may hard-delete rows.
+      if (normalized !== 'modules/content/status-guard.test.ts') {
+        if (
+          normalized !== PURGE_FILE &&
+          (SQL_DELETE_RE.test(source) || /\.delete\s*\(\s*(?:schema\.)?contentItems\s*\)/.test(source))
+        ) {
           violations.push(`${normalized}: hard-deletes content_items outside the uninstall purge`);
+        } else if (
+          normalized !== 'modules/content/content-lifecycle.ts' &&
+          (SQL_WRITE_RE.test(source) || /\.(insert|update)\s*\(\s*(?:schema\.)?contentItems\s*\)/.test(source))
+        ) {
+          violations.push(`${normalized}: writes content_items outside content-lifecycle.ts`);
         }
       }
       continue;
@@ -70,11 +77,13 @@ describe('content_items status write guard', () => {
       { relPath: 'modules/content/other-delete.ts', source: `await db.delete(schema.contentItems);` },
       { relPath: 'modules/content/rogue-delete.ts', source: `await tx.query('delete from content_items where store_id = $1', [storeId]);` },
       { relPath: 'modules/media/merge.ts', source: `await tx.query('MERGE INTO content_items c USING src s ON c.id = s.id WHEN MATCHED THEN UPDATE SET status = s.status');` },
+      { relPath: 'modules/content/content-lifecycle.ts', source: `await db.delete(contentItems);` },
     ];
     const violations = checkStatusWriteViolations(fixtures);
-    expect(violations).toHaveLength(11);
+    expect(violations).toHaveLength(12);
     expect(violations[9]).toContain('modules/content/rogue-delete.ts: hard-deletes content_items outside the uninstall purge');
     expect(violations[10]).toContain('modules/media/merge.ts: SQL write to content_items outside modules/content');
+    expect(violations[11]).toContain('modules/content/content-lifecycle.ts: hard-deletes content_items outside the uninstall purge');
     expect(violations[6]).toContain('modules/media/hard-delete.ts');
     expect(violations[7]).toContain('modules/media/update-only.ts');
     expect(violations[8]).toContain('modules/content/other-delete.ts');

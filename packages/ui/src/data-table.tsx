@@ -76,6 +76,23 @@ export function DataTable<T extends RowData>({ columns, data, getRowId, sort, on
   const table = useTable({ features, columns: tableColumns, data: rows, getRowId: (row: T) => getRowId(row) });
   const byId = useMemo(() => new Map(columns.map((c) => [c.id, c])), [columns]);
 
+  const activateClass = onRowActivate && 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring';
+  const activateProps = (row: T) =>
+    onRowActivate
+      ? {
+          tabIndex: 0,
+          onClick: (e: MouseEvent<HTMLElement>) => {
+            if (isPlainRowClick(e)) onRowActivate(row);
+          },
+          onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+            if (e.key === 'Enter' && e.target === e.currentTarget) {
+              e.preventDefault();
+              onRowActivate(row);
+            }
+          },
+        }
+      : {};
+
   return (
     <div data-slot="data-table" className={className}>
       <div className={cn(renderCard && 'hidden md:block')}>
@@ -112,21 +129,8 @@ export function DataTable<T extends RowData>({ columns, data, getRowId, sort, on
               <TableRow
                 key={row.id}
                 data-row-id={row.id}
-                className={cn(onRowActivate && 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring', rowClassName?.(row.original))}
-                {...(onRowActivate
-                  ? {
-                      tabIndex: 0,
-                      onClick: (e: MouseEvent<HTMLTableRowElement>) => {
-                        if (isPlainRowClick(e)) onRowActivate(row.original);
-                      },
-                      onKeyDown: (e: KeyboardEvent<HTMLTableRowElement>) => {
-                        if (e.key === 'Enter' && e.target === e.currentTarget) {
-                          e.preventDefault();
-                          onRowActivate(row.original);
-                        }
-                      },
-                    }
-                  : {})}
+                className={cn(activateClass, rowClassName?.(row.original))}
+                {...activateProps(row.original)}
               >
                 {row.getAllCells().map((cell) => (
                   <TableCell key={cell.id} className={byId.get(cell.column.id)?.className}>
@@ -141,7 +145,7 @@ export function DataTable<T extends RowData>({ columns, data, getRowId, sort, on
       {renderCard ? (
         <ul aria-label={label} className="flex flex-col divide-y divide-border md:hidden">
           {data.map((row) => (
-            <li key={getRowId(row)} className={cn('py-3', rowClassName?.(row))}>
+            <li key={getRowId(row)} className={cn('py-3', activateClass, rowClassName?.(row))} {...activateProps(row)}>
               {renderCard(row)}
             </li>
           ))}

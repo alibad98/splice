@@ -144,6 +144,3 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
   summary: "Deleting an item while `processing` makes media's later `finish_processing`/`fail_processing` hit `ContentNotFoundError`."
   evidence: "Story 3.8/3.9: treat `ContentNotFoundError` as terminal in the media job (ack, clean up the upload)."
-- source_spec: `_bmad-output/implementation-artifacts/spec-3-2-content-list-status-tabs.md`
-  summary: "UNVERIFIED (low-medium if true). After \"Show all\", the `placeholderEmpty` branch is meant to show the skeleton instead of the previous query's empty state; no test pins it."
-  evidence: "Settle with a content.test.tsx case that keeps the fake fetch pending after Show all and asserts `content-filtered-empty` is gone."

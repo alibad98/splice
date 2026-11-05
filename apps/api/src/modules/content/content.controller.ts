@@ -19,7 +19,9 @@ import {
 import {
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_PRODUCT_NOT_LINKABLE,
+  CONTENT_SLIDE_ALT_REQUIRED,
   CTA_STYLES,
+  MEDIA_NOT_ATTACHABLE,
   CONTENT_INVALID_TRANSITION,
   ContentCreateInput,
   ContentListQuery,
@@ -30,7 +32,10 @@ import {
   type ContentAction,
   type ContentItem,
   type ContentProductSummary,
+  type ContentSlide,
   type CtaStyle,
+  type MediaKind,
+  type SlideInput,
 } from '@slips/contracts';
 import { withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
@@ -38,8 +43,28 @@ import { DB_POOL } from '../../infra.module.js';
 import type { AuthenticatedRequest } from '../session/access.guard.js';
 import { CatalogService, type ProductSummaryRow } from '../catalog/catalog.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
-import { ContentLifecycle, ContentNotFoundError, InvalidContentFieldsError, InvalidTransitionError } from './content-lifecycle.js';
-import { ContentRepository, type ContentItemRow } from './content.repository.js';
+import { MediaService, type MediaAssetSummary } from '../media/media.service.js';
+import {
+  ContentLifecycle,
+  ContentNotFoundError,
+  InvalidContentFieldsError,
+  InvalidTransitionError,
+  SlideAltTextRequiredError,
+  SlideAssetUnknownError,
+} from './content-lifecycle.js';
+import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A slide with its asset's current status (an asset media no longer knows reads as failed). */
+export const toContentSlide = (s: SlideRow, asset: MediaAssetSummary | undefined): ContentSlide => ({
+  id: s.id,
+  media_asset_id: s.mediaAssetId,
+  kind: s.kind,
+  alt_text: s.altText,
+  status: asset?.status ?? 'failed',
+  failure_reason: asset ? asset.failure_reason : 'inspection_failed',
+});
 
 /** The API shape of a linked product as the catalog has it now. */
 export const toProductSummary = (p: ProductSummaryRow): ContentProductSummary => ({
@@ -55,7 +80,7 @@ export const toProductSummary = (p: ProductSummaryRow): ContentProductSummary =>
 });
 
 /** `product`: the item's linked product summary, or null when it links none (or the catalog no longer knows the id). */
-export const toContentItem = (row: ContentItemRow, product: ContentProductSummary | null = null): ContentItem => ({
+export const toContentItem = (row: ContentItemRow, product: ContentProductSummary | null = null, slides: ContentSlide[] = []): ContentItem => ({
   v: 1,
   id: row.id,
   title: row.title,
@@ -71,6 +96,7 @@ export const toContentItem = (row: ContentItemRow, product: ContentProductSummar
   auto_publish: row.autoPublish,
   first_published_at: row.firstPublishedAt?.toISOString() ?? null,
   product,
+  slides,
   created_at: row.createdAt.toISOString(),
   updated_at: row.updatedAt.toISOString(),
 });
@@ -85,6 +111,7 @@ export class ContentController {
     @Inject(ContentLifecycle) private readonly lifecycle: ContentLifecycle,
     @Inject(IntegrationService) private readonly integration: IntegrationService,
     @Inject(forwardRef(() => CatalogService)) private readonly catalog: CatalogService,
+    @Inject(MediaService) private readonly media: MediaService,
   ) {}
 
   @Post('content')
@@ -95,7 +122,13 @@ export class ContentController {
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
     await this.assertLinkable(storeId, parsed.data.product_id);
-    const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.create(tx, storeId, parsed.data));
+    const kinds = await this.assertAttachable(storeId, parsed.data.slides, new Set());
+    let row: ContentItemRow;
+    try {
+      row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.create(tx, storeId, parsed.data, new Date(), kinds));
+    } catch (err) {
+      throw this.toHttpError(err);
+    }
     return (await this.withProducts(storeId, [row]))[0]!;
   }
 
@@ -103,6 +136,9 @@ export class ContentController {
    * Edit an item's title, format, CTA and linked product (Stories 3.3, 3.4); the status is unchanged. Archived items
    * answer 409 `invalid-transition`; an open-link URL off the store's synced domains answers 422
    * `cta-url-not-store-domain`; a product the catalog does not know (or has deleted) answers 422 `product-not-linkable`.
+   * `slides` replaces the item's slide list (Story 3.6): an asset media does not know for the store, or a `failed` one
+   * that is not already a slide of the item, answers 422 `media-not-attachable`; an image slide without alt text 422
+   * `slide-alt-text-required`.
    */
   @Patch('content/:id')
   async update(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() raw: unknown): Promise<ContentItem> {
@@ -110,14 +146,20 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
-    if (parsed.data.product_id != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    if (parsed.data.product_id != null && UUID_RE.test(id)) {
       // Re-sending the product the item already links is not a new link (it may have been hidden since).
       const links = await withStoreContext(this.pool, storeId, () => this.repo.linkedProductIds([id]));
       if (links.get(id) !== parsed.data.product_id) await this.assertLinkable(storeId, parsed.data.product_id);
     }
+    let kinds: Map<string, MediaKind> = new Map();
+    if (parsed.data.slides !== undefined && UUID_RE.test(id)) {
+      // A slide the item already has stays attachable even if its asset failed since (the editor re-sends the list).
+      const current = await withStoreContext(this.pool, storeId, () => this.repo.liveSlides([id]));
+      kinds = await this.assertAttachable(storeId, parsed.data.slides, new Set(current.map((s) => s.mediaAssetId)));
+    }
     let row: ContentItemRow;
     try {
-      row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.edit(tx, storeId, id, parsed.data));
+      row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.edit(tx, storeId, id, parsed.data, new Date(), kinds));
     } catch (err) {
       if (err instanceof InvalidContentFieldsError) throw new BadRequestException({ message: err.message, code: 'invalid_body' });
       throw this.toHttpError(err);
@@ -136,19 +178,59 @@ export class ContentController {
     );
   }
 
-  /** API items for rows: their links in one content read, then every linked product in one catalog read. */
-  private async withProducts(storeId: string, rows: readonly ContentItemRow[]): Promise<ContentItem[]> {
-    if (rows.length === 0) return [];
-    const links = await withStoreContext(this.pool, storeId, () => this.repo.linkedProductIds(rows.map((r) => r.id)));
-    return this.attachProducts(storeId, rows, links);
+  /**
+   * Every slide asset must be a store asset media knows; a `failed` one only when `existing` (already a live slide of the
+   * item). One media read; returns asset id -> kind for the lifecycle (alt-text rule, `kind` copy). Checked before any write.
+   */
+  private async assertAttachable(storeId: string, slides: readonly SlideInput[] | undefined, existing: ReadonlySet<string>): Promise<Map<string, MediaKind>> {
+    if (!slides || slides.length === 0) return new Map();
+    const assets = await this.media.getAssetsByIds(storeId, slides.map((s) => s.media_asset_id));
+    for (const s of slides) {
+      const asset = assets.get(s.media_asset_id);
+      if (!asset || (asset.status === 'failed' && !existing.has(s.media_asset_id))) {
+        throw new HttpException(
+          { message: 'The media can not be attached', code: 'media_not_attachable', type: MEDIA_NOT_ATTACHABLE },
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
+    }
+    return new Map([...assets].map(([id, a]) => [id, a.kind]));
   }
 
-  /** One catalog read for every product the rows link (`links`: content id -> product id). */
-  private async attachProducts(storeId: string, rows: readonly ContentItemRow[], links: ReadonlyMap<string, string>): Promise<ContentItem[]> {
-    const products = await this.catalog.getProductsByIds(storeId, [...new Set(links.values())]);
+  /** API items for rows: their links and live slides in one content read, then one catalog read and one media read. */
+  private async withProducts(storeId: string, rows: readonly ContentItemRow[]): Promise<ContentItem[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    const { links, slides } = await withStoreContext(this.pool, storeId, async () => ({
+      links: await this.repo.linkedProductIds(ids),
+      slides: await this.repo.liveSlides(ids),
+    }));
+    return this.attachProducts(storeId, rows, links, slides);
+  }
+
+  /**
+   * One catalog read for every product the rows link (`links`: content id -> product id) and one media read for the
+   * status of every slide asset (`slides`: the rows' live slides in order).
+   */
+  private async attachProducts(
+    storeId: string,
+    rows: readonly ContentItemRow[],
+    links: ReadonlyMap<string, string>,
+    slides: readonly SlideRow[],
+  ): Promise<ContentItem[]> {
+    const [products, assets] = await Promise.all([
+      this.catalog.getProductsByIds(storeId, [...new Set(links.values())]),
+      this.media.getAssetsByIds(storeId, [...new Set(slides.map((s) => s.mediaAssetId))]),
+    ]);
+    const byItem = new Map<string, ContentSlide[]>();
+    for (const s of slides) {
+      const list = byItem.get(s.contentId) ?? [];
+      list.push(toContentSlide(s, assets.get(s.mediaAssetId)));
+      byItem.set(s.contentId, list);
+    }
     return rows.map((row) => {
       const product = products.get(links.get(row.id) ?? '');
-      return toContentItem(row, product ? toProductSummary(product) : null);
+      return toContentItem(row, product ? toProductSummary(product) : null, byItem.get(row.id) ?? []);
     });
   }
 
@@ -170,11 +252,12 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content list query is not valid', code: 'invalid_query' });
     const { tab, q, sort, page, page_size } = parsed.data;
     const storeId = req.merchantSession!.storeId;
-    const { rows, total, counts, links } = await withStoreContext(this.pool, storeId, async () => {
+    const { rows, total, counts, links, slides } = await withStoreContext(this.pool, storeId, async () => {
       const result = await this.repo.list({ statuses: TAB_STATUSES[tab], search: q || undefined, sort, limit: page_size, offset: (page - 1) * page_size });
-      return { ...result, counts: await this.repo.countByTab(), links: await this.repo.linkedProductIds(result.rows.map((r) => r.id)) };
+      const ids = result.rows.map((r) => r.id);
+      return { ...result, counts: await this.repo.countByTab(), links: await this.repo.linkedProductIds(ids), slides: await this.repo.liveSlides(ids) };
     });
-    return { v: 1, total, page, page_size, counts, items: await this.attachProducts(storeId, rows, links) };
+    return { v: 1, total, page, page_size, counts, items: await this.attachProducts(storeId, rows, links, slides) };
   }
 
   @Get('content/:id')
@@ -224,6 +307,12 @@ export class ContentController {
     }
     if (err instanceof InvalidTransitionError) {
       return new HttpException({ message: err.message, code: 'invalid_transition', type: CONTENT_INVALID_TRANSITION }, HttpStatus.CONFLICT);
+    }
+    if (err instanceof SlideAssetUnknownError) {
+      return new HttpException({ message: 'The media can not be attached', code: 'media_not_attachable', type: MEDIA_NOT_ATTACHABLE }, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+    if (err instanceof SlideAltTextRequiredError) {
+      return new HttpException({ message: 'Image slides need alt text', code: 'slide_alt_text_required', type: CONTENT_SLIDE_ALT_REQUIRED }, HttpStatus.UNPROCESSABLE_ENTITY);
     }
     return err;
   }

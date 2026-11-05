@@ -24,6 +24,10 @@ import {
   CONTENT_PRODUCT_NOT_LINKABLE,
   ContentFields,
   ContentProductSummary,
+  CONTENT_SLIDE_ALT_REQUIRED,
+  SLIDES_MAX,
+  SLIDE_ALT_MAX,
+  slideAltTextOk,
 } from './content.js';
 import { EVENT_CATALOG } from './events.js';
 
@@ -41,6 +45,7 @@ const item = {
   auto_publish: false,
   first_published_at: null,
   product: null,
+  slides: [],
   created_at: '2026-11-03T10:00:00.000Z',
   updated_at: '2026-11-03T10:00:00.000Z',
 };
@@ -250,5 +255,49 @@ describe('content product link contracts (Story 3.4)', () => {
     expect(ContentFields.keyof().options).toContain('product_id');
     const payload = { v: 1, store_id: productId, content_id: item.id, status: 'draft', changed: ['product_id'] };
     expect(EVENT_CATALOG['content.item.edited'].schema.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('content slide contracts (Story 3.6)', () => {
+  const a1 = '019a473a-0000-7000-8000-0000000000b1';
+  const a2 = '019a473a-0000-7000-8000-0000000000b2';
+  const base = { title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart' };
+
+  it('accepts an ordered slide list of unique assets up to SLIDES_MAX on create and update', () => {
+    const slides = [
+      { media_asset_id: a1, alt_text: 'Red abaya' },
+      { media_asset_id: a2, alt_text: null },
+    ];
+    expect(ContentCreateInput.parse({ ...base, slides }).slides).toEqual(slides);
+    expect(ContentUpdateInput.parse({ slides: [] })).toEqual({ slides: [] });
+    expect(ContentUpdateInput.safeParse({ slides: [slides[0], slides[0]] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: 'x', alt_text: null }] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: a1 }] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: a1, alt_text: 'x'.repeat(SLIDE_ALT_MAX + 1) }] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: a1, alt_text: null, position: 1 }] }).success).toBe(false);
+    const many = Array.from({ length: SLIDES_MAX + 1 }, (_, i) => ({ media_asset_id: `019a473a-0000-7000-8000-${String(i).padStart(12, '0')}`, alt_text: null }));
+    expect(SLIDES_MAX).toBe(10);
+    expect(ContentUpdateInput.safeParse({ slides: many.slice(0, SLIDES_MAX) }).success).toBe(true);
+    expect(ContentUpdateInput.safeParse({ slides: many }).success).toBe(false);
+  });
+
+  it('requires alt text on image slides only', () => {
+    expect(CONTENT_SLIDE_ALT_REQUIRED).toBe('slide-alt-text-required');
+    expect(slideAltTextOk('image', 'Red abaya')).toBe(true);
+    expect(slideAltTextOk('image', '   ')).toBe(false);
+    expect(slideAltTextOk('image', null)).toBe(false);
+    expect(slideAltTextOk('image', 'x'.repeat(SLIDE_ALT_MAX + 1))).toBe(false);
+    expect(slideAltTextOk('video', null)).toBe(true);
+    expect(slideAltTextOk('video', '')).toBe(true);
+  });
+
+  it('carries the slides with asset kind and status on a ContentItem', () => {
+    const slide = { id: a2, media_asset_id: a1, kind: 'image', alt_text: 'Red', status: 'failed', failure_reason: 'type_mismatch' };
+    expect(ContentItem.parse({ ...item, slides: [slide] }).slides).toEqual([slide]);
+    expect(ContentItem.safeParse({ ...item, slides: [{ ...slide, status: 'ready' }] }).success).toBe(false);
+    const withoutSlides: Record<string, unknown> = { ...item };
+    delete withoutSlides.slides;
+    expect(ContentItem.safeParse(withoutSlides).success).toBe(false);
+    expect(ContentFields.keyof().options).toContain('slides');
   });
 });

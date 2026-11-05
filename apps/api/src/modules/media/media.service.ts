@@ -6,6 +6,9 @@ import {
   MEDIA_UPLOAD_WINDOW_SECONDS,
   isAllowedMediaType,
   type MediaAsset,
+  type MediaAssetStatus,
+  type MediaFailureReason,
+  type MediaKind,
   type MediaUploadGrant,
   type MediaUploadRequest,
 } from '@slips/contracts';
@@ -194,6 +197,16 @@ export class MediaService {
     return toMediaAsset(row);
   }
 
+  /**
+   * Kind, status and failure reason of the asked assets in one read (Story 3.6: slides). Unknown and other-store ids are
+   * absent from the map.
+   */
+  async getAssetsByIds(storeId: string, ids: readonly string[]): Promise<Map<string, MediaAssetSummary>> {
+    if (ids.length === 0) return new Map();
+    const rows = await withStoreContext(this.pool, storeId, () => this.repo.summariesByIds(ids));
+    return new Map(rows.map((r) => [r.id, { kind: r.kind, status: r.status, failure_reason: (r.failureReason as MediaFailureReason | null) ?? null }]));
+  }
+
   /** The asked asset ids that may be published: `processed` only (never `uploaded`, `scanned` or `failed`). */
   async publishableAssetIds(storeId: string, ids: readonly string[]): Promise<string[]> {
     if (ids.length === 0) return [];
@@ -204,6 +217,13 @@ export class MediaService {
   async storedBytes(storeId: string): Promise<number> {
     return withStoreContext(this.pool, storeId, () => this.repo.storedBytes());
   }
+}
+
+/** What other modules read about an asset (Story 3.6). */
+export interface MediaAssetSummary {
+  kind: MediaKind;
+  status: MediaAssetStatus;
+  failure_reason: MediaFailureReason | null;
 }
 
 export class MediaAssetNotFoundError extends Error {

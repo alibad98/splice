@@ -41,6 +41,33 @@ export function checkLinkWriteViolations(files: ReadonlyArray<{ relPath: string;
   return violations;
 }
 
+/** Story 3.6: slides are written only by content-lifecycle.ts (soft delete); only the uninstall purge hard-deletes them. */
+const SLIDE_TABLE = String.raw`\s+(?:"?public"?\.)?"?slides\b`;
+const SLIDE_SQL_WRITE_RE = new RegExp(String.raw`(update(?:\s+only)?|insert\s+into|merge\s+into)` + SLIDE_TABLE, 'i');
+const SLIDE_SQL_DELETE_RE = new RegExp(String.raw`delete\s+from` + SLIDE_TABLE, 'i');
+const SLIDE_DRIZZLE_DELETE_RE = /\.delete\s*\(\s*(?:schema\.)?slides\s*\)/;
+const SLIDE_DRIZZLE_WRITE_RE = /\.(insert|update)\s*\(\s*(?:schema\.)?slides\s*\)/;
+const SLIDE_DRIZZLE_TABLE_RE = /\bschema\.slides\b|\{[^}]*\bslides\b[^}]*\}\s*=\s*schema\b/;
+
+export function checkSlideWriteViolations(files: ReadonlyArray<{ relPath: string; source: string }>): string[] {
+  const violations: string[] = [];
+  for (const { relPath, source } of files) {
+    const normalized = relPath.split(sep).join('/');
+    if (normalized === 'modules/content/status-guard.test.ts') continue;
+    if (normalized.startsWith('modules/content/')) {
+      if ((normalized !== PURGE_FILE && SLIDE_SQL_DELETE_RE.test(source)) || SLIDE_DRIZZLE_DELETE_RE.test(source)) {
+        violations.push(`${normalized}: hard-deletes slides outside the uninstall purge`);
+      } else if (normalized !== 'modules/content/content-lifecycle.ts' && (SLIDE_SQL_WRITE_RE.test(source) || SLIDE_DRIZZLE_WRITE_RE.test(source))) {
+        violations.push(`${normalized}: writes slides outside content-lifecycle.ts`);
+      }
+      continue;
+    }
+    if (SLIDE_SQL_WRITE_RE.test(source) || SLIDE_SQL_DELETE_RE.test(source)) violations.push(`${normalized}: SQL write to slides outside modules/content`);
+    if (SLIDE_DRIZZLE_TABLE_RE.test(source)) violations.push(`${normalized}: references drizzle slides table outside modules/content`);
+  }
+  return violations;
+}
+
 function collectTsFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -94,6 +121,30 @@ describe('content_items and content_product_links write guard', () => {
     expect(files.length).toBeGreaterThan(0);
     expect(checkStatusWriteViolations(files)).toEqual([]);
     expect(checkLinkWriteViolations(files)).toEqual([]);
+    expect(checkSlideWriteViolations(files)).toEqual([]);
+  });
+
+  it('catches slides writes outside content-lifecycle.ts and deletes outside the purge (fixture)', () => {
+    const fixtures = [
+      { relPath: 'modules/media/rogue.ts', source: `await tx.query('update slides set alt_text = $1', [x]);` },
+      { relPath: 'worker/rogue.ts', source: `const t = schema.slides;` },
+      { relPath: 'modules/catalog/rogue.ts', source: `const { slides } = schema;` },
+      { relPath: 'modules/content/content.service.ts', source: `await db.update(slides).set({ position: 1 });` },
+      { relPath: 'modules/content/content-lifecycle.ts', source: `await db.delete(slides);` },
+      { relPath: 'modules/content/content.repository.ts', source: `await tx.query('DELETE FROM "slides" WHERE id = $1');` },
+      // Allowed: the lifecycle inserts and soft-deletes, the repository reads, the purge deletes.
+      { relPath: 'modules/content/content-lifecycle.ts', source: `await db.insert(slides).values(v); await db.update(slides).set({ deletedAt: now });` },
+      { relPath: 'modules/content/content.repository.ts', source: `const { contentItems, slides } = schema; await this.db.select().from(slides);` },
+      { relPath: 'modules/content/content.lifecycle.ts', source: `await tx.query('delete from slides s using doomed');` },
+    ];
+    expect(checkSlideWriteViolations(fixtures)).toEqual([
+      'modules/media/rogue.ts: SQL write to slides outside modules/content',
+      'worker/rogue.ts: references drizzle slides table outside modules/content',
+      'modules/catalog/rogue.ts: references drizzle slides table outside modules/content',
+      'modules/content/content.service.ts: writes slides outside content-lifecycle.ts',
+      'modules/content/content-lifecycle.ts: hard-deletes slides outside the uninstall purge',
+      'modules/content/content.repository.ts: hard-deletes slides outside the uninstall purge',
+    ]);
   });
 
   it('catches content_product_links writes outside content-lifecycle.ts and deletes outside the purge (fixture)', () => {

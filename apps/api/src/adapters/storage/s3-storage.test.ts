@@ -1,7 +1,7 @@
 // S3 adapter: the presigned PUT URL (offline), plus a live MinIO round-trip that is skipped when port 9000 is down.
 import { createHash, randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { S3ObjectStorage } from './s3-storage.js';
 
 const config = {
@@ -42,6 +42,43 @@ describe('S3ObjectStorage presignPut (offline)', () => {
     expect(url.searchParams.has('x-amz-checksum-sha256')).toBe(false);
     expect(grant).toMatchObject({ method: 'PUT', headers: { 'content-type': 'image/png', 'x-amz-checksum-sha256': Buffer.from(sha(body), 'hex').toString('base64') } });
     storage.destroy();
+  });
+});
+
+describe('S3ObjectStorage bucket CORS (offline, Story 3.6)', () => {
+  type Sendable = { send: (cmd: { constructor: { name: string }; input: unknown }) => Promise<unknown> };
+
+  it('allows PUT with the signed headers from the configured origins', async () => {
+    const storage = new S3ObjectStorage({ ...config, corsOrigins: ['https://app.example'] });
+    const send = vi.fn().mockResolvedValue({});
+    (storage as unknown as { client: Sendable }).client.send = send;
+    await storage.ensureCors();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0].input).toEqual({
+      Bucket: 'slips-media-test',
+      CORSConfiguration: {
+        CORSRules: [
+          { AllowedOrigins: ['https://app.example'], AllowedMethods: ['PUT'], AllowedHeaders: ['content-type', 'x-amz-checksum-sha256'], ExposeHeaders: ['etag'], MaxAgeSeconds: 3600 },
+        ],
+      },
+    });
+    storage.destroy();
+  });
+
+  it('logs and continues when storage refuses the call, and skips it without origins', async () => {
+    const warn = vi.fn();
+    const storage = new S3ObjectStorage({ ...config, corsOrigins: ['https://app.example'], warn });
+    (storage as unknown as { client: Sendable }).client.send = vi.fn().mockRejectedValue(new Error('NotImplemented'));
+    await expect(storage.ensureCors()).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith('media bucket CORS not set', { bucket: 'slips-media-test', error: 'NotImplemented' });
+
+    const none = new S3ObjectStorage(config);
+    const send = vi.fn();
+    (none as unknown as { client: Sendable }).client.send = send;
+    await none.ensureCors();
+    expect(send).not.toHaveBeenCalled();
+    storage.destroy();
+    none.destroy();
   });
 });
 

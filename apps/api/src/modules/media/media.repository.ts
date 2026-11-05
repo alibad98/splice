@@ -107,6 +107,16 @@ export class MediaRepository extends StoreScoped {
     return Boolean(result.rows[0]?.in_use);
   }
 
+  /** Kind, status and failure reason of the asked ids that are the store's assets, in one read (Story 3.6). */
+  async summariesByIds(ids: readonly string[]): Promise<Array<{ id: string; kind: MediaAssetRow['kind']; status: MediaAssetStatus; failureReason: string | null }>> {
+    const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return [];
+    return this.db
+      .select({ id: mediaAssets.id, kind: mediaAssets.kind, status: mediaAssets.status, failureReason: mediaAssets.failureReason })
+      .from(mediaAssets)
+      .where(and(eq(mediaAssets.storeId, this.storeId), inArray(mediaAssets.id, wanted)));
+  }
+
   /** The asked ids that are `processed` (the only publishable status). */
   async processedIds(ids: readonly string[]): Promise<string[]> {
     const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));

@@ -20,6 +20,7 @@ describe('@slips/db', () => {
         'categories',
         'contentItems',
         'contentProductLinks',
+        'slides',
         'MEDIA_ASSET_STATUSES',
         'MEDIA_KINDS',
         'mediaAssets',

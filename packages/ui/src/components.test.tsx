@@ -157,6 +157,7 @@ describe('Icon', () => {
     expect(iconMirrors('external')).toBe(true);
     expect(iconMirrors('play')).toBe(false);
     expect(iconMirrors('sun')).toBe(false);
+    for (const name of ['upload', 'image', 'video', 'arrow-up', 'arrow-down', 'trash', 'grip', 'retry'] as const) expect(iconMirrors(name)).toBe(false);
     expect(renderToStaticMarkup(<Icon name="arrow" />)).toContain('rtl:-scale-x-100');
     expect(renderToStaticMarkup(<Icon name="play" />)).not.toContain('rtl:');
   });

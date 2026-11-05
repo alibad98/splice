@@ -1,10 +1,11 @@
 import { TAB_STATUSES, type ContentSort, type ContentStatus, type ContentTabCounts } from '@slips/contracts';
 import { schema, StoreScoped, and, eq, inArray, isNull, sql } from '@slips/db';
 
-const { contentItems, contentProductLinks } = schema;
+const { contentItems, contentProductLinks, slides } = schema;
 
 export type ContentItemRow = typeof contentItems.$inferSelect;
 export type ContentProductLinkRow = typeof contentProductLinks.$inferSelect;
+export type SlideRow = typeof slides.$inferSelect;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -93,6 +94,27 @@ export class ContentRepository extends StoreScoped {
         .where(and(eq(contentProductLinks.storeId, this.storeId), eq(contentProductLinks.contentId, contentId)))
         .limit(1)
     )[0];
+  }
+
+  /** The live slides of the items, in one read, ordered by item then position (Story 3.6). */
+  async liveSlides(contentIds: readonly string[]): Promise<SlideRow[]> {
+    const wanted = [...new Set(contentIds)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return [];
+    return this.db
+      .select()
+      .from(slides)
+      .where(and(eq(slides.storeId, this.storeId), inArray(slides.contentId, wanted), isNull(slides.deletedAt)))
+      .orderBy(slides.contentId, slides.position, slides.id);
+  }
+
+  /** Every slide row of one item, soft-deleted ones included (newest first), so a re-added asset revives its slide. */
+  async allSlides(contentId: string): Promise<SlideRow[]> {
+    if (!UUID_RE.test(contentId)) return [];
+    return this.db
+      .select()
+      .from(slides)
+      .where(and(eq(slides.storeId, this.storeId), eq(slides.contentId, contentId)))
+      .orderBy(sql`${slides.deletedAt} desc nulls first`, sql`${slides.updatedAt} desc`);
   }
 
   /** content id -> linked product id, for the items that have one, in one read. */

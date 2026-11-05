@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Availability } from './catalog.js';
+import { MediaAssetStatus, MediaFailureReason, MediaKind } from './media.js';
 
 /** Content item lifecycle statuses (Story 3.1). There is no `ready`: passing processing without auto-publish returns to `draft`. */
 export const CONTENT_STATUSES = ['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated'] as const;
@@ -119,6 +120,31 @@ export const CONTENT_CTA_URL_NOT_STORE_DOMAIN = 'cta-url-not-store-domain';
 /** Problem `type` when the linked `product_id` is unknown to the store's catalog or deleted there (422, Story 3.4). */
 export const CONTENT_PRODUCT_NOT_LINKABLE = 'product-not-linkable';
 
+/** Problem `type` when an image slide has no alt text (422, Story 3.6). */
+export const CONTENT_SLIDE_ALT_REQUIRED = 'slide-alt-text-required';
+
+/** At most this many slides per item (Story 3.6). */
+export const SLIDES_MAX = 10;
+/** Alt text bound: image slides need 1..SLIDE_ALT_MAX characters; videos may have none. */
+export const SLIDE_ALT_MAX = 250;
+
+/** One slide as the editor sends it. The list order is the slide order. */
+export const SlideInput = z.strictObject({
+  media_asset_id: z.uuid(),
+  alt_text: z.string().max(SLIDE_ALT_MAX).nullable(),
+});
+export type SlideInput = z.infer<typeof SlideInput>;
+
+/** The ordered slide list of an item; sending it replaces the item's slides. Asset ids are unique within it. */
+export const SlideList = z
+  .array(SlideInput)
+  .max(SLIDES_MAX)
+  .refine((list) => new Set(list.map((s) => s.media_asset_id)).size === list.length, { message: 'media_asset_id must be unique within slides' });
+
+/** True when the alt text satisfies the rule for the slide's kind: images need 1..SLIDE_ALT_MAX non-blank chars; videos may have none. */
+export const slideAltTextOk = (kind: MediaKind, altText: string | null | undefined): boolean =>
+  kind !== 'image' || (typeof altText === 'string' && altText.trim().length > 0 && altText.length <= SLIDE_ALT_MAX);
+
 /** The editable fields of a content item, without the cross-field rule (see `ctaUrlMatchesAction`). */
 export const ContentFields = z.strictObject({
   title: z.string().min(1).max(CONTENT_TITLE_MAX),
@@ -129,6 +155,8 @@ export const ContentFields = z.strictObject({
   cta_style: CtaStyle.nullable().optional(),
   /** The one linked catalog product (Story 3.4); `null` unlinks. */
   product_id: z.uuid().nullable().optional(),
+  /** The ordered slides (Story 3.6); the list replaces the item's slides. */
+  slides: SlideList.optional(),
 });
 export type ContentFields = z.infer<typeof ContentFields>;
 
@@ -207,6 +235,17 @@ export const ContentProductSummary = z.object({
 });
 export type ContentProductSummary = z.infer<typeof ContentProductSummary>;
 
+/** One live slide of an item with its asset's kind and current status (Story 3.6). */
+export const ContentSlide = z.object({
+  id: z.uuid(),
+  media_asset_id: z.uuid(),
+  kind: MediaKind,
+  alt_text: z.string().nullable(),
+  status: MediaAssetStatus,
+  failure_reason: MediaFailureReason.nullable(),
+});
+export type ContentSlide = z.infer<typeof ContentSlide>;
+
 /** One content item returned by the merchant content API. */
 export const ContentItem = z.object({
   v: z.literal(1).default(1),
@@ -224,6 +263,8 @@ export const ContentItem = z.object({
   first_published_at: z.iso.datetime().nullable(),
   /** The linked product, or `null` when none is linked. */
   product: ContentProductSummary.nullable(),
+  /** The live slides in order (Story 3.6). */
+  slides: z.array(ContentSlide),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 });

@@ -6,6 +6,7 @@ import {
   HeadBucketCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  PutBucketCorsCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -20,6 +21,10 @@ export interface S3StorageConfig {
   accessKeyId: string;
   secretAccessKey: string;
   forcePathStyle: boolean;
+  /** Browser origins allowed to PUT to the pre-signed URLs (the dashboard, Story 3.6); set as bucket CORS at boot. */
+  corsOrigins?: readonly string[];
+  /** Where a best-effort step (bucket CORS) reports a failure; it never throws. */
+  warn?: (message: string, fields: Record<string, unknown>) => void;
 }
 
 const isNotFound = (err: unknown): boolean => {
@@ -31,9 +36,13 @@ const isNotFound = (err: unknown): boolean => {
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client: S3Client;
   private readonly bucket: string;
+  private readonly corsOrigins: readonly string[];
+  private readonly warn: (message: string, fields: Record<string, unknown>) => void;
 
   constructor(config: S3StorageConfig) {
     this.bucket = config.bucket;
+    this.corsOrigins = config.corsOrigins ?? [];
+    this.warn = config.warn ?? (() => {});
     this.client = new S3Client({
       endpoint: config.endpoint,
       region: config.region,
@@ -111,6 +120,36 @@ export class S3ObjectStorage implements ObjectStorage {
     } catch (err) {
       if (!isNotFound(err)) throw err;
       await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+    }
+    await this.ensureCors();
+  }
+
+  /**
+   * Best-effort bucket CORS so the dashboard can PUT straight to the pre-signed URL (Story 3.6): PUT from the configured
+   * origins with the signed `content-type` and `x-amz-checksum-sha256` headers. A failure is logged and boot continues
+   * (MinIO allows any origin by default and does not implement this call).
+   */
+  async ensureCors(): Promise<void> {
+    if (this.corsOrigins.length === 0) return;
+    try {
+      await this.client.send(
+        new PutBucketCorsCommand({
+          Bucket: this.bucket,
+          CORSConfiguration: {
+            CORSRules: [
+              {
+                AllowedOrigins: [...this.corsOrigins],
+                AllowedMethods: ['PUT'],
+                AllowedHeaders: ['content-type', 'x-amz-checksum-sha256'],
+                ExposeHeaders: ['etag'],
+                MaxAgeSeconds: 3600,
+              },
+            ],
+          },
+        }),
+      );
+    } catch (err) {
+      this.warn('media bucket CORS not set', { bucket: this.bucket, error: err instanceof Error ? err.message : String(err) });
     }
   }
 

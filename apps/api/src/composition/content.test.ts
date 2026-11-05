@@ -12,7 +12,9 @@ import {
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_INVALID_TRANSITION,
   CONTENT_PRODUCT_NOT_LINKABLE,
+  CONTENT_SLIDE_ALT_REQUIRED,
   CONTENT_STATUSES,
+  MEDIA_NOT_ATTACHABLE,
   CONTENT_TRANSITIONS,
   ContentItem,
   ContentListResponse,
@@ -872,6 +874,144 @@ describe('merchant content API & I/O matrix', () => {
     await admin.query('update products set deleted_at = null where id = $1', [productId]);
     expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${live1.id}`)).body).product).toMatchObject({ id: productId, deleted: false });
   });
+
+  // ---- Story 3.6: slides ----
+  const seedAsset = async (storeId: string, kind: 'image' | 'video' = 'image', status: 'uploaded' | 'scanned' | 'processed' | 'failed' = 'uploaded'): Promise<string> =>
+    (
+      await admin.query<{ id: string }>(
+        `insert into media_assets (store_id, kind, content_type, size_bytes, sha256, upload_key, status, failure_reason)
+         values ($1, $2, $3, 1000, $4, 'stores/x/uploads/y', $5, $6) returning id::text as id`,
+        [storeId, kind, kind === 'image' ? 'image/jpeg' : 'video/mp4', randomBytes(32).toString('hex'), status, status === 'failed' ? 'type_mismatch' : null],
+      )
+    ).rows[0]!.id;
+  const slideRows = async (contentId: string) =>
+    (
+      await admin.query<{ media_asset_id: string; position: number; alt_text: string | null; kind: string; deleted: boolean; id: string }>(
+        'select id::text as id, media_asset_id::text as media_asset_id, position, alt_text, kind, deleted_at is not null as deleted from slides where content_id = $1 order by deleted_at nulls first, position',
+        [contentId],
+      )
+    ).rows;
+
+  it('Slides (Story 3.6): POST with slides saves them in order; GET and the list return them with kind and current asset status; no status change', async () => {
+    const { storeId, token } = await installedStore();
+    const img1 = await seedAsset(storeId, 'image');
+    const img2 = await seedAsset(storeId, 'image', 'scanned');
+    const vid = await seedAsset(storeId, 'video', 'processed');
+    const slides = [
+      { media_asset_id: img1, alt_text: '  Red abaya  ' },
+      { media_asset_id: img2, alt_text: 'Black abaya' },
+      { media_asset_id: vid, alt_text: null },
+    ];
+    const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, slides });
+    expect(created.res.status).toBe(201);
+    const item = ContentItem.parse(created.body);
+    expect(item.status).toBe('draft');
+    expect(item.slides.map((s) => [s.media_asset_id, s.kind, s.alt_text, s.status, s.failure_reason])).toEqual([
+      [img1, 'image', 'Red abaya', 'uploaded', null],
+      [img2, 'image', 'Black abaya', 'scanned', null],
+      [vid, 'video', null, 'processed', null],
+    ]);
+    expect((await slideRows(item.id)).map((r) => r.position)).toEqual([0, 1, 2]);
+
+    // Inspection fails later: the reload shows it failed with the reason.
+    await admin.query(`update media_assets set status = 'failed', failure_reason = 'type_mismatch' where id = $1`, [img2]);
+    const reloaded = ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body);
+    expect(reloaded.slides.map((s) => s.media_asset_id)).toEqual([img1, img2, vid]);
+    expect(reloaded.slides[1]).toMatchObject({ status: 'failed', failure_reason: 'type_mismatch', alt_text: 'Black abaya' });
+    const listed = ContentListResponse.parse((await request(token, 'GET', '/v1/content')).body);
+    expect(listed.items.find((i) => i.id === item.id)?.slides).toHaveLength(3);
+    expect(listed.items.find((i) => i.id === item.id)?.slides[1]?.status).toBe('failed');
+
+    // The saved failed slide can be re-sent with the list (reordered): it is already the item's.
+    const reordered = await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [slides[2], slides[0], slides[1]] });
+    expect(reordered.res.status).toBe(200);
+    expect(ContentItem.parse(reordered.body).slides.map((s) => s.media_asset_id)).toEqual([vid, img1, img2]);
+    expect((await eventsForContent(storeId, item.id)).at(-1)).toMatchObject({ name: 'content.item.edited', payload: { status: 'draft', changed: ['slides'] } });
+  });
+
+  it('Slides: move later, remove and re-add revive the soft-deleted slide; a no-op writes nothing; a published item stays published', async () => {
+    const { storeId, token } = await installedStore();
+    const [a, b, c] = [await seedAsset(storeId), await seedAsset(storeId), await seedAsset(storeId, 'video')];
+    const item = await seedItemInStatus(storeId, 'published');
+    const s = (id: string, alt: string | null = 'alt') => ({ media_asset_id: id, alt_text: alt });
+    expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [s(a), s(b), s(c, null)] })).res.status).toBe(200);
+    const [firstA] = (await slideRows(item.id)).filter((r) => r.media_asset_id === a);
+
+    // Move slide 2 later: it becomes 3.
+    const moved = ContentItem.parse((await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [s(a), s(c, null), s(b)] })).body);
+    expect(moved.slides.map((x) => x.media_asset_id)).toEqual([a, c, b]);
+    expect(moved.status).toBe('published');
+
+    // Same list again: nothing written, no event.
+    const eventsBefore = (await eventsForContent(storeId, item.id)).length;
+    expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [s(a), s(c, null), s(b)] })).res.status).toBe(200);
+    expect(await eventsForContent(storeId, item.id)).toHaveLength(eventsBefore);
+
+    // Remove a: soft-deleted, not hard-deleted.
+    const removed = ContentItem.parse((await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [s(c, null), s(b)] })).body);
+    expect(removed.slides.map((x) => x.media_asset_id)).toEqual([c, b]);
+    expect((await slideRows(item.id)).find((r) => r.media_asset_id === a)).toMatchObject({ id: firstA!.id, deleted: true });
+
+    // Re-add a: the same row is revived (one row per asset), at its new position with the new alt text.
+    const revived = ContentItem.parse((await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [s(b), s(a, 'new alt'), s(c, null)] })).body);
+    expect(revived.slides.map((x) => [x.media_asset_id, x.alt_text])).toEqual([
+      [b, 'alt'],
+      [a, 'new alt'],
+      [c, null],
+    ]);
+    const rows = await slideRows(item.id);
+    expect(rows.filter((r) => r.media_asset_id === a)).toEqual([expect.objectContaining({ id: firstA!.id, deleted: false, position: 1 })]);
+    expect(rows).toHaveLength(3);
+    expect(revived.id).toBe(item.id);
+    expect((await rowById(item.id))!.status).toBe('published');
+
+    // Clear all slides.
+    expect(ContentItem.parse((await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [] })).body).slides).toEqual([]);
+    expect((await slideRows(item.id)).every((r) => r.deleted)).toBe(true);
+  });
+
+  it('Slides: other-store, unknown and failed assets answer 422 media-not-attachable; an image without alt text 422 slide-alt-text-required; nothing is written', async () => {
+    const { storeId, token } = await installedStore();
+    const other = await installedStore();
+    const foreign = await seedAsset(other.storeId);
+    const failed = await seedAsset(storeId, 'image', 'failed');
+    const image = await seedAsset(storeId);
+    const draft = await seedItemInStatus(storeId, 'draft');
+    const rowBefore = await rowById(draft.id);
+    const eventsBefore = (await eventsForContent(storeId, draft.id)).length;
+
+    for (const id of [foreign, failed, randomUUID()]) {
+      const res = await request(token, 'PATCH', `/v1/content/${draft.id}`, { title: 'Changed', slides: [{ media_asset_id: id, alt_text: 'x' }] });
+      expect(res.res.status).toBe(422);
+      expect(res.res.headers.get('content-type')).toContain('application/problem+json');
+      expect(res.body).toMatchObject({ type: MEDIA_NOT_ATTACHABLE, status: 422, code: 'media_not_attachable' });
+    }
+    for (const alt of [null, '   ']) {
+      const res = await request(token, 'PATCH', `/v1/content/${draft.id}`, { title: 'Changed', slides: [{ media_asset_id: image, alt_text: alt }] });
+      expect(res.res.status).toBe(422);
+      expect(res.body).toMatchObject({ type: CONTENT_SLIDE_ALT_REQUIRED, code: 'slide_alt_text_required' });
+    }
+    expect(await rowById(draft.id)).toEqual(rowBefore);
+    expect(await eventsForContent(storeId, draft.id)).toHaveLength(eventsBefore);
+    expect(await slideRows(draft.id)).toEqual([]);
+
+    const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: image, alt_text: null }] });
+    expect(created.res.status).toBe(422);
+    expect(created.body).toMatchObject({ type: CONTENT_SLIDE_ALT_REQUIRED });
+    expect((await request(token, 'POST', '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: failed, alt_text: 'x' }] })).body).toMatchObject({
+      type: MEDIA_NOT_ATTACHABLE,
+    });
+    expect((await admin.query('select 1 from content_items where store_id = $1', [storeId])).rowCount).toBe(1);
+
+    // Duplicate assets and more than 10 slides are invalid bodies; archived items are read-only.
+    const dup = await request(token, 'PATCH', `/v1/content/${draft.id}`, { slides: [{ media_asset_id: image, alt_text: 'a' }, { media_asset_id: image, alt_text: 'b' }] });
+    expect(dup.res.status).toBe(400);
+    const many = Array.from({ length: 11 }, () => ({ media_asset_id: randomUUID(), alt_text: 'x' }));
+    expect((await request(token, 'PATCH', `/v1/content/${draft.id}`, { slides: many })).res.status).toBe(400);
+    const archived = await seedItemInStatus(storeId, 'archived');
+    const ro = await request(token, 'PATCH', `/v1/content/${archived.id}`, { slides: [{ media_asset_id: image, alt_text: 'x' }] });
+    expect(ro.res.status).toBe(409);
+  });
 });
 
 describe('worker content event handlers & store data lifecycle', () => {
@@ -909,6 +1049,15 @@ describe('worker content event handlers & store data lifecycle', () => {
     for (let i = 0; i < 3; i++) await seedItemInStatus(storeId, 'draft');
     const linked = await seedItemInStatus(storeId, 'draft');
     await withStoreContext(app, storeId, (tx) => lifecycle.edit(tx, storeId, linked.id, { product_id: randomUUID() }));
+    const assetA = randomUUID();
+    const assetB = randomUUID();
+    const kinds = new Map([
+      [assetA, 'image' as const],
+      [assetB, 'video' as const],
+    ]);
+    const s = (id: string, alt: string | null) => ({ media_asset_id: id, alt_text: alt });
+    await withStoreContext(app, storeId, (tx) => lifecycle.edit(tx, storeId, linked.id, { slides: [s(assetA, 'a'), s(assetB, null)] }, new Date(), kinds));
+    await withStoreContext(app, storeId, (tx) => lifecycle.edit(tx, storeId, linked.id, { slides: [s(assetB, null)] }, new Date(), kinds));
 
     await withStoreContext(app, storeId, (tx) => contentStoreData.restore!({ storeId, installEpoch: 1, tx }));
     const exported = (await withStoreContext(app, storeId, (tx) => contentStoreData.export!({ storeId, installEpoch: 1, tx }))) as {
@@ -919,12 +1068,19 @@ describe('worker content event handlers & store data lifecycle', () => {
       expect.objectContaining({ content_id: linked.id, slide_id: null }),
     ]);
     expect(exported.content_items[0]).not.toHaveProperty('store_id');
+    const exportedSlides = (exported as unknown as { slides: Array<Record<string, unknown>> }).slides;
+    expect(exportedSlides).toHaveLength(2);
+    expect(exportedSlides.find((r) => r.media_asset_id === assetA)).toMatchObject({ content_id: linked.id, kind: 'image', alt_text: 'a', deleted_at: expect.any(Date) });
+    expect(exportedSlides[0]).not.toHaveProperty('store_id');
 
     const purge = () => withStoreContext(app, storeId, (tx) => contentStoreData.purge({ storeId, installEpoch: 1, tx, batchLimit: 2 }));
+    // Slides (2) fill the first batch; then the link and two items; then the last two items.
+    expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: true });
     expect((await admin.query('select 1 from content_items where store_id = $1', [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from content_product_links where store_id = $1', [storeId])).rowCount).toBe(0);
+    expect((await admin.query('select 1 from slides where store_id = $1', [storeId])).rowCount).toBe(0);
   });
 });

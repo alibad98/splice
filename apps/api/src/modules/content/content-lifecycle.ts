@@ -6,16 +6,19 @@ import {
   ContentFields,
   ContentUpdateInput,
   canTransition,
+  slideAltTextOk,
   type ContentAction,
   type ContentStatus,
+  type MediaKind,
+  type SlideInput,
 } from '@slips/contracts';
-import { and, eq, requireStoreContext, schema } from '@slips/db';
+import { and, eq, inArray, requireStoreContext, schema } from '@slips/db';
 import { publishEvent, uuidv7, type EventSender, type TxQueryable } from '../../events/outbox.js';
 import { EVENT_SENDER } from '../../infra.module.js';
 import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
-import { ContentRepository, type ContentItemRow } from './content.repository.js';
+import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
 
-const { contentItems, contentProductLinks } = schema;
+const { contentItems, contentProductLinks, slides } = schema;
 
 export class InvalidTransitionError extends Error {
   constructor(
@@ -44,13 +47,41 @@ export class InvalidContentFieldsError extends Error {
   }
 }
 
+/** A slide names an asset whose kind is unknown (not given by the caller and not already a slide of the item). */
+export class SlideAssetUnknownError extends Error {
+  constructor(public readonly mediaAssetId: string) {
+    super(`Media asset ${mediaAssetId} can not be attached`);
+    this.name = 'SlideAssetUnknownError';
+  }
+}
+
+/** An image slide has no alt text (Story 3.6). */
+export class SlideAltTextRequiredError extends Error {
+  constructor(public readonly mediaAssetId: string) {
+    super(`Image slide ${mediaAssetId} needs alt text`);
+    this.name = 'SlideAltTextRequiredError';
+  }
+}
+
+/** media asset id -> kind, as the caller read it from `MediaService` (Story 3.6). */
+export type SlideAssetKinds = ReadonlyMap<string, MediaKind>;
+
 /** Statuses whose fields cannot be edited (Story 3.3: archived items open read-only). */
 const READ_ONLY_STATUSES: readonly ContentStatus[] = ['archived'];
 
 const EDITABLE_FIELDS = ContentFields.keyof().options;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
-const fieldsOf = (row: ContentItemRow, productId: string | null): ContentFields => ({
+/** Alt text as stored: trimmed, blank as null. */
+const normalizeAlt = (alt: string | null | undefined): string | null => {
+  const trimmed = alt?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const toSlideInputs = (rows: readonly SlideRow[]): SlideInput[] => rows.map((s) => ({ media_asset_id: s.mediaAssetId, alt_text: s.altText }));
+const normalizeSlides = (list: readonly SlideInput[]): SlideInput[] => list.map((s) => ({ media_asset_id: s.media_asset_id, alt_text: normalizeAlt(s.alt_text) }));
+
+const fieldsOf = (row: ContentItemRow, productId: string | null, liveSlides: readonly SlideRow[]): ContentFields => ({
   title: row.title,
   format: row.format,
   cta_label: row.ctaLabel,
@@ -58,13 +89,15 @@ const fieldsOf = (row: ContentItemRow, productId: string | null): ContentFields 
   cta_url: row.ctaUrl,
   cta_style: (CTA_STYLES as readonly (string | null)[]).includes(row.ctaStyle) ? (row.ctaStyle as ContentFields['cta_style']) : null,
   product_id: productId,
+  slides: toSlideInputs(liveSlides),
 });
 
 /**
  * The single command service that creates content items and changes their status (Story 3.1).
  * Every transition locks the row (`for update`), validates against `CONTENT_TRANSITIONS`, writes,
  * and emits `content.item.<verb>` through the outbox in the caller's transaction.
- * It is also the only writer of `content_product_links` (Story 3.4); callers check the product with the catalog first.
+ * It is also the only writer of `content_product_links` (Story 3.4) and `slides` (Story 3.6); callers check the product
+ * with the catalog and the slide assets with media first, and pass the asset kinds in.
  */
 @Injectable()
 export class ContentLifecycle {
@@ -75,9 +108,11 @@ export class ContentLifecycle {
     @Inject(TELEMETRY) private readonly telemetry: Telemetry,
   ) {}
 
-  async create(tx: TxQueryable, storeId: string, input: ContentCreateInput, now: Date = new Date()): Promise<ContentItemRow> {
+  async create(tx: TxQueryable, storeId: string, input: ContentCreateInput, now: Date = new Date(), assetKinds: SlideAssetKinds = new Map()): Promise<ContentItemRow> {
     const parsed = ContentCreateInput.parse(input);
     const id = uuidv7(now.getTime());
+    const slideList = normalizeSlides(parsed.slides ?? []);
+    this.checkSlides(slideList, assetKinds, []);
     const [row] = await requireStoreContext()
       .db.insert(contentItems)
       .values({
@@ -100,6 +135,7 @@ export class ContentLifecycle {
       })
       .returning();
     if (parsed.product_id) await this.writeLink(storeId, id, parsed.product_id, now);
+    if (slideList.length > 0) await this.writeSlides(storeId, id, slideList, now, assetKinds);
     await publishEvent(tx, this.events, this.telemetry, 'content.item.created', {
       v: 1,
       store_id: storeId,
@@ -114,25 +150,46 @@ export class ContentLifecycle {
    * Change an item's fields (Story 3.3). Locks the live row, refuses archived items (`InvalidTransitionError`), merges the
    * patch, re-checks the field rules on the merged item, writes, and emits `content.item.edited` with the unchanged
    * status in the caller's transaction. Moving the action off `open_link` clears the URL. A patch that changes nothing
-   * writes nothing and emits nothing.
+   * writes nothing and emits nothing. `slides` replaces the whole list (Story 3.6); the item's status never changes.
    */
-  async edit(tx: TxQueryable, storeId: string, contentId: string, patch: ContentUpdateInput, now: Date = new Date()): Promise<ContentItemRow> {
+  async edit(
+    tx: TxQueryable,
+    storeId: string,
+    contentId: string,
+    patch: ContentUpdateInput,
+    now: Date = new Date(),
+    assetKinds: SlideAssetKinds = new Map(),
+  ): Promise<ContentItemRow> {
     const parsedPatch = ContentUpdateInput.parse(patch);
     const row = await this.repo.lockById(contentId);
     if (!row) throw new ContentNotFoundError(contentId);
     if (READ_ONLY_STATUSES.includes(row.status)) throw new InvalidTransitionError(contentId, row.status, 'edit');
 
     const link = await this.repo.findLink(contentId);
-    const before = fieldsOf(row, link?.productId ?? null);
+    const liveSlides = await this.repo.liveSlides([contentId]);
+    const before = fieldsOf(row, link?.productId ?? null, liveSlides);
     const merged: ContentFields = { ...before, ...parsedPatch };
+    if (parsedPatch.slides !== undefined) merged.slides = normalizeSlides(parsedPatch.slides);
     if (merged.cta_action !== 'open_link' && parsedPatch.cta_url === undefined) merged.cta_url = null;
     const checked = ContentCreateInput.safeParse(merged);
     if (!checked.success) throw new InvalidContentFieldsError(contentId);
-    const next = { ...checked.data, cta_url: checked.data.cta_url ?? null, cta_style: checked.data.cta_style ?? null, product_id: checked.data.product_id ?? null };
+    const next = {
+      ...checked.data,
+      cta_url: checked.data.cta_url ?? null,
+      cta_style: checked.data.cta_style ?? null,
+      product_id: checked.data.product_id ?? null,
+      slides: checked.data.slides ?? [],
+    };
 
-    const changed = EDITABLE_FIELDS.filter((f: EditableField) => (before[f] ?? null) !== (next[f] ?? null));
+    const same = (f: EditableField): boolean =>
+      f === 'slides' ? JSON.stringify(before.slides ?? []) === JSON.stringify(next.slides) : (before[f] ?? null) === (next[f] ?? null);
+    const changed = EDITABLE_FIELDS.filter((f: EditableField) => !same(f));
     if (changed.length === 0) return row;
 
+    if (changed.includes('slides')) {
+      this.checkSlides(next.slides, assetKinds, liveSlides);
+      await this.writeSlides(storeId, contentId, next.slides, now, assetKinds);
+    }
     if (changed.includes('product_id')) await this.writeLink(storeId, contentId, next.product_id, now);
     const [updated] = await requireStoreContext()
       .db.update(contentItems)
@@ -176,6 +233,77 @@ export class ContentLifecycle {
       });
     }
     return items.map((i) => i.id);
+  }
+
+  /**
+   * Every slide's asset kind must be known (given by the caller, or the stored kind of a live slide), and image slides
+   * need alt text. Throws before anything is written.
+   */
+  private checkSlides(list: readonly SlideInput[], assetKinds: SlideAssetKinds, liveSlides: readonly SlideRow[]): void {
+    const stored = new Map(liveSlides.map((s) => [s.mediaAssetId, s.kind] as const));
+    for (const s of list) {
+      const kind = assetKinds.get(s.media_asset_id) ?? stored.get(s.media_asset_id);
+      if (!kind) throw new SlideAssetUnknownError(s.media_asset_id);
+      if (!slideAltTextOk(kind, s.alt_text)) throw new SlideAltTextRequiredError(s.media_asset_id);
+    }
+  }
+
+  /**
+   * Make the item's live slides exactly `list`, in order (Story 3.6): live slides missing from it are soft-deleted, a
+   * soft-deleted slide of a re-added asset is revived, other assets get a new slide; `position` is the list index.
+   */
+  private async writeSlides(storeId: string, contentId: string, list: readonly SlideInput[], now: Date, assetKinds: SlideAssetKinds): Promise<void> {
+    const db = requireStoreContext().db;
+    const rows = await this.repo.allSlides(contentId);
+    const wanted = new Set(list.map((s) => s.media_asset_id));
+    const live = new Map<string, SlideRow>();
+    const removed = new Map<string, SlideRow>();
+    for (const r of rows) {
+      if (r.deletedAt === null) live.set(r.mediaAssetId, r);
+      else if (!removed.has(r.mediaAssetId)) removed.set(r.mediaAssetId, r); // newest soft-deleted row per asset
+    }
+
+    const doomed = [...live.values()].filter((r) => !wanted.has(r.mediaAssetId)).map((r) => r.id);
+    if (doomed.length > 0) {
+      await db
+        .update(slides)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(eq(slides.storeId, storeId), eq(slides.contentId, contentId), inArray(slides.id, doomed)));
+    }
+
+    for (const [position, s] of list.entries()) {
+      const current = live.get(s.media_asset_id);
+      if (current) {
+        if (current.position === position && current.altText === s.alt_text) continue;
+        await db
+          .update(slides)
+          .set({ position, altText: s.alt_text, updatedAt: now })
+          .where(and(eq(slides.storeId, storeId), eq(slides.id, current.id)));
+        continue;
+      }
+      const revived = removed.get(s.media_asset_id);
+      const kind = assetKinds.get(s.media_asset_id) ?? revived?.kind;
+      if (!kind) throw new SlideAssetUnknownError(s.media_asset_id);
+      if (revived) {
+        await db
+          .update(slides)
+          .set({ deletedAt: null, position, altText: s.alt_text, kind, updatedAt: now })
+          .where(and(eq(slides.storeId, storeId), eq(slides.id, revived.id)));
+        continue;
+      }
+      await db.insert(slides).values({
+        id: uuidv7(now.getTime()),
+        storeId,
+        contentId,
+        mediaAssetId: s.media_asset_id,
+        kind,
+        position,
+        altText: s.alt_text,
+        deletedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   }
 
   /** Point the item's one link row at `productId`, or at nothing (`null`): the row is kept, never hard-deleted. */

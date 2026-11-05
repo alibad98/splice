@@ -10,6 +10,7 @@ import {
   CardTitle,
   Checkbox,
   Combobox,
+  DropZone,
   ConfirmDialog,
   DataTable,
   Icon,
@@ -112,6 +113,7 @@ const COPY = {
       email: 'Email address', emailHint: 'We send sign-in codes here.', emailPh: 'you@store.com', password: 'Password', passwordError: 'At least 8 characters', show: 'Show password', hide: 'Hide password',
       notes: 'Notes', notesPh: 'Anything shoppers should know', category: 'Category', all: 'All categories', abayas: 'Abayas', bags: 'Bags', perfume: 'Perfume', product: 'Product', productPh: 'Search your products', products: 'Products', noMatch: 'No products match',
       terms: 'Show prices with VAT', autosync: 'Sync products automatically', code: 'Verification code', digit: 'Digit', of: 'of',
+      dropTitle: 'Drop images or videos here', dropHint: 'JPG, PNG or WebP up to 10 MB. MP4, MOV or WebM up to 200 MB.', dropButton: 'Choose files', dropFull: 'This item has 10 slides, the most it can have.', dropped: (n: number) => `${n} file(s) picked`,
       tabStories: 'Stories', tabReels: 'Reels', tabStoriesBody: 'Stories show at the top of your store.', tabReelsBody: 'Reels play on product pages.',
       openDialog: 'Open dialog', dialogTitle: 'Rename story', dialogBody: 'Shoppers see this name under the story ring.', save: 'Save', cancel: 'Cancel',
       openConfirm: 'Delete story...', confirmTitle: 'Delete “Summer abayas”?', confirmBody: 'It disappears from your store right away. This cannot be undone.', confirmDelete: 'Delete story',
@@ -160,6 +162,7 @@ const COPY = {
       email: 'البريد الإلكتروني', emailHint: 'نرسل رموز الدخول إلى هذا البريد.', emailPh: 'you@store.com', password: 'كلمة المرور', passwordError: '8 أحرف على الأقل', show: 'إظهار كلمة المرور', hide: 'إخفاء كلمة المرور',
       notes: 'ملاحظات', notesPh: 'أي شيء يهم المتسوقين', category: 'التصنيف', all: 'كل التصنيفات', abayas: 'عبايات', bags: 'حقائب', perfume: 'عطور', product: 'المنتج', productPh: 'ابحث في منتجاتك', products: 'المنتجات', noMatch: 'لا توجد منتجات مطابقة',
       terms: 'اعرض الأسعار شاملة الضريبة', autosync: 'زامن المنتجات تلقائيًا', code: 'رمز التحقق', digit: 'الرقم', of: 'من',
+      dropTitle: 'اسحب الصور أو الفيديوهات وأفلتها هنا', dropHint: 'JPG أو PNG أو WebP حتى 10 ميجابايت. MP4 أو MOV أو WebM حتى 200 ميجابايت.', dropButton: 'اختر ملفات', dropFull: 'هذا العنصر فيه 10 شرائح، وهذا الحد الأقصى.', dropped: (n: number) => `اخترت ${n} ملف`,
       tabStories: 'ستوريز', tabReels: 'ريلز', tabStoriesBody: 'تظهر الستوريز أعلى متجرك.', tabReelsBody: 'تعمل الريلز في صفحات المنتجات.',
       openDialog: 'افتح النافذة', dialogTitle: 'غيّر اسم الستوري', dialogBody: 'يرى المتسوقون هذا الاسم تحت حلقة الستوري.', save: 'احفظ', cancel: 'إلغاء',
       openConfirm: 'احذف الستوري...', confirmTitle: 'حذف «عبايات الصيف»؟', confirmBody: 'ستختفي من متجرك فورًا. لا يمكن التراجع.', confirmDelete: 'احذف الستوري',
@@ -193,6 +196,7 @@ export function Gallery() {
   const [locale, setLocale] = useState<Locale>('en');
   const [dark, setDark] = useState(false);
   const [otp, setOtp] = useState('');
+  const [dropped, setDropped] = useState(0);
   const [category, setCategory] = useState('');
   const [productQuery, setProductQuery] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -410,6 +414,11 @@ export function Gallery() {
             <Field label={k.code}>
               <OtpInput value={otp} onChange={setOtp} digitLabel={k.digit} ofLabel={k.of} />
             </Field>
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <DropZone onFiles={(files) => setDropped(files.length)} title={k.dropTitle} hint={k.dropHint} buttonLabel={k.dropButton} accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" multiple />
+              {dropped > 0 ? <p className="text-small text-muted-foreground">{k.dropped(dropped)}</p> : null}
+              <DropZone onFiles={() => {}} title={k.dropTitle} buttonLabel={k.dropButton} multiple disabled disabledReason={k.dropFull} />
+            </div>
           </div>
         </Section>
 

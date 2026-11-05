@@ -1,0 +1,431 @@
+'use client';
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import { Controller, useFormContext, useWatch } from 'react-hook-form';
+import { MEDIA_LIMITS, SLIDES_MAX, SLIDE_ALT_MAX, type ContentSlide, type MediaAsset, type MediaFailureReason } from '@slips/contracts';
+import { Alert, Button, Card, CardTitle, DropZone, Field, Icon, Input, Progress, StatusChip, cn, type StatusTone } from '@slips/ui';
+import { useI18n } from '../../../i18n/provider';
+import type { Messages } from '../../../i18n/messages';
+import { useMediaAssetStatus } from '../../../lib/api/media';
+import { fill } from '../../products/format';
+import { fieldId, slideAltId, type EditorErrorKey, type EditorValues, type SlideValue } from './form';
+import { precheckFile, type PrecheckReason } from './media-precheck';
+import type { UploadState, Uploads } from './use-uploads';
+
+type SlidesCopy = Messages['content']['editor']['slides'];
+
+const MB = 1024 * 1024;
+const ACCEPT = [...MEDIA_LIMITS.image.content_types, ...MEDIA_LIMITS.video.content_types, '.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov', '.webm'].join(',');
+
+/** The copy values every limit message can use. */
+const LIMIT_VALUES = {
+  max: SLIDES_MAX,
+  imageMb: MEDIA_LIMITS.image.max_bytes / MB,
+  videoMb: MEDIA_LIMITS.video.max_bytes / MB,
+  seconds: MEDIA_LIMITS.video.max_duration_seconds,
+  imagePx: MEDIA_LIMITS.image.min_short_side,
+  videoPx: MEDIA_LIMITS.video.min_short_side,
+};
+
+/** The limit a refusal names. */
+const reasonValues = (reason: PrecheckReason | 'full'): Record<string, number> => {
+  switch (reason) {
+    case 'imageSize':
+      return { mb: LIMIT_VALUES.imageMb };
+    case 'videoSize':
+      return { mb: LIMIT_VALUES.videoMb };
+    case 'videoDuration':
+      return { seconds: LIMIT_VALUES.seconds };
+    case 'imageResolution':
+      return { px: LIMIT_VALUES.imagePx };
+    case 'videoResolution':
+      return { px: LIMIT_VALUES.videoPx };
+    case 'full':
+      return { max: SLIDES_MAX };
+    default:
+      return {};
+  }
+};
+
+let localKeys = 0;
+const newKey = () => `local-${Date.now().toString(36)}-${(localKeys += 1)}`;
+
+/** True when focus sits in another text-like field, so a finished upload must not steal it. */
+const focusInField = (): boolean => {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || el === document.body) return false;
+  return el.isContentEditable || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && el.type !== 'file') || el.getAttribute('role') === 'combobox';
+};
+
+type View =
+  | { state: 'waiting' }
+  | { state: 'uploading'; percent: number }
+  | { state: 'processing' }
+  | { state: 'ready' }
+  | { state: 'failed'; message: string; canRetry: boolean };
+
+const CHIP: Record<View['state'], { tone: StatusTone; pulse?: boolean }> = {
+  waiting: { tone: 'neutral' },
+  uploading: { tone: 'info' },
+  processing: { tone: 'info', pulse: true },
+  ready: { tone: 'success' },
+  failed: { tone: 'danger' },
+};
+
+/**
+ * The slides (Story 3.6): a multi-file drop zone with a browser pre-check, the ordered slide list with thumbs, per-file
+ * upload state, alt text, Move earlier/later, drag (desktop) and Remove. Order changes are announced ("Slide 2 of 3")
+ * and focus stays on the moved slide. The list is the form's `slides`; uploads live in `uploads`.
+ */
+export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Uploads; savedSlides: readonly ContentSlide[]; readOnly: boolean }) {
+  const { messages } = useI18n();
+  const m = messages.content.editor;
+  const s = m.slides;
+  const { control, getValues, setValue, trigger, formState } = useFormContext<EditorValues>();
+  const slides = useWatch({ control, name: 'slides' });
+
+  const [announcement, setAnnouncement] = useState('');
+  const [rejections, setRejections] = useState<string[]>([]);
+  const pendingFocus = useRef<(() => HTMLElement | null) | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const zoneButton = () => document.querySelector<HTMLElement>(`#${fieldId('slides')}-zone button`);
+
+  useLayoutEffect(() => {
+    const target = pendingFocus.current?.();
+    if (pendingFocus.current && target) {
+      pendingFocus.current = null;
+      target.focus();
+    }
+  });
+
+  const announce = useCallback((text: string) => {
+    // Re-announce identical text: clear first, then set.
+    setAnnouncement('');
+    window.setTimeout(() => setAnnouncement(text), 30);
+  }, []);
+
+  const write = useCallback(
+    (next: SlideValue[]) => {
+      setValue('slides', next, { shouldDirty: true });
+      if (formState.errors.slides) void trigger('slides');
+    },
+    [formState.errors.slides, setValue, trigger],
+  );
+
+  const onFiles = async (files: File[]) => {
+    const checked = await Promise.all(files.map(async (file) => ({ file, result: await precheckFile(file) })));
+    const messagesOut: string[] = [];
+    let room = SLIDES_MAX - getValues('slides').length;
+    const accepted: Array<{ key: string; file: File; kind: SlideValue['kind']; contentType: Parameters<Uploads['add']>[0][number]['contentType'] }> = [];
+    for (const { file, result } of checked) {
+      if (!result.ok) {
+        messagesOut.push(fill(s.rejected[result.reason], { file: file.name, ...reasonValues(result.reason) }));
+        continue;
+      }
+      if (room <= 0) {
+        messagesOut.push(fill(s.rejected.full, { file: file.name, ...reasonValues('full') }));
+        continue;
+      }
+      room -= 1;
+      accepted.push({ key: newKey(), file, kind: result.kind, contentType: result.contentType });
+    }
+    setRejections(messagesOut);
+    if (accepted.length === 0) return;
+    write([...getValues('slides'), ...accepted.map((a) => ({ key: a.key, media_asset_id: null, kind: a.kind, alt_text: '' }))]);
+    uploads.add(accepted);
+  };
+
+  const move = (index: number, to: number, via: 'earlier' | 'later' | 'drag') => {
+    const list = [...getValues('slides')];
+    if (to < 0 || to >= list.length || to === index) return;
+    const [row] = list.splice(index, 1);
+    list.splice(to, 0, row!);
+    write(list);
+    announce(fill(s.position, { n: to + 1, total: list.length }));
+    if (via === 'drag') return;
+    // Focus the same button on the moved slide; at an end (that button is disabled) the other one.
+    const atEnd = via === 'earlier' ? to === 0 : to === list.length - 1;
+    const which = atEnd ? (via === 'earlier' ? 'later' : 'earlier') : via;
+    pendingFocus.current = () => listRef.current?.querySelector<HTMLElement>(`[data-slide-key="${row!.key}"] [data-move="${which}"]`) ?? null;
+  };
+
+  const remove = (index: number) => {
+    const list = [...getValues('slides')];
+    const [row] = list.splice(index, 1);
+    if (!row) return;
+    uploads.remove(row.key);
+    write(list);
+    announce(s.removed);
+    const next = list[index] ?? list[index - 1];
+    pendingFocus.current = () =>
+      (next ? listRef.current?.querySelector<HTMLElement>(`[data-slide-key="${next.key}"] [data-remove]`) : null) ?? zoneButton();
+  };
+
+  // Drag and drop (desktop): native HTML5, one slide at a time. Buttons do the same everywhere.
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const onDragStart = (e: DragEvent<HTMLLIElement>, key: string) => {
+    setDragKey(key);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', key);
+  };
+  const onDragOver = (e: DragEvent<HTMLLIElement>) => {
+    if (!dragKey) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+  const onDrop = (e: DragEvent<HTMLLIElement>, targetIndex: number) => {
+    if (!dragKey) return;
+    e.preventDefault();
+    const from = getValues('slides').findIndex((r) => r.key === dragKey);
+    setDragKey(null);
+    if (from >= 0) move(from, targetIndex, 'drag');
+  };
+
+  // A finished upload: the row gets its asset (unless inspection already failed it) and an image's alt field takes focus.
+  const onUploaded = useCallback(
+    (key: string, asset: MediaAsset) => {
+      const list = getValues('slides');
+      const index = list.findIndex((r) => r.key === key);
+      if (index < 0) return;
+      const row = list[index]!;
+      const next = { ...row, media_asset_id: asset.status === 'failed' ? null : asset.id };
+      setValue(`slides.${index}`, next, { shouldDirty: true });
+      if (next.media_asset_id && row.kind === 'image' && !focusInField()) {
+        pendingFocus.current = () => document.getElementById(slideAltId(next));
+      }
+    },
+    [getValues, setValue],
+  );
+  const { bind } = uploads;
+  useEffect(() => {
+    bind(onUploaded);
+  }, [bind, onUploaded]);
+
+  /** An unsaved asset that failed inspection is kept as a local Failed row and never sent. */
+  const onAssetFailed = useCallback(
+    (key: string, asset: MediaAsset) => {
+      uploads.setAsset(key, asset);
+      if (savedSlides.some((x) => x.media_asset_id === asset.id)) return;
+      const list = getValues('slides');
+      const index = list.findIndex((r) => r.key === key);
+      if (index >= 0 && list[index]!.media_asset_id === asset.id) setValue(`slides.${index}.media_asset_id`, null, { shouldDirty: true });
+    },
+    [getValues, savedSlides, setValue, uploads],
+  );
+
+  const retry = (row: SlideValue) => {
+    uploads.retry(row.key);
+  };
+
+  const full = slides.length >= SLIDES_MAX;
+  const savedByAsset = new Map(savedSlides.map((x) => [x.media_asset_id, x] as const));
+
+  return (
+    <Card>
+      <CardTitle>{s.heading}</CardTitle>
+      <p className="-mt-2 text-small text-muted-foreground">{fill(s.intro, LIMIT_VALUES)}</p>
+      <div id={`${fieldId('slides')}-zone`}>
+        <DropZone
+          onFiles={(files) => void onFiles(files)}
+          title={s.dropTitle}
+          hint={fill(s.dropHint, LIMIT_VALUES)}
+          buttonLabel={s.choose}
+          accept={ACCEPT}
+          multiple
+          disabled={readOnly || full}
+          disabledReason={full && !readOnly ? fill(s.full, LIMIT_VALUES) : undefined}
+          inputId={fieldId('slides')}
+        />
+      </div>
+      {rejections.length > 0 ? (
+        <Alert
+          tone="warning"
+          title={s.rejected.title}
+          description={
+            <ul className="flex flex-col gap-0.5">
+              {rejections.map((r, i) => (
+                <li key={i} dir="auto">
+                  {r}
+                </li>
+              ))}
+            </ul>
+          }
+          onDismiss={() => setRejections([])}
+          dismissLabel={s.rejected.dismiss}
+        />
+      ) : null}
+      {slides.length > 0 ? (
+        <ol ref={listRef} aria-label={s.listLabel} className="flex flex-col gap-3">
+          {slides.map((row, index) => (
+            <SlideItem
+              key={row.key}
+              row={row}
+              index={index}
+              total={slides.length}
+              upload={uploads.uploads.get(row.key) ?? null}
+              saved={row.media_asset_id ? (savedByAsset.get(row.media_asset_id) ?? null) : null}
+              readOnly={readOnly}
+              dragging={dragKey === row.key}
+              copy={s}
+              errorText={(key) => fill(m.errors[key], { n: index + 1, max: SLIDE_ALT_MAX })}
+              onMove={(to, via) => move(index, to, via)}
+              onRemove={() => remove(index)}
+              onRetry={() => retry(row)}
+              onAssetFailed={onAssetFailed}
+              onDragStart={(e) => onDragStart(e, row.key)}
+              onDragOver={onDragOver}
+              onDrop={(e) => onDrop(e, index)}
+              onDragEnd={() => setDragKey(null)}
+            />
+          ))}
+        </ol>
+      ) : null}
+      <p aria-live="polite" aria-atomic="true" data-slot="slides-announcer" className="sr-only">
+        {announcement}
+      </p>
+    </Card>
+  );
+}
+
+const failureMessage = (copy: SlidesCopy, reason: MediaFailureReason | null): string => (reason ? copy.failures[reason] : copy.failures.inspection_failed);
+
+/** The row's state: the upload while it runs, then the asset's status (polled while it waits for inspection). */
+function viewOf(copy: SlidesCopy, upload: UploadState | null, asset: Pick<MediaAsset, 'status' | 'failure_reason'> | null): View {
+  if (upload?.phase === 'waiting') return { state: 'waiting' };
+  if (upload?.phase === 'uploading') return { state: 'uploading', percent: Math.round(upload.progress * 100) };
+  if (upload?.phase === 'error') {
+    const e = upload.error;
+    const message = e?.kind === 'throttled' ? fill(copy.failures.throttled, { minutes: e.minutes }) : e?.kind === 'rejected' ? copy.failures.rejected : copy.failures.network;
+    return { state: 'failed', message, canRetry: true };
+  }
+  if (!asset) return { state: 'processing' };
+  if (asset.status === 'failed') return { state: 'failed', message: failureMessage(copy, asset.failure_reason), canRetry: Boolean(upload) };
+  return asset.status === 'processed' ? { state: 'ready' } : { state: 'processing' };
+}
+
+interface SlideItemProps {
+  row: SlideValue;
+  index: number;
+  total: number;
+  upload: UploadState | null;
+  saved: ContentSlide | null;
+  readOnly: boolean;
+  dragging: boolean;
+  copy: SlidesCopy;
+  errorText: (key: EditorErrorKey) => string;
+  onMove: (to: number, via: 'earlier' | 'later') => void;
+  onRemove: () => void;
+  onRetry: () => void;
+  onAssetFailed: (key: string, asset: MediaAsset) => void;
+  onDragStart: (e: DragEvent<HTMLLIElement>) => void;
+  onDragOver: (e: DragEvent<HTMLLIElement>) => void;
+  onDrop: (e: DragEvent<HTMLLIElement>) => void;
+  onDragEnd: () => void;
+}
+
+function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy, errorText, onMove, onRemove, onRetry, onAssetFailed, ...drag }: SlideItemProps) {
+  const { control } = useFormContext<EditorValues>();
+  const n = index + 1;
+  const [mountedAt] = useState(() => Date.now());
+
+  // The asset as last known: polled, else from the upload, else from the saved item.
+  const known = upload?.asset ?? saved ?? null;
+  const polled = useMediaAssetStatus(row.media_asset_id, { enabled: known?.status === 'uploaded', since: upload?.completedAt ?? mountedAt });
+  const asset = polled.data && polled.data.id === row.media_asset_id ? polled.data : (known as Pick<MediaAsset, 'status' | 'failure_reason'> | null);
+  const failedId = polled.data?.status === 'failed' ? polled.data.id : null;
+  useEffect(() => {
+    if (failedId && polled.data) onAssetFailed(row.key, polled.data);
+  }, [failedId]);
+
+  const view = viewOf(copy, upload, row.media_asset_id || upload ? asset : null);
+  const chip = CHIP[view.state];
+  const label =
+    view.state === 'uploading'
+      ? fill(copy.states.uploading, { percent: view.percent })
+      : view.state === 'failed'
+        ? copy.states.failed
+        : copy.states[view.state];
+  const altLabel = fill(copy.alt, { n });
+
+  return (
+    <li
+      data-slide-key={row.key}
+      draggable={!readOnly}
+      onDragStart={drag.onDragStart}
+      onDragOver={drag.onDragOver}
+      onDrop={drag.onDrop}
+      onDragEnd={drag.onDragEnd}
+      className={cn('flex gap-3 rounded-md border border-border bg-background p-3', dragging && 'opacity-50', view.state === 'failed' && 'border-destructive/40')}
+    >
+      <span className="hidden shrink-0 cursor-grab self-center text-muted-foreground md:inline-flex" title={fill(copy.drag, { n })} aria-hidden="true">
+        <Icon name="grip" className="size-4" />
+      </span>
+      <SlideThumb kind={row.kind} n={n} previewUrl={upload?.previewUrl ?? null} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-small font-semibold">{fill(copy.slideLabel, { n })}</span>
+          <span className="text-small text-muted-foreground">{copy.kinds[row.kind]}</span>
+          <StatusChip tone={chip.tone} pulse={chip.pulse}>
+            <span data-slide-state={view.state}>{label}</span>
+          </StatusChip>
+        </div>
+        {view.state === 'uploading' ? <Progress value={view.percent} label={fill(copy.slideLabel, { n })} valueText={`${view.percent}%`} /> : null}
+        {view.state === 'failed' ? (
+          <p className="text-small text-destructive-text" role="alert">
+            {view.message}
+            {!view.canRetry ? ` ${copy.failures.noFile}` : null}
+          </p>
+        ) : null}
+        <Controller
+          name={`slides.${index}.alt_text`}
+          control={control}
+          render={({ field, fieldState }) => {
+            const key = fieldState.error?.message as EditorErrorKey | undefined;
+            return (
+              <Field label={altLabel} htmlFor={slideAltId(row)} error={key ? errorText(key) : undefined} hint={row.kind === 'image' ? copy.altHint : copy.altVideoHint}>
+                <Input dir="auto" autoComplete="off" maxLength={SLIDE_ALT_MAX + 50} {...field} />
+              </Field>
+            );
+          }}
+        />
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <div className="flex gap-1">
+          <Button size="sm" variant="ghost" data-move="earlier" aria-label={fill(copy.moveEarlier, { n })} disabled={readOnly || index === 0} onClick={() => onMove(index - 1, 'earlier')}>
+            <Icon name="arrow-up" className="size-4" />
+          </Button>
+          <Button size="sm" variant="ghost" data-move="later" aria-label={fill(copy.moveLater, { n })} disabled={readOnly || index === total - 1} onClick={() => onMove(index + 1, 'later')}>
+            <Icon name="arrow-down" className="size-4" />
+          </Button>
+          <Button size="sm" variant="ghost" data-remove aria-label={fill(copy.remove, { n })} disabled={readOnly} onClick={onRemove}>
+            <Icon name="trash" className="size-4" />
+          </Button>
+        </div>
+        {view.state === 'failed' && view.canRetry && !readOnly ? (
+          <Button size="sm" variant="secondary" onClick={onRetry}>
+            <Icon name="retry" className="size-3.5" />
+            {copy.retry}
+          </Button>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+/** 9:16 thumb: the local file during the upload session, else the kind icon with the slide number (posters come in 3.8). */
+function SlideThumb({ kind, n, previewUrl }: { kind: SlideValue['kind']; n: number; previewUrl: string | null }) {
+  return (
+    <span className="relative flex aspect-[9/16] w-12 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted text-muted-foreground">
+      {previewUrl && kind === 'image' ? (
+        <img src={previewUrl} alt="" className="size-full object-cover" />
+      ) : previewUrl ? (
+        <video src={previewUrl} muted playsInline preload="metadata" className="size-full object-cover" aria-hidden="true" />
+      ) : (
+        <span className="flex flex-col items-center gap-0.5" aria-hidden="true">
+          <Icon name={kind} className="size-4" />
+          <span className="text-small tabular-nums">{n}</span>
+        </span>
+      )}
+    </span>
+  );
+}

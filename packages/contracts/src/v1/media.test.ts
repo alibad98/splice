@@ -4,6 +4,7 @@ import {
   MEDIA_FAILURE_REASONS,
   MEDIA_INSPECT_QUEUE,
   MEDIA_LIMITS,
+  MEDIA_NOT_ATTACHABLE,
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
   MEDIA_UPLOAD_EXPIRED,
@@ -22,8 +23,14 @@ const sha = 'ab'.repeat(32);
 
 describe('media limits', () => {
   it('allow JPG/PNG/WebP images up to 10 MB and MP4/MOV/WebM videos up to 200 MB; never SVG', () => {
-    expect(MEDIA_LIMITS.image).toEqual({ content_types: ['image/jpeg', 'image/png', 'image/webp'], max_bytes: 10 * 1024 * 1024 });
-    expect(MEDIA_LIMITS.video).toEqual({ content_types: ['video/mp4', 'video/quicktime', 'video/webm'], max_bytes: 200 * 1024 * 1024 });
+    expect(MEDIA_LIMITS.image).toEqual({ content_types: ['image/jpeg', 'image/png', 'image/webp'], max_bytes: 10 * 1024 * 1024, min_short_side: 1080 });
+    expect(MEDIA_LIMITS.video).toEqual({
+      content_types: ['video/mp4', 'video/quicktime', 'video/webm'],
+      max_bytes: 200 * 1024 * 1024,
+      min_short_side: 720,
+      max_duration_seconds: 90,
+    });
+    expect(MEDIA_NOT_ATTACHABLE).toBe('media-not-attachable');
     expect(isAllowedMediaType('image', 'image/png')).toBe(true);
     expect(isAllowedMediaType('image', 'image/svg+xml')).toBe(false);
     expect(isAllowedMediaType('image', 'video/mp4')).toBe(false);

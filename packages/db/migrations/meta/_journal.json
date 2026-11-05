@@ -134,6 +134,13 @@
       "when": 1761696000000,
       "tag": "0018_media_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1761782400000,
+      "tag": "0019_slides",
+      "breakpoints": true
     }
   ]
 }

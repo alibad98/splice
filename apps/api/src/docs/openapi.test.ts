@@ -148,6 +148,17 @@ describe('API docs', () => {
     expect(JSON.stringify(doc.components.schemas.Product)).toContain('has_required_options');
   });
 
+  it('documents slides on create/edit, the ContentSlide model and the slide problems (Story 3.6)', () => {
+    const editPath = Object.keys(doc.paths).find((p) => p.startsWith('/v1/content/') && doc.paths[p]!.patch)!;
+    for (const o of [op(editPath, 'patch'), op('/v1/content', 'post')]) {
+      expect(String(o.description)).toContain('media-not-attachable');
+      expect(String(o.description)).toContain('slide-alt-text-required');
+    }
+    expect(JSON.stringify(doc.components.schemas.ContentUpdateRequest)).toContain('media_asset_id');
+    expect(JSON.stringify(doc.components.schemas.ContentItem)).toContain('#/components/schemas/ContentSlide"');
+    expect(JSON.stringify(doc.components.schemas.ContentSlide)).toContain('alt_text');
+  });
+
   it('documents the media upload routes, their models and problems (Story 3.5)', () => {
     const issue = op('/v1/media/uploads', 'post');
     expect(Object.keys(issue.responses)).toEqual(expect.arrayContaining(['201', '422', '429']));

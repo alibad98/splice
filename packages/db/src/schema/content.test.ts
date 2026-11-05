@@ -11,7 +11,7 @@ import * as schema from './index.js';
 
 const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
 const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_content:it_content_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['content_items', 'content_product_links'];
+const TENANT_TABLES = ['content_items', 'content_product_links', 'slides'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -58,6 +58,16 @@ describe('content tables', () => {
           )
         ).rows[0]!.id,
     });
+    registerTenantTable({
+      table: 'slides',
+      seed: async (c: pg.PoolClient, s: string) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, gen_random_uuid(), gen_random_uuid(), 'image', 0) returning id::text as id`,
+            [s],
+          )
+        ).rows[0]!.id,
+    });
     expect(findUnregisteredTenantTables(TENANT_TABLES)).toEqual([]);
     expect(registeredTenantTables().some((r) => r.table === 'content_items')).toBe(true);
   });
@@ -95,5 +105,21 @@ describe('content_product_links', () => {
       code: '23505',
     });
     await expect(admin.query(`update content_product_links set product_id = null where store_id = $1 and content_id = $2`, [s, content])).resolves.toMatchObject({ rowCount: 1 });
+  });
+});
+
+describe('slides', () => {
+  it('keeps one live slide per asset per item, allows soft-deleted duplicates and checks kind/position', async () => {
+    const s = randomUUID();
+    const content = randomUUID();
+    const asset = randomUUID();
+    const ins = (kind = 'image', position = 0) =>
+      admin.query(`insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, $2, $3, $4, $5)`, [s, content, asset, kind, position]);
+    await ins();
+    await expect(ins()).rejects.toMatchObject({ code: '23505' });
+    await admin.query(`update slides set deleted_at = now() where store_id = $1 and content_id = $2`, [s, content]);
+    await expect(ins()).resolves.toBeDefined();
+    await expect(admin.query(`insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, $2, gen_random_uuid(), 'gif', 0)`, [s, content])).rejects.toMatchObject({ code: '23514' });
+    await expect(admin.query(`insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, $2, gen_random_uuid(), 'video', -1)`, [s, content])).rejects.toMatchObject({ code: '23514' });
   });
 });

@@ -4,7 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
-import { CONTENT_CTA_URL_NOT_STORE_DOMAIN, CONTENT_PRODUCT_NOT_LINKABLE, type ContentItem, type ContentProductSummary } from '@slips/contracts';
+import {
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CONTENT_PRODUCT_NOT_LINKABLE,
+  CONTENT_SLIDE_ALT_REQUIRED,
+  MEDIA_NOT_ATTACHABLE,
+  SLIDE_ALT_MAX,
+  type ContentItem,
+  type ContentProductSummary,
+} from '@slips/contracts';
 import { Alert, Button, ErrorSummary, Icon, cn, toast } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
 import { ApiError } from '../../../lib/api/fetch';
@@ -19,9 +27,11 @@ import { CtaCard } from './CtaCard';
 import { FormatTitleCard } from './FormatTitleCard';
 import { PreviewPlaceholder } from './PreviewPlaceholder';
 import { ProductCard } from './ProductCard';
-import { EDITOR_FIELDS, editorSchema, fieldId, fromItem, newItemValues, patchOf, saveKey, toInput, type EditorErrorKey, type EditorValues } from './form';
+import { SlidesCard } from './SlidesCard';
+import { EDITOR_FIELDS, editorSchema, fieldId, fromItem, newItemValues, patchOf, saveKey, slideAltId, toInput, type EditorErrorKey, type EditorValues } from './form';
 import { useAutosave } from './use-autosave';
 import { useLeaveGuard } from './use-leave-guard';
+import { useUploads } from './use-uploads';
 
 const PREVIEW_ID = 'content-preview';
 const NO_DOMAINS: readonly string[] = [];
@@ -30,8 +40,9 @@ const NO_DOMAINS: readonly string[] = [];
 class FieldRejected extends Error {}
 
 /**
- * Create and edit one Story or Reel (Stories 3.3, 3.4): format and title, the linked product, CTA, and a preview placeholder. Drafts (and a new
- * item, once it has a title) autosave; other statuses save with "Save changes"; archived items are read-only.
+ * Create and edit one Story or Reel (Stories 3.3, 3.4, 3.6): format and title, slides, the linked product, CTA, and a preview placeholder. Drafts (and a new
+ * item, once it has a title) autosave; other statuses save with "Save changes"; archived items are read-only. Files can
+ * be dropped before the title: they upload at once and their slides are sent with the first create.
  * Without `item` the first save creates the Draft and the URL becomes `/content/{id}` without a remount.
  */
 export function ContentEditor({ item }: { item?: ContentItem }) {
@@ -42,11 +53,12 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const queryClient = useQueryClient();
   const { mutateAsync: create } = useCreateContent();
   const { mutateAsync: update } = useUpdateContent();
+  const uploads = useUploads();
 
   const schema = useMemo(() => editorSchema(domains), [domains]);
   const [initialValues] = useState<EditorValues>(() => (item ? fromItem(item) : newItemValues(m.cta.picks.addToCart)));
   const form = useForm<EditorValues>({ resolver: zodResolver(schema), defaultValues: initialValues, mode: 'onTouched', reValidateMode: 'onChange' });
-  const { getValues, handleSubmit, reset, setError, setValue, watch } = form;
+  const { getValues, handleSubmit, reset, setError, setValue, trigger, watch } = form;
 
   // The API's latest answer for this item; null until a new item is first saved.
   const [saved, setSaved] = useState<ContentItem | null>(item ?? null);
@@ -61,8 +73,12 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
     if (!item || persisting.current || item.updated_at === savedRef.current?.updated_at) return;
     savedRef.current = item;
     setSaved(item);
-    reset(fromItem(item));
-  }, [item, reset]);
+    // Keep rows of uploads that the item does not have yet (still uploading, or uploaded but not saved), after its slides.
+    const next = fromItem(item);
+    const savedAssets = new Set(item.slides.map((s) => s.media_asset_id));
+    const pending = getValues('slides').filter((s) => uploads.uploads.has(s.key) && !(s.media_asset_id && savedAssets.has(s.media_asset_id)));
+    reset({ ...next, slides: [...next.slides, ...pending] });
+  }, [item, reset, getValues, uploads.uploads]);
 
   const values = watch();
   const currentKey = saveKey(values);
@@ -90,6 +106,15 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         setError('cta_url', { type: 'server', message: 'urlDomain' satisfies EditorErrorKey }, { shouldFocus: true });
         return new FieldRejected();
       }
+      if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_SLIDE_ALT_REQUIRED) {
+        void trigger('slides');
+        return new FieldRejected();
+      }
+      if (err instanceof ApiError && err.status === 422 && err.type === MEDIA_NOT_ATTACHABLE) {
+        // A new slide's file failed its checks between upload and save: say so; the slides show it as Failed once polled.
+        toast({ title: m.slides.notAttachable, tone: 'danger' });
+        return err;
+      }
       if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_PRODUCT_NOT_LINKABLE) {
         // The product went away between search and save: say so, put back the product the item links now (the refetch
         // may not reset the form when nothing else changed), and reload the item.
@@ -104,7 +129,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
       }
       return err;
     },
-    [m.product.deleted.title, m.staleItem, queryClient, setError, setValue],
+    [m.product.deleted.title, m.slides.notAttachable, m.staleItem, queryClient, setError, setValue, trigger],
   );
 
   /** Send the current values: POST the first time, then PATCH only what changed. */
@@ -142,6 +167,13 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const summaryItems =
     submitCount > 0
       ? EDITOR_FIELDS.flatMap((f) => {
+          if (f === 'slides') {
+            // One entry per slide alt field with an error, in slide order.
+            return values.slides.flatMap((slide, i) => {
+              const key = errors.slides?.[i]?.alt_text?.message as EditorErrorKey | undefined;
+              return key ? [{ id: slideAltId(slide), label: fill(m.errors[key], { n: i + 1, max: SLIDE_ALT_MAX }) }] : [];
+            });
+          }
           const key = errors[f]?.message as EditorErrorKey | undefined;
           return key ? [{ id: fieldId(f), label: fill(m.errors[key], { domain: domains[0] ?? '' }) }] : [];
         })
@@ -165,7 +197,8 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
     }
   }, onInvalid);
 
-  useLeaveGuard(!readOnly && (dirty || autosave.failed), m.leave);
+  // Uploads still running count as unsaved work too.
+  useLeaveGuard(!readOnly && (dirty || autosave.failed || uploads.active), m.leave);
 
   const [previewOpen, setPreviewOpen] = useState(false);
   const title = values.title;
@@ -203,6 +236,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
           <form id="content-editor-form" noValidate onSubmit={(e) => void onSubmit(e)} className={cn('flex-col gap-6', previewOpen ? 'hidden lg:flex' : 'flex')}>
             <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-6">
               <FormatTitleCard autoFocusTitle={!item} />
+              <SlidesCard uploads={uploads} savedSlides={saved?.slides ?? []} readOnly={readOnly} />
               <ProductCard product={product} onPicked={setPicked} />
               <CtaCard domains={domains} />
             </fieldset>

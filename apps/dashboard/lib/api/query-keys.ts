@@ -17,4 +17,9 @@ export const queryKeys = {
     list: (query: ContentListQuery) => [...queryKeys.content.lists(), query] as const,
     item: (id: string) => [...queryKeys.content.all, 'item', id] as const,
   },
+  media: {
+    all: ['media'] as const,
+    /** One asset's status, polled while it is being inspected (Story 3.6). */
+    asset: (id: string) => [...queryKeys.media.all, 'asset', id] as const,
+  },
 };

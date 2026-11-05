@@ -71,7 +71,7 @@ function unconfiguredCipher(): TokenCipher {
 }
 
 /** S3 storage when the endpoint and keys are set (required in production); otherwise a storage that fails on use. */
-function buildStorage(env: HttpEnv): ObjectStorage {
+function buildStorage(env: HttpEnv, telemetry: Telemetry): ObjectStorage {
   if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY || !env.S3_SECRET_KEY) return unconfiguredStorage();
   return new S3ObjectStorage({
     endpoint: env.S3_ENDPOINT,
@@ -80,6 +80,8 @@ function buildStorage(env: HttpEnv): ObjectStorage {
     accessKeyId: env.S3_ACCESS_KEY,
     secretAccessKey: env.S3_SECRET_KEY,
     forcePathStyle: env.S3_FORCE_PATH_STYLE ?? true,
+    corsOrigins: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+    warn: (message, fields) => telemetry.log.warn(message, fields),
   });
 }
 
@@ -128,7 +130,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
   const recorder = env.NODE_ENV === 'production' ? undefined : createWebhookRecorder(env.WEBHOOK_RECORD_DIR);
   const dashboardUrl = env.DASHBOARD_URL ?? 'http://localhost:3000';
   const mailer = overrides.mailer ?? new ConsoleMailer(telemetry);
-  const storage = overrides.storage ?? buildStorage(env);
+  const storage = overrides.storage ?? buildStorage(env, telemetry);
   return {
     telemetry,
     pool,

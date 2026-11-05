@@ -8,11 +8,14 @@ export const MediaKind = z.enum(MEDIA_KINDS);
 
 const MB = 1024 * 1024;
 
-/** Allowed content types and the size limit per kind; the API, the worker and the uploader (Story 3.6) share them. */
+/**
+ * Allowed content types, the size limit, the minimum shorter side (px) and, for videos, the maximum duration per kind. The
+ * API, the worker and the uploader's browser pre-check (Story 3.6) share them.
+ */
 export const MEDIA_LIMITS = {
-  image: { content_types: ['image/jpeg', 'image/png', 'image/webp'], max_bytes: 10 * MB },
-  video: { content_types: ['video/mp4', 'video/quicktime', 'video/webm'], max_bytes: 200 * MB },
-} as const satisfies Record<MediaKind, { content_types: readonly string[]; max_bytes: number }>;
+  image: { content_types: ['image/jpeg', 'image/png', 'image/webp'], max_bytes: 10 * MB, min_short_side: 1080 },
+  video: { content_types: ['video/mp4', 'video/quicktime', 'video/webm'], max_bytes: 200 * MB, min_short_side: 720, max_duration_seconds: 90 },
+} as const satisfies Record<MediaKind, { content_types: readonly string[]; max_bytes: number; min_short_side: number; max_duration_seconds?: number }>;
 
 export type MediaContentType = (typeof MEDIA_LIMITS)[MediaKind]['content_types'][number];
 
@@ -46,6 +49,8 @@ export const MEDIA_TOO_LARGE = 'media-too-large';
 export const MEDIA_UPLOAD_RATE_LIMITED = 'media-upload-rate-limited';
 export const MEDIA_UPLOAD_MISSING = 'media-upload-missing';
 export const MEDIA_UPLOAD_EXPIRED = 'media-upload-expired';
+/** A slide references a media asset that is unknown to the store or `failed` (422, Story 3.6). */
+export const MEDIA_NOT_ATTACHABLE = 'media-not-attachable';
 
 /** Lower-case hex SHA-256 of the file. */
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, 'sha256 must be 64 lower-case hex characters');

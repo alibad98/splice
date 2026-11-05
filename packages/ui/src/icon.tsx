@@ -159,6 +159,44 @@ const icons = {
   },
   // Door on the inline start, arrow leaving towards the inline end; mirrors in RTL.
   logout: { mirror: true, path: <path d="M10 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4M15 16l4-4-4-4M19 12H9" /> },
+  // Media and slide actions (Story 3.6). Vertical moves and media marks never mirror.
+  upload: { mirror: false, path: <path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" /> },
+  image: {
+    mirror: false,
+    path: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="3" />
+        <circle cx="9" cy="10" r="1.75" />
+        <path d="m21 16-5-5-9 9" />
+      </>
+    ),
+  },
+  video: {
+    mirror: false,
+    path: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="3" />
+        <path d="M10 9v6l5-3z" />
+      </>
+    ),
+  },
+  'arrow-up': { mirror: false, path: <path d="M12 19V5M6 11l6-6 6 6" /> },
+  'arrow-down': { mirror: false, path: <path d="M12 5v14M6 13l6 6 6-6" /> },
+  trash: { mirror: false, path: <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5" /> },
+  grip: {
+    mirror: false,
+    path: (
+      <>
+        <circle cx="9" cy="6" r="1" />
+        <circle cx="15" cy="6" r="1" />
+        <circle cx="9" cy="12" r="1" />
+        <circle cx="15" cy="12" r="1" />
+        <circle cx="9" cy="18" r="1" />
+        <circle cx="15" cy="18" r="1" />
+      </>
+    ),
+  },
+  retry: { mirror: false, path: <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" /> },
   // Panel with its rail on the inline start (the sidebar toggle).
   sidebar: {
     mirror: true,

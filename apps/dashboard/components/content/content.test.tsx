@@ -32,6 +32,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   auto_publish: false,
   first_published_at: null,
   product: null,
+  slides: [],
   created_at: '2026-11-01T10:00:00.000Z',
   updated_at: '2026-11-01T10:00:00.000Z',
   ...over,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Availability } from './catalog.js';
 
 /** Content item lifecycle statuses (Story 3.1). There is no `ready`: passing processing without auto-publish returns to `draft`. */
 export const CONTENT_STATUSES = ['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated'] as const;
@@ -115,6 +116,9 @@ export const CONTENT_INVALID_TRANSITION = 'invalid-transition';
 /** Problem `type` when an open-link CTA URL is not on one of the store's synced domains (422). */
 export const CONTENT_CTA_URL_NOT_STORE_DOMAIN = 'cta-url-not-store-domain';
 
+/** Problem `type` when the linked `product_id` is unknown to the store's catalog or deleted there (422, Story 3.4). */
+export const CONTENT_PRODUCT_NOT_LINKABLE = 'product-not-linkable';
+
 /** The editable fields of a content item, without the cross-field rule (see `ctaUrlMatchesAction`). */
 export const ContentFields = z.strictObject({
   title: z.string().min(1).max(CONTENT_TITLE_MAX),
@@ -123,6 +127,8 @@ export const ContentFields = z.strictObject({
   cta_action: CtaAction,
   cta_url: z.url({ protocol: /^https?$/ }).max(CTA_URL_MAX).nullable().optional(),
   cta_style: CtaStyle.nullable().optional(),
+  /** The one linked catalog product (Story 3.4); `null` unlinks. */
+  product_id: z.uuid().nullable().optional(),
 });
 export type ContentFields = z.infer<typeof ContentFields>;
 
@@ -184,6 +190,23 @@ export function isStoreDomainUrl(url: string, domains: readonly string[]): boole
   });
 }
 
+/**
+ * The linked product as the catalog has it now (Story 3.4). `deleted`: the product was deleted in the store (catalog
+ * tombstone); the link is kept so the item can be flagged, and clears itself if the product is re-created.
+ */
+export const ContentProductSummary = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  image_url: z.string().nullable(),
+  price_minor: z.number().int().min(0),
+  sale_price_minor: z.number().int().min(0).nullable(),
+  currency: z.string().length(3),
+  availability: Availability,
+  has_required_options: z.boolean(),
+  deleted: z.boolean(),
+});
+export type ContentProductSummary = z.infer<typeof ContentProductSummary>;
+
 /** One content item returned by the merchant content API. */
 export const ContentItem = z.object({
   v: z.literal(1).default(1),
@@ -199,6 +222,8 @@ export const ContentItem = z.object({
   reactivate_to: ContentStatus.nullable(),
   auto_publish: z.boolean(),
   first_published_at: z.iso.datetime().nullable(),
+  /** The linked product, or `null` when none is linked. */
+  product: ContentProductSummary.nullable(),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 });

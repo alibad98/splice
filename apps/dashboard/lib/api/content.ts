@@ -60,12 +60,16 @@ export function useContentItem(id: string | null) {
   });
 }
 
-/** After a save: the item cache holds the API answer and every list (and its counts) is refetched. */
+/**
+ * After a save: the item cache holds the API answer and every list (and its counts) is refetched. When the product link
+ * was sent, the Products page's linked-content counts are refetched too (Story 3.4).
+ */
 function useStoreSavedItem() {
   const queryClient = useQueryClient();
-  return (item: ContentItem) => {
+  return (item: ContentItem, sent: { product_id?: unknown }) => {
     queryClient.setQueryData(queryKeys.content.item(item.id), item);
     void queryClient.invalidateQueries({ queryKey: queryKeys.content.lists() });
+    if (sent.product_id !== undefined) void queryClient.invalidateQueries({ queryKey: queryKeys.catalog.productsAll() });
   };
 }
 
@@ -75,7 +79,7 @@ export function useCreateContent() {
   const store = useStoreSavedItem();
   return useMutation({
     mutationFn: (input: ContentCreateInput) => (client ? sendJson(client, 'POST', '/v1/content', input, ContentItem) : Promise.reject(new ApiError(0))),
-    onSuccess: store,
+    onSuccess: (item, input) => store(item, { product_id: input.product_id ?? undefined }),
   });
 }
 
@@ -85,7 +89,7 @@ export function useUpdateContent() {
   const store = useStoreSavedItem();
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: ContentUpdateInput }) => (client ? sendJson(client, 'PATCH', itemPath(id), patch, ContentItem) : Promise.reject(new ApiError(0))),
-    onSuccess: store,
+    onSuccess: (item, { patch }) => store(item, patch),
   });
 }
 

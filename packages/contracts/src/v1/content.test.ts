@@ -21,7 +21,11 @@ import {
   DEFAULT_CTA_STYLE,
   ctaUrlMatchesAction,
   isStoreDomainUrl,
+  CONTENT_PRODUCT_NOT_LINKABLE,
+  ContentFields,
+  ContentProductSummary,
 } from './content.js';
+import { EVENT_CATALOG } from './events.js';
 
 const item = {
   id: '019a473a-0000-7000-8000-000000000001',
@@ -36,6 +40,7 @@ const item = {
   reactivate_to: null,
   auto_publish: false,
   first_published_at: null,
+  product: null,
   created_at: '2026-11-03T10:00:00.000Z',
   updated_at: '2026-11-03T10:00:00.000Z',
 };
@@ -204,5 +209,46 @@ describe('content editing contracts (Story 3.3)', () => {
     expect(isStoreDomainUrl('https://demo.salla.sa/x', [])).toBe(false);
     expect(isStoreDomainUrl('https://shop.example.com/x', ['https://shop.example.com/', 'other.sa'])).toBe(true);
     expect(isStoreDomainUrl('https://shop.example.com/x', ['', ' '])).toBe(false);
+  });
+});
+
+describe('content product link contracts (Story 3.4)', () => {
+  const productId = '019a473a-0000-7000-8000-0000000000aa';
+  const summary = {
+    id: productId,
+    name: 'زيت العود',
+    image_url: null,
+    price_minor: 15000,
+    sale_price_minor: null,
+    currency: 'SAR',
+    availability: 'out_of_stock',
+    has_required_options: true,
+    deleted: false,
+  };
+
+  it('accepts product_id (uuid or null) on create and update, and nothing else', () => {
+    const base = { title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart' };
+    expect(ContentCreateInput.parse({ ...base, product_id: productId }).product_id).toBe(productId);
+    expect(ContentCreateInput.safeParse({ ...base, product_id: null }).success).toBe(true);
+    expect(ContentCreateInput.safeParse({ ...base, product_id: 'p1' }).success).toBe(false);
+    expect(ContentUpdateInput.parse({ product_id: null })).toEqual({ product_id: null });
+    expect(ContentUpdateInput.safeParse({ product_id: productId }).success).toBe(true);
+    expect(ContentUpdateInput.safeParse({ product_id: 42 }).success).toBe(false);
+  });
+
+  it('carries the product summary (or null) on a ContentItem and the problem slug', () => {
+    expect(CONTENT_PRODUCT_NOT_LINKABLE).toBe('product-not-linkable');
+    expect(ContentItem.parse({ ...item, product: summary }).product).toEqual(ContentProductSummary.parse(summary));
+    expect(ContentItem.safeParse({ ...item, product: { ...summary, deleted: undefined } }).success).toBe(false);
+    expect(ContentItem.safeParse({ ...item, product: { ...summary, availability: 'many' } }).success).toBe(false);
+    const withoutProduct: Record<string, unknown> = { ...item };
+    delete withoutProduct.product;
+    expect(ContentItem.safeParse(withoutProduct).success).toBe(false);
+  });
+
+  it('lets content.item.edited name product_id as a changed field', () => {
+    expect(ContentFields.keyof().options).toContain('product_id');
+    const payload = { v: 1, store_id: productId, content_id: item.id, status: 'draft', changed: ['product_id'] };
+    expect(EVENT_CATALOG['content.item.edited'].schema.safeParse(payload).success).toBe(true);
   });
 });

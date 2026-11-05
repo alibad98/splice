@@ -44,6 +44,8 @@ export const ProductRow = z.object({
   currency: z.string().length(3),
   tax_inclusive: z.boolean(),
   availability: Availability,
+  /** The product has options the shopper must choose before adding it to a cart (Story 3.4: CTA shows "View options"). */
+  has_required_options: z.boolean(),
   linked_content_count: z.number().int().min(0),
   /** Null until attribution exists (Epic 6): the dashboard shows "—". */
   attributed_orders: z.number().int().min(0).nullable(),

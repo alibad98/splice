@@ -2,6 +2,8 @@ import {
   AUTH_PROBLEM_CODES,
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_INVALID_TRANSITION,
+  CONTENT_PRODUCT_NOT_LINKABLE,
+  ContentProductSummary,
   CatalogSyncStatus,
   CategoryListResponse,
   ConnectionStatus,
@@ -86,7 +88,8 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [ProductListResponse, 'ProductPage', `One page of products: \`items\` (at most \`page_size\`), \`total\` matching products, \`page\` (1-based) and \`page_size\`.`],
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
-  [ContentItem, 'ContentItem', 'One content item (Story or Reel) and its lifecycle status.'],
+  [ContentProductSummary, 'ContentProduct', 'The product linked to a content item, as the catalog has it now. `deleted`: the product was deleted in the store (the item shows "Linked product deleted"); it clears if the product is re-created.'],
+  [ContentItem, 'ContentItem', 'One content item (Story or Reel), its lifecycle status and its linked `product` (or null).'],
   [ContentListResponse, 'ContentPage', 'One page of content items for a tab: `items` (at most `page_size`), `total` matching items, `page`, `page_size`, and `counts` for every tab (counts ignore search and page).'],
 ];
 
@@ -100,8 +103,8 @@ const inputs: Array<[z.ZodType, string, string]> = [
   [ResetPasswordInput, 'ResetPasswordRequest', 'New password with the token from `verify-otp`.'],
   [SetPasswordInput, 'SetPasswordRequest', "Owner's first password with the token from `verify-otp`."],
   [ResendOtpInput, 'ResendOtpRequest', 'Send the code again.'],
-  [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA.'],
-  [ContentUpdateInput, 'ContentUpdateRequest', 'Any non-empty subset of the editable fields (title, format, CTA). The open-link rule applies to the merged item.'],
+  [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA and, optionally, the one linked product (`product_id`).'],
+  [ContentUpdateInput, 'ContentUpdateRequest', 'Any non-empty subset of the editable fields (title, format, CTA, `product_id`; `null` unlinks). The open-link rule applies to the merged item.'],
 ];
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -177,7 +180,8 @@ const productExample = {
       currency: 'SAR',
       tax_inclusive: true,
       availability: 'low',
-      linked_content_count: 0,
+      has_required_options: false,
+      linked_content_count: 2,
       attributed_orders: null,
     },
   ],
@@ -265,7 +269,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content',
     tag: 'Content',
     summary: 'Create a content item',
-    description: `Creates a draft Story or Reel with its title, format and CTA, and emits \`content.item.created\` in the same transaction. Invalid bodies answer 400 \`invalid_body\`. An open-link \`cta_url\` must be http(s) on one of the store's synced domains (or a subdomain of one), else 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`.`,
+    description: `Creates a draft Story or Reel with its title, format and CTA, and emits \`content.item.created\` in the same transaction. Invalid bodies answer 400 \`invalid_body\`. An open-link \`cta_url\` must be http(s) on one of the store's synced domains (or a subdomain of one), else 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`. An optional \`product_id\` links one catalog product; one the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written.`,
     auth: 'merchant',
     body: ContentCreateInput,
     success: { status: 201, description: 'Created draft content item', body: ContentItem },
@@ -276,7 +280,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content/:id',
     tag: 'Content',
     summary: 'Edit a content item',
-    description: `Changes the title, format and CTA of a live item of the store, keeps its status, and emits \`content.item.edited\` in the same transaction (nothing is written when no field changes). Moving \`cta_action\` off \`open_link\` clears \`cta_url\`. Invalid bodies, or a merged item that breaks the open-link rule, answer 400 \`invalid_body\`; archived items answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`; an off-domain \`cta_url\` answers 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`. Unknown, deleted or other-store items answer 404.`,
+    description: `Changes the title, format, CTA and linked product (\`product_id\`, one per item; \`null\` unlinks) of a live item of the store, keeps its status, and emits \`content.item.edited\` in the same transaction (nothing is written when no field changes). Moving \`cta_action\` off \`open_link\` clears \`cta_url\`. Invalid bodies, or a merged item that breaks the open-link rule, answer 400 \`invalid_body\`; archived items answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`; an off-domain \`cta_url\` answers 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`; a \`product_id\` the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. Unknown, deleted or other-store items answer 404.`,
     auth: 'merchant',
     body: ContentUpdateInput,
     success: { status: 200, description: 'Edited content item', body: ContentItem },
@@ -375,7 +379,7 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 - Password sign-in: ${AUTH_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Queries: \`invalid_query\`
 - Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)
-- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`)`;
+- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`), \`product_not_linkable\` (422, problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\`)`;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',

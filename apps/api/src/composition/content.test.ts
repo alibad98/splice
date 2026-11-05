@@ -11,11 +11,13 @@ import {
   CONTENT_EVENT_NAMES,
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_INVALID_TRANSITION,
+  CONTENT_PRODUCT_NOT_LINKABLE,
   CONTENT_STATUSES,
   CONTENT_TRANSITIONS,
   ContentItem,
   ContentListResponse,
   EVENT_QUEUE,
+  ProductListResponse,
   canTransition,
   type ContentAction,
   type ContentStatus,
@@ -689,12 +691,168 @@ describe('merchant content API & I/O matrix', () => {
     }
     expect((await fetch(`${base}/v1/content`)).status).toBe(401);
   });
+
+  // ---- Story 3.4: product links ----
+  const seedProduct = async (
+    storeId: string,
+    over: { name?: string; availability?: string; hasRequiredOptions?: boolean; deleted?: boolean; visible?: boolean } = {},
+  ): Promise<string> =>
+    (
+      await admin.query<{ id: string }>(
+        `insert into products (store_id, platform, external_id, name, image_url, price_minor, sale_price_minor, currency, tax_inclusive, availability, has_required_options, visible, source_updated_at, deleted_at)
+         values ($1, 'salla', $2, $3, 'https://cdn.example.com/p.jpg', 15000, null, 'SAR', true, $4, $5, $6, now(), case when $7::boolean then now() else null end) returning id::text as id`,
+        [storeId, `ext-${randomUUID()}`, over.name ?? 'Oud oil', over.availability ?? 'available', over.hasRequiredOptions ?? false, over.visible ?? true, over.deleted ?? false],
+      )
+    ).rows[0]!.id;
+  const linkRow = async (contentId: string) =>
+    (await admin.query<{ product_id: string | null }>('select product_id::text as product_id from content_product_links where content_id = $1', [contentId])).rows;
+  const linkedCount = async (token: string, productId: string) => {
+    const page = ProductListResponse.parse((await request(token, 'GET', '/v1/products?page_size=50')).body);
+    return page.items.find((p) => p.id === productId)?.linked_content_count;
+  };
+
+  it('Link / Unlink (Story 3.4): PATCH product_id sets item.product, emits content.item.edited with product_id, and the Products count follows; unlink keeps the row with no product', async () => {
+    const { storeId, token } = await installedStore();
+    const productId = await seedProduct(storeId, { name: 'زيت العود' });
+    const draft = await seedItemInStatus(storeId, 'draft');
+    expect(await linkedCount(token, productId)).toBe(0);
+
+    const linked = await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: productId });
+    expect(linked.res.status).toBe(200);
+    const item = ContentItem.parse(linked.body);
+    expect(item.status).toBe('draft');
+    expect(item.product).toEqual({
+      id: productId,
+      name: 'زيت العود',
+      image_url: 'https://cdn.example.com/p.jpg',
+      price_minor: 15000,
+      sale_price_minor: null,
+      currency: 'SAR',
+      availability: 'available',
+      has_required_options: false,
+      deleted: false,
+    });
+    expect((await eventsForContent(storeId, draft.id)).at(-1)).toMatchObject({ name: 'content.item.edited', payload: { status: 'draft', changed: ['product_id'] } });
+    expect(await linkedCount(token, productId)).toBe(1);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${draft.id}`)).body).product?.id).toBe(productId);
+    const listed = ContentListResponse.parse((await request(token, 'GET', '/v1/content')).body);
+    expect(listed.items.find((i) => i.id === draft.id)?.product?.name).toBe('زيت العود');
+
+    // Linking the same product again changes nothing.
+    const eventsBefore = (await eventsForContent(storeId, draft.id)).length;
+    await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: productId });
+    expect(await eventsForContent(storeId, draft.id)).toHaveLength(eventsBefore);
+
+    const unlinked = await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: null });
+    expect(unlinked.res.status).toBe(200);
+    expect(ContentItem.parse(unlinked.body).product).toBeNull();
+    expect(await linkRow(draft.id)).toEqual([{ product_id: null }]);
+    expect(await linkedCount(token, productId)).toBe(0);
+    expect((await eventsForContent(storeId, draft.id)).at(-1)).toMatchObject({ payload: { changed: ['product_id'] } });
+  });
+
+  it('Link on create, out of stock and required options: POST with product_id links it; the summary carries the stored bucket and the options flag', async () => {
+    const { storeId, token } = await installedStore();
+    const productId = await seedProduct(storeId, { availability: 'out_of_stock', hasRequiredOptions: true });
+    const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, product_id: productId });
+    expect(created.res.status).toBe(201);
+    const item = ContentItem.parse(created.body);
+    expect(item.product).toMatchObject({ id: productId, availability: 'out_of_stock', has_required_options: true, deleted: false });
+    expect(await linkRow(item.id)).toEqual([{ product_id: productId }]);
+  });
+
+  it('Bad product: a deleted, other-store or unknown product_id answers 422 product-not-linkable and writes nothing', async () => {
+    const { storeId, token } = await installedStore();
+    const other = await installedStore();
+    const deleted = await seedProduct(storeId, { deleted: true });
+    const foreign = await seedProduct(other.storeId);
+    const draft = await seedItemInStatus(storeId, 'draft');
+    const rowBefore = await rowById(draft.id);
+    const eventsBefore = (await eventsForContent(storeId, draft.id)).length;
+
+    for (const productId of [deleted, foreign, randomUUID()]) {
+      const res = await request(token, 'PATCH', `/v1/content/${draft.id}`, { title: 'Changed', product_id: productId });
+      expect(res.res.status).toBe(422);
+      expect(res.res.headers.get('content-type')).toContain('application/problem+json');
+      expect(res.body).toMatchObject({ type: CONTENT_PRODUCT_NOT_LINKABLE, status: 422, code: 'product_not_linkable' });
+    }
+    expect(await rowById(draft.id)).toEqual(rowBefore);
+    expect(await eventsForContent(storeId, draft.id)).toHaveLength(eventsBefore);
+    expect(await linkRow(draft.id)).toEqual([]);
+
+    const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, product_id: foreign });
+    expect(created.res.status).toBe(422);
+    expect((await admin.query('select 1 from content_items where store_id = $1', [storeId])).rowCount).toBe(1);
+    expect((await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: 'not-a-uuid' })).res.status).toBe(400);
+  });
+
+  it('Counts: two items link P and one of them is deleted, so P counts 1', async () => {
+    const { storeId, token } = await installedStore();
+    const productId = await seedProduct(storeId);
+    const a = await seedItemInStatus(storeId, 'draft');
+    const b = await seedItemInStatus(storeId, 'published');
+    for (const id of [a.id, b.id]) expect((await request(token, 'PATCH', `/v1/content/${id}`, { product_id: productId })).res.status).toBe(200);
+    expect(await linkedCount(token, productId)).toBe(2);
+    expect((await request(token, 'DELETE', `/v1/content/${a.id}`)).res.status).toBe(204);
+    expect(await linkedCount(token, productId)).toBe(1);
+  });
+
+  it('Product deleted: catalog.product.deleted emits content.item.edited once per linked live item (redelivery emits nothing); the item reads deleted until the product is re-created', async () => {
+    const { storeId, token } = await installedStore();
+    const productId = await seedProduct(storeId);
+    const live1 = await seedItemInStatus(storeId, 'draft');
+    const live2 = await seedItemInStatus(storeId, 'published');
+    const gone = await seedItemInStatus(storeId, 'draft');
+    const unlinked = await seedItemInStatus(storeId, 'draft');
+    for (const id of [live1.id, live2.id, gone.id]) await request(token, 'PATCH', `/v1/content/${id}`, { product_id: productId });
+    await request(token, 'DELETE', `/v1/content/${gone.id}`);
+    const before = new Map<string, number>();
+    for (const id of [live1.id, live2.id, gone.id, unlinked.id]) before.set(id, (await eventsForContent(storeId, id)).length);
+
+    await admin.query('update products set deleted_at = now() where id = $1', [productId]);
+    const registry = new EventHandlerRegistry();
+    registerContentEventHandlers(registry, telemetry, lifecycle);
+    const dispatch = eventDispatcher(app, registry);
+    const envelope: EventEnvelope = {
+      v: 1,
+      trace_id: 't',
+      store_id: storeId,
+      event_id: uuidv7(),
+      name: 'catalog.product.deleted',
+      occurred_at: new Date().toISOString(),
+      payload: { v: 1, store_id: storeId, product_id: productId, external_id: 'ext' },
+    };
+    await dispatch(envelope, { id: envelope.event_id, data: envelope });
+    await dispatch(envelope, { id: envelope.event_id, data: envelope });
+
+    for (const [id, status] of [
+      [live1.id, 'draft'],
+      [live2.id, 'published'],
+    ] as const) {
+      const events = await eventsForContent(storeId, id);
+      expect(events).toHaveLength(before.get(id)! + 1);
+      expect(events.at(-1)).toMatchObject({ name: 'content.item.edited', payload: { v: 1, store_id: storeId, content_id: id, status, changed: ['product_id'] } });
+    }
+    for (const id of [gone.id, unlinked.id]) expect(await eventsForContent(storeId, id)).toHaveLength(before.get(id)!);
+
+    const flagged = ContentItem.parse((await request(token, 'GET', `/v1/content/${live1.id}`)).body);
+    expect(flagged.product).toMatchObject({ id: productId, deleted: true });
+    expect(await linkRow(live1.id)).toEqual([{ product_id: productId }]);
+    const listed = ContentListResponse.parse((await request(token, 'GET', '/v1/content')).body);
+    expect(listed.items.find((i) => i.id === live2.id)?.product?.deleted).toBe(true);
+    // A deleted product can not be linked anew.
+    expect((await request(token, 'PATCH', `/v1/content/${unlinked.id}`, { product_id: productId })).res.status).toBe(422);
+
+    // Re-created with the same id: the tombstone is cleared and so is the flag.
+    await admin.query('update products set deleted_at = null where id = $1', [productId]);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${live1.id}`)).body).product).toMatchObject({ id: productId, deleted: false });
+  });
 });
 
 describe('worker content event handlers & store data lifecycle', () => {
   it('dispatches all 14 content events to the logging handlers without error', async () => {
     const registry = new EventHandlerRegistry();
-    registerContentEventHandlers(registry, telemetry);
+    registerContentEventHandlers(registry, telemetry, lifecycle);
     const dispatch = eventDispatcher(app, registry);
     const storeId = randomUUID();
     const contentId = uuidv7();
@@ -721,20 +879,27 @@ describe('worker content event handlers & store data lifecycle', () => {
     }
   });
 
-  it('contentStoreData exports, restores (no-op) and purges content items in batches', async () => {
+  it('contentStoreData exports, restores (no-op) and purges content items and their product links in batches', async () => {
     const storeId = randomUUID();
     for (let i = 0; i < 3; i++) await seedItemInStatus(storeId, 'draft');
+    const linked = await seedItemInStatus(storeId, 'draft');
+    await withStoreContext(app, storeId, (tx) => lifecycle.edit(tx, storeId, linked.id, { product_id: randomUUID() }));
 
     await withStoreContext(app, storeId, (tx) => contentStoreData.restore!({ storeId, installEpoch: 1, tx }));
     const exported = (await withStoreContext(app, storeId, (tx) => contentStoreData.export!({ storeId, installEpoch: 1, tx }))) as {
       content_items: Array<Record<string, unknown>>;
     };
-    expect(exported.content_items).toHaveLength(3);
+    expect(exported.content_items).toHaveLength(4);
+    expect((exported as unknown as { content_product_links: Array<Record<string, unknown>> }).content_product_links).toEqual([
+      expect.objectContaining({ content_id: linked.id, slide_id: null }),
+    ]);
     expect(exported.content_items[0]).not.toHaveProperty('store_id');
 
     const purge = () => withStoreContext(app, storeId, (tx) => contentStoreData.purge({ storeId, installEpoch: 1, tx, batchLimit: 2 }));
     expect(await purge()).toEqual({ done: false });
+    expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: true });
     expect((await admin.query('select 1 from content_items where store_id = $1', [storeId])).rowCount).toBe(0);
+    expect((await admin.query('select 1 from content_product_links where store_id = $1', [storeId])).rowCount).toBe(0);
   });
 });

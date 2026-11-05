@@ -52,6 +52,34 @@ export function useProducts(query: ProductListQuery, options: { pollWhileSyncing
   });
 }
 
+/** Results the product picker shows per search (Story 3.4). */
+export const PRODUCT_SEARCH_PAGE_SIZE = 10;
+
+/** `GET /v1/products` for the picker: name search, first 10 visible, non-deleted products. */
+export const productSearchPath = (q: string): string => {
+  const params = new URLSearchParams();
+  const term = q.trim();
+  if (term) params.set('q', term);
+  params.set('page_size', String(PRODUCT_SEARCH_PAGE_SIZE));
+  return `/v1/products?${params.toString()}`;
+};
+
+/**
+ * Product picker search (Story 3.4). Runs only while the picker is open (`enabled`); the caller debounces `q`. The
+ * previous results stay on screen while the next ones load. Hidden and deleted products never come back from the API.
+ */
+export function useProductSearch(q: string, options: { enabled: boolean }) {
+  const { client, enabled } = useClient();
+  const term = q.trim();
+  return useQuery({
+    queryKey: queryKeys.catalog.search(term),
+    queryFn: () => getJson(client!, productSearchPath(term), ProductListResponse),
+    enabled: enabled && options.enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
 export function useCategories() {
   const { client, enabled } = useClient();
   return useQuery({

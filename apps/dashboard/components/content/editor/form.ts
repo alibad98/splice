@@ -21,17 +21,19 @@ export interface EditorValues {
   cta_action: CtaAction;
   cta_url: string;
   cta_style: CtaStyle;
+  /** The one linked catalog product (Story 3.4); null when none. */
+  product_id: string | null;
 }
 
 /** Keys into `messages.content.editor.errors`; the schema reports these instead of text so errors follow the active language. */
 export type EditorErrorKey = 'titleRequired' | 'titleTooLong' | 'labelRequired' | 'labelTooLong' | 'urlRequired' | 'urlInvalid' | 'urlDomain' | 'urlNoDomain';
 
 /** Field order, for the error summary. */
-export const EDITOR_FIELDS = ['title', 'format', 'cta_label', 'cta_action', 'cta_url', 'cta_style'] as const satisfies readonly (keyof EditorValues)[];
+export const EDITOR_FIELDS = ['title', 'format', 'product_id', 'cta_label', 'cta_action', 'cta_url', 'cta_style'] as const satisfies readonly (keyof EditorValues)[];
 export type EditorField = (typeof EDITOR_FIELDS)[number];
 
 /** DOM ids of the fields, so the error summary can link to them. */
-export const fieldId = (field: EditorField): string => `content-${field.replace('_', '-')}`;
+export const fieldId = (field: EditorField): string => `content-${field.replaceAll('_', '-')}`;
 
 const contractUrl = ContentFields.shape.cta_url;
 
@@ -48,6 +50,7 @@ export function editorSchema(domains: readonly string[]) {
       cta_action: CtaAction,
       cta_url: z.string(),
       cta_style: CtaStyle,
+      product_id: z.uuid().nullable(),
     })
     .superRefine((v, ctx) => {
       if (v.cta_action !== 'open_link') return;
@@ -68,6 +71,7 @@ export function toInput(v: EditorValues): ContentCreateInput {
     cta_action: v.cta_action,
     cta_url: v.cta_action === 'open_link' ? v.cta_url : null,
     cta_style: v.cta_style,
+    product_id: v.product_id,
   };
 }
 
@@ -80,12 +84,13 @@ export function fromItem(item: ContentItem): EditorValues {
     cta_action: item.cta_action,
     cta_url: item.cta_url ?? '',
     cta_style: item.cta_style ?? DEFAULT_CTA_STYLE,
+    product_id: item.product?.id ?? null,
   };
 }
 
-/** A new item: Story, Add to cart, the button text in the UI language, ink style. */
+/** A new item: Story, Add to cart, the button text in the UI language, ink style, no product. */
 export function newItemValues(ctaLabel: string): EditorValues {
-  return { title: '', format: 'story', cta_label: ctaLabel, cta_action: 'add_to_cart', cta_url: '', cta_style: DEFAULT_CTA_STYLE };
+  return { title: '', format: 'story', cta_label: ctaLabel, cta_action: 'add_to_cart', cta_url: '', cta_style: DEFAULT_CTA_STYLE, product_id: null };
 }
 
 /** A stable key of what would be sent; equal keys mean nothing to save. */

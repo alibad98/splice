@@ -26,6 +26,7 @@ const row = (over: Partial<ProductRow> = {}): ProductRow => ({
   currency: 'SAR',
   tax_inclusive: true,
   availability: 'available',
+  has_required_options: false,
   linked_content_count: 0,
   attributed_orders: null,
   ...over,

@@ -1,9 +1,10 @@
 import { TAB_STATUSES, type ContentSort, type ContentStatus, type ContentTabCounts } from '@slips/contracts';
 import { schema, StoreScoped, and, eq, inArray, isNull, sql } from '@slips/db';
 
-const { contentItems } = schema;
+const { contentItems, contentProductLinks } = schema;
 
 export type ContentItemRow = typeof contentItems.$inferSelect;
+export type ContentProductLinkRow = typeof contentProductLinks.$inferSelect;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -81,5 +82,49 @@ export class ContentRepository extends StoreScoped {
       .from(contentItems)
       .where(and(eq(contentItems.storeId, this.storeId), isNull(contentItems.deletedAt)));
     return row ?? { all: 0, published: 0, scheduled: 0, drafts: 0 };
+  }
+
+  /** The link row of one item (Story 3.4), whether or not it currently names a product. */
+  async findLink(contentId: string): Promise<ContentProductLinkRow | undefined> {
+    return (
+      await this.db
+        .select()
+        .from(contentProductLinks)
+        .where(and(eq(contentProductLinks.storeId, this.storeId), eq(contentProductLinks.contentId, contentId)))
+        .limit(1)
+    )[0];
+  }
+
+  /** content id -> linked product id, for the items that have one, in one read. */
+  async linkedProductIds(contentIds: readonly string[]): Promise<Map<string, string>> {
+    if (contentIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ contentId: contentProductLinks.contentId, productId: contentProductLinks.productId })
+      .from(contentProductLinks)
+      .where(and(eq(contentProductLinks.storeId, this.storeId), inArray(contentProductLinks.contentId, [...contentIds])));
+    return new Map(rows.flatMap((r) => (r.productId ? [[r.contentId, r.productId] as const] : [])));
+  }
+
+  /** Live (non-deleted) items linked to a product, with their status. */
+  async liveItemsLinkedTo(productId: string): Promise<Array<{ id: string; status: ContentStatus }>> {
+    return this.db
+      .select({ id: contentItems.id, status: contentItems.status })
+      .from(contentProductLinks)
+      .innerJoin(contentItems, and(eq(contentItems.storeId, contentProductLinks.storeId), eq(contentItems.id, contentProductLinks.contentId)))
+      .where(and(eq(contentProductLinks.storeId, this.storeId), eq(contentProductLinks.productId, productId), isNull(contentItems.deletedAt)))
+      .orderBy(contentItems.id);
+  }
+
+  /** product id -> number of live (non-deleted) items linked to it, in one grouped query; products without links are absent. */
+  async linkCountsByProductIds(productIds: readonly string[]): Promise<Map<string, number>> {
+    const wanted = [...new Set(productIds)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return new Map();
+    const rows = await this.db
+      .select({ productId: contentProductLinks.productId, count: sql<number>`count(*)::int` })
+      .from(contentProductLinks)
+      .innerJoin(contentItems, and(eq(contentItems.storeId, contentProductLinks.storeId), eq(contentItems.id, contentProductLinks.contentId)))
+      .where(and(eq(contentProductLinks.storeId, this.storeId), inArray(contentProductLinks.productId, wanted), isNull(contentItems.deletedAt)))
+      .groupBy(contentProductLinks.productId);
+    return new Map(rows.flatMap((r) => (r.productId ? [[r.productId, r.count] as const] : [])));
   }
 }

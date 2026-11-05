@@ -137,6 +137,16 @@ describe('API docs', () => {
     expect(JSON.stringify(doc.components.schemas.ContentUpdateRequest)).toContain('cta_style');
   });
 
+  it('documents product links: product_id on create/edit, the ContentProduct model and 422 product-not-linkable (Story 3.4)', () => {
+    const editPath = Object.keys(doc.paths).find((p) => p.startsWith('/v1/content/') && doc.paths[p]!.patch)!;
+    expect(String(op(editPath, 'patch').description)).toContain('product-not-linkable');
+    expect(String(op('/v1/content', 'post').description)).toContain('product-not-linkable');
+    expect(JSON.stringify(doc.components.schemas.ContentUpdateRequest)).toContain('product_id');
+    expect(JSON.stringify(doc.components.schemas.ContentCreateRequest)).toContain('product_id');
+    expect(JSON.stringify(doc.components.schemas.ContentItem)).toContain('#/components/schemas/ContentProduct"');
+    expect(JSON.stringify(doc.components.schemas.Product)).toContain('has_required_options');
+  });
+
   it('serves a Swagger UI page pointed at the spec', () => {
     expect(docsPage()).toContain("url: '/v1/openapi.json'");
   });

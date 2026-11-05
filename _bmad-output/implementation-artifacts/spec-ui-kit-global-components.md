@@ -72,7 +72,7 @@ context:
 | 1 | EmptyState | sentence + optional action/link; filtered-empty variant | built (UI rework) |
 | 1 | Skeleton | boneyard-based blocks, shimmer off under reduced motion | built (UI rework) |
 | 2 | Tooltip | KPI definitions, help text | built (UI rework) |
-| 2 | Popover | rich help content | later |
+| 2 | Popover | rich help content; Radix Popover (`radix-ui`) is in the kit as the Combobox popup (anchored to the input, focus kept in the input, `pop-in`/`pop-out`); a standalone `Popover` export comes with its first help-content use | built (Story 3.4, inside Combobox) |
 | 2 | Dialog, ConfirmDialog, Sheet | destructive confirm naming the item (alertdialog, Cancel focused first), sheet from the inline-start edge (mobile nav) | built (UI rework) |
 | 2 | AlertDialog + global `dialog.confirm()` / DialogHost | one alert look for every confirm: tone medallion (neutral / warning / danger, icon override), blur-in scrim, panel rises out of a soft blur, one ripple from the medallion; Radix AlertDialog (no outside-click dismiss, Cancel focused); async `onConfirm` stays open + pending, stays open on reject; imperative store like `toast()`, host mounted once in the merchant layout; ConfirmDialog is now a controlled wrapper of the same view. Used by Sign out | built (UI rework 3) |
 | 2 | Sidebar (shadcn) | collapsible icon rail pinned to the viewport's inline-start edge (both directions), width animates with a spacer in flow, state in the `sidebar_state` cookie read on the server (no first-paint shift), Ctrl/Cmd+B, rail strip, tooltips towards the inline end when collapsed, sheet below md (replaces MobileNav) | built (UI rework 3) |
@@ -80,7 +80,7 @@ context:
 | 3 | Field, Input, PasswordInput, Select, Textarea, Switch, Checkbox | one control look (`control.ts`), Field wires id/aria-describedby/aria-invalid via context; no native `<select>` or pickers anywhere | built (UI rework) |
 | 3 | ErrorSummary | form error summary on submit: danger tint, `role="alert"`, focuses itself on mount and on each `focusKey` change, one link per error that focuses its field (ids from Field `htmlFor`); renders nothing without items; copy via props | built (Story 3.3) |
 | 3 | OtpInput | LTR digit group, paste + iOS one-time-code autofill, Home/End/arrows | built (UI rework) |
-| 3 | Combobox | product picker | later |
+| 3 | Combobox | product picker: generic `Combobox<T>` (APG combobox + listbox popup on Radix Popover): search Input with `role="combobox"`, `aria-expanded`/`aria-controls`/`aria-activedescendant`, ArrowUp/Down move, Enter picks (never submits the form), Escape closes and keeps the text, click picks without moving focus; caller owns options/search; `status` ready/loading/error with empty, loading and error (Retry) contents via props | built (Story 3.4) |
 | 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses. StatusChip: `variant` soft/outline and a leading `icon` node replacing the dot (ended, archived); pulse static under reduced motion | built (UI rework 2; outline/icon Story 3.2) |
 | 1 | DataTable | TanStack headless + shadcn Table: 56px rows, sortable headers (`aria-sort`), card list below `md`; optional `onRowActivate` (row `tabIndex=0`, click or `Enter` opens; clicks on controls/portals ignored) and `rowClassName` (e.g. failed 6% tint) | built (Story 2.2; row activation Story 3.2) |
 | 3 | Tabs (also the segmented control) | status tabs, Stories/Reels toggle | built (UI rework) |

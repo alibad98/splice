@@ -104,7 +104,7 @@ export function registerCatalogEventHandlers(registry: EventHandlerRegistry, bos
   registry.on('catalog.product.updated', 'catalog.log.product.updated', async (event) => {
     telemetry.log.info('catalog event', { event: event.name, event_id: event.id, product_id: event.payload.product_id, changed: event.payload.changed });
   });
-  // Same for deletions (Story 2.5): content flags linked content "Linked product deleted", publishing drops it from manifests.
+  // Deletions (Story 2.5) are logged here; content flags linked items (Story 3.4, content-jobs) and publishing drops them.
   registry.on('catalog.product.deleted', 'catalog.log.product.deleted', async (event) => {
     telemetry.log.info('catalog event', { event: event.name, event_id: event.id, product_id: event.payload.product_id });
   });

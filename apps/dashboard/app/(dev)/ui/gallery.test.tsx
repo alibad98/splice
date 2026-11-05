@@ -27,6 +27,7 @@ describe('UI gallery (dev only)', () => {
     expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull();
     expect(container.querySelector('select')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Product' })).toBeTruthy();
     expect(container.querySelectorAll('[data-slot="status-chip"]')).toHaveLength(10); // 5 tones + processing, ended, archived + 2 in the DataTable demo
     expect(screen.getByRole('region', { name: 'Notifications (F8)' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'العربية' }));

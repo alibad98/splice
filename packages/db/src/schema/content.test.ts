@@ -11,7 +11,7 @@ import * as schema from './index.js';
 
 const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
 const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_content:it_content_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['content_items'];
+const TENANT_TABLES = ['content_items', 'content_product_links'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -48,6 +48,16 @@ describe('content tables', () => {
           )
         ).rows[0]!.id,
     });
+    registerTenantTable({
+      table: 'content_product_links',
+      seed: async (c: pg.PoolClient, s: string) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into content_product_links (store_id, content_id, product_id) values ($1, gen_random_uuid(), gen_random_uuid()) returning id::text as id`,
+            [s],
+          )
+        ).rows[0]!.id,
+    });
     expect(findUnregisteredTenantTables(TENANT_TABLES)).toEqual([]);
     expect(registeredTenantTables().some((r) => r.table === 'content_items')).toBe(true);
   });
@@ -73,5 +83,17 @@ describe('content tables', () => {
     await expect(ins('story', 'draft', 'add_to_cart', 'https://example.com')).rejects.toMatchObject({ code: '23514' });
     await expect(ins('reel', 'draft', 'open_link', 'https://example.com/item')).resolves.toBeDefined();
     expect(schema.CONTENT_STATUSES).toEqual(['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated']);
+  });
+});
+
+describe('content_product_links', () => {
+  it('holds one link per content item and allows an unlinked (null product) row', async () => {
+    const s = randomUUID();
+    const content = randomUUID();
+    await admin.query(`insert into content_product_links (store_id, content_id, product_id) values ($1, $2, gen_random_uuid())`, [s, content]);
+    await expect(admin.query(`insert into content_product_links (store_id, content_id, product_id) values ($1, $2, gen_random_uuid())`, [s, content])).rejects.toMatchObject({
+      code: '23505',
+    });
+    await expect(admin.query(`update content_product_links set product_id = null where store_id = $1 and content_id = $2`, [s, content])).resolves.toMatchObject({ rowCount: 1 });
   });
 });

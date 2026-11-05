@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ContentItem } from '@slips/contracts';
+import type { ContentItem, ContentProductSummary, ProductRow } from '@slips/contracts';
 import { DialogHost, dialog, toast, Toaster } from '@slips/ui';
 import { I18nProvider } from '../../../i18n/provider';
 import { getMessages } from '../../../i18n/messages';
@@ -40,6 +40,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   reactivate_to: null,
   auto_publish: false,
   first_published_at: null,
+  product: null,
   created_at: '2026-11-05T10:00:00.000Z',
   updated_at: '2026-11-05T10:00:00.000Z',
   ...over,
@@ -165,7 +166,7 @@ describe('Content editor: new item', () => {
     expect(writes()[0]).toEqual({
       method: 'POST',
       path: '/v1/content',
-      body: { title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink' },
+      body: { title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null },
     });
     await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
     expect(window.location.pathname).toBe(`/content/${ID}`);
@@ -377,5 +378,170 @@ describe('Content editor page (/content/[id])', () => {
     handler = echo();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await until(() => expect(title().value).toBe('Autumn perfumes'));
+  });
+});
+
+describe('Content editor: product picker (Story 3.4)', () => {
+  const P1 = '019a473a-0000-7000-8000-0000000000a1';
+  const P2 = '019a473a-0000-7000-8000-0000000000a2';
+  const P3 = '019a473a-0000-7000-8000-0000000000a3';
+  const row = (id: string, name: string, over: Partial<ProductRow> = {}): ProductRow => ({
+    id,
+    external_id: id.slice(-2),
+    name,
+    image_url: null,
+    category_name: null,
+    more_categories: 0,
+    price_minor: 15000,
+    sale_price_minor: null,
+    currency: 'SAR',
+    tax_inclusive: true,
+    availability: 'available',
+    has_required_options: false,
+    linked_content_count: 0,
+    attributed_orders: null,
+    ...over,
+  });
+  const CATALOG = [row(P1, 'Oud oil'), row(P2, 'Oud wood', { availability: 'out_of_stock' }), row(P3, 'Musk', { has_required_options: true })];
+  const summary = (r: ProductRow, deleted = false): ContentProductSummary => ({
+    id: r.id,
+    name: r.name,
+    image_url: r.image_url,
+    price_minor: r.price_minor,
+    sale_price_minor: r.sale_price_minor,
+    currency: r.currency,
+    availability: r.availability,
+    has_required_options: r.has_required_options,
+    deleted,
+  });
+
+  /** Echo server plus `GET /v1/products` search over CATALOG; a PATCHed `product_id` answers with its summary. */
+  function catalogServer(start: ContentItem, opts: { failSearch?: () => boolean } = {}): Handler {
+    const base = echo(start);
+    return async (call) => {
+      if (call.method === 'GET' && call.path.startsWith('/v1/products')) {
+        if (opts.failSearch?.()) return problem(500);
+        const q = new URL(call.path, 'http://x').searchParams.get('q') ?? '';
+        const items = CATALOG.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+        return json({ v: 1, items, total: items.length, page: 1, page_size: 10 });
+      }
+      const res = await base(call);
+      if (call.method !== 'PATCH' || !call.body || !('product_id' in (call.body as object))) return res;
+      const saved = (await res.json()) as ContentItem & { product_id?: string | null };
+      const id = saved.product_id ?? null;
+      delete saved.product_id;
+      const linked = CATALOG.find((p) => p.id === id);
+      return json({ ...saved, product: linked ? summary(linked) : null });
+    };
+  }
+  const picker = () => screen.getByRole('combobox', { name: 'Product' }) as HTMLInputElement;
+  const searches = () => calls.filter((c) => c.method === 'GET' && c.path.startsWith('/v1/products'));
+
+  it('keyboard: type, ArrowDown x2, Enter links the second match; focus stays on the input; the Draft autosaves the link', async () => {
+    handler = catalogServer(item());
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'oud');
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    await advance(200);
+    expect(searches().filter((c) => c.path.includes('q=oud'))).toHaveLength(0);
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+    expect(searches().at(-1)!.path).toBe('/v1/products?q=oud&page_size=10');
+    const options = screen.getAllByRole('option');
+    expect(options[1]!.textContent).toContain('Oud wood');
+    expect(options[1]!.textContent).toContain('Out of stock');
+    expect(options[1]!.querySelector('[dir="auto"]')!.textContent).toBe('Oud wood');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1]!.id);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('linked-product').textContent).toContain('Oud wood');
+
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { product_id: P2 } });
+    await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
+    // Out of stock: linked anyway, with the warning.
+    expect(screen.getByText('This product is out of stock')).toBeTruthy();
+  });
+
+  it('Escape closes the list and keeps the typed text; no match says so', async () => {
+    handler = catalogServer(item());
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'zzz');
+    await until(() => expect(screen.getByText('No products match')).toBeTruthy());
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(input.value).toBe('zzz');
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+  });
+
+  it('a failed search shows an inline Retry that searches again', async () => {
+    let fail = true;
+    handler = catalogServer(item(), { failSearch: () => fail });
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'musk');
+    await until(() => expect(screen.getByText("We couldn't load your products.")).toBeTruthy());
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await until(() => expect(screen.getByRole('option', { name: /Musk/ })).toBeTruthy());
+  });
+
+  it('Remove unlinks: one PATCH with product_id null', async () => {
+    const linked = item({ product: summary(CATALOG[0]!) });
+    handler = catalogServer(linked);
+    setup({ element: <ContentEditor item={linked} /> });
+    expect(screen.getByTestId('linked-product').textContent).toContain('Oud oil');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByTestId('linked-product')).toBeNull();
+    expect(document.activeElement).toBe(picker());
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { product_id: null } });
+  });
+
+  it('a product with required options makes the add-to-cart preview read "View options" with a note', async () => {
+    const linked = item({ product: summary(CATALOG[2]!) });
+    handler = catalogServer(linked);
+    setup({ element: <ContentEditor item={linked} /> });
+    expect(screen.getByTestId('preview-cta').textContent).toBe('View options');
+    expect(screen.getByText(/options shoppers must choose/)).toBeTruthy();
+    await chooseAction('Open product');
+    await until(() => expect(screen.getByTestId('preview-cta').textContent).toBe('Add to cart'));
+  });
+
+  it('a deleted linked product shows the warning with "Pick another product", which opens the picker', async () => {
+    const linked = item({ product: summary(CATALOG[0]!, true) });
+    handler = catalogServer(linked);
+    setup({ element: <ContentEditor item={linked} /> });
+    expect(screen.getByText('The linked product was deleted in your store')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick another product' }));
+    expect(document.activeElement).toBe(picker());
+    expect(picker().getAttribute('aria-expanded')).toBe('true');
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(3));
+  });
+
+  it('published items link through "Save changes", not autosave; Arabic labels the picker', async () => {
+    const published = item({ status: 'published' });
+    handler = catalogServer(published);
+    setup({ locale: 'ar', element: <ContentEditor item={published} /> });
+    const input = screen.getByRole('combobox', { name: 'المنتج' }) as HTMLInputElement;
+    input.focus();
+    type(input, 'Musk');
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ التغييرات' }));
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ product_id: P3 });
   });
 });

@@ -9,6 +9,7 @@ import {
   Card,
   CardTitle,
   Checkbox,
+  Combobox,
   ConfirmDialog,
   DataTable,
   Icon,
@@ -109,7 +110,7 @@ const COPY = {
       offline: 'You are offline. Changes will sync when you reconnect.', disconnected: 'Your store is disconnected from Salla.', reconnect: 'Reconnect',
       emptyTitle: 'No stories yet', firstStory: 'Create your first story', emptyBody: 'Create your first story from a product video.', filtered: 'No products match your filters.', loading: 'Loading',
       email: 'Email address', emailHint: 'We send sign-in codes here.', emailPh: 'you@store.com', password: 'Password', passwordError: 'At least 8 characters', show: 'Show password', hide: 'Hide password',
-      notes: 'Notes', notesPh: 'Anything shoppers should know', category: 'Category', all: 'All categories', abayas: 'Abayas', bags: 'Bags', perfume: 'Perfume',
+      notes: 'Notes', notesPh: 'Anything shoppers should know', category: 'Category', all: 'All categories', abayas: 'Abayas', bags: 'Bags', perfume: 'Perfume', product: 'Product', productPh: 'Search your products', products: 'Products', noMatch: 'No products match',
       terms: 'Show prices with VAT', autosync: 'Sync products automatically', code: 'Verification code', digit: 'Digit', of: 'of',
       tabStories: 'Stories', tabReels: 'Reels', tabStoriesBody: 'Stories show at the top of your store.', tabReelsBody: 'Reels play on product pages.',
       openDialog: 'Open dialog', dialogTitle: 'Rename story', dialogBody: 'Shoppers see this name under the story ring.', save: 'Save', cancel: 'Cancel',
@@ -157,7 +158,7 @@ const COPY = {
       offline: 'أنت غير متصل. ستتم مزامنة التغييرات عند عودة الاتصال.', disconnected: 'متجرك غير مرتبط بسلة.', reconnect: 'أعد الربط',
       emptyTitle: 'لا توجد ستوريز بعد', firstStory: 'أنشئ أول ستوري', emptyBody: 'أنشئ أول ستوري من فيديو منتج.', filtered: 'لا توجد منتجات تطابق الفلاتر.', loading: 'نحمّل',
       email: 'البريد الإلكتروني', emailHint: 'نرسل رموز الدخول إلى هذا البريد.', emailPh: 'you@store.com', password: 'كلمة المرور', passwordError: '8 أحرف على الأقل', show: 'إظهار كلمة المرور', hide: 'إخفاء كلمة المرور',
-      notes: 'ملاحظات', notesPh: 'أي شيء يهم المتسوقين', category: 'التصنيف', all: 'كل التصنيفات', abayas: 'عبايات', bags: 'حقائب', perfume: 'عطور',
+      notes: 'ملاحظات', notesPh: 'أي شيء يهم المتسوقين', category: 'التصنيف', all: 'كل التصنيفات', abayas: 'عبايات', bags: 'حقائب', perfume: 'عطور', product: 'المنتج', productPh: 'ابحث في منتجاتك', products: 'المنتجات', noMatch: 'لا توجد منتجات مطابقة',
       terms: 'اعرض الأسعار شاملة الضريبة', autosync: 'زامن المنتجات تلقائيًا', code: 'رمز التحقق', digit: 'الرقم', of: 'من',
       tabStories: 'ستوريز', tabReels: 'ريلز', tabStoriesBody: 'تظهر الستوريز أعلى متجرك.', tabReelsBody: 'تعمل الريلز في صفحات المنتجات.',
       openDialog: 'افتح النافذة', dialogTitle: 'غيّر اسم الستوري', dialogBody: 'يرى المتسوقون هذا الاسم تحت حلقة الستوري.', save: 'احفظ', cancel: 'إلغاء',
@@ -193,6 +194,7 @@ export function Gallery() {
   const [dark, setDark] = useState(false);
   const [otp, setOtp] = useState('');
   const [category, setCategory] = useState('');
+  const [productQuery, setProductQuery] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pager, setPager] = useState({ page: 1, size: 10 });
   const c = COPY[locale];
@@ -378,6 +380,19 @@ export function Gallery() {
                   <SelectItem value="perfume">{k.perfume}</SelectItem>
                 </SelectContent>
               </Select>
+            </Field>
+            <Field label={k.product}>
+              <Combobox
+                inputValue={productQuery}
+                onInputValueChange={setProductQuery}
+                options={[k.abayas, k.bags, k.perfume].filter((name) => name.toLowerCase().includes(productQuery.trim().toLowerCase()))}
+                getOptionKey={(name) => name}
+                renderOption={(name) => <span dir="auto">{name}</span>}
+                onSelect={setProductQuery}
+                placeholder={k.productPh}
+                listLabel={k.products}
+                emptyContent={k.noMatch}
+              />
             </Field>
             <Field label={k.notes}>
               <Textarea placeholder={k.notesPh} rows={2} className="min-h-9" />

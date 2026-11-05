@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
-import { CONTENT_CTA_URL_NOT_STORE_DOMAIN, type ContentItem } from '@slips/contracts';
+import { CONTENT_CTA_URL_NOT_STORE_DOMAIN, CONTENT_PRODUCT_NOT_LINKABLE, type ContentItem, type ContentProductSummary } from '@slips/contracts';
 import { Alert, Button, ErrorSummary, Icon, cn, toast } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
 import { ApiError } from '../../../lib/api/fetch';
@@ -18,6 +18,7 @@ import { contentHref } from '../ContentTable';
 import { CtaCard } from './CtaCard';
 import { FormatTitleCard } from './FormatTitleCard';
 import { PreviewPlaceholder } from './PreviewPlaceholder';
+import { ProductCard } from './ProductCard';
 import { EDITOR_FIELDS, editorSchema, fieldId, fromItem, newItemValues, patchOf, saveKey, toInput, type EditorErrorKey, type EditorValues } from './form';
 import { useAutosave } from './use-autosave';
 import { useLeaveGuard } from './use-leave-guard';
@@ -29,7 +30,7 @@ const NO_DOMAINS: readonly string[] = [];
 class FieldRejected extends Error {}
 
 /**
- * Create and edit one Story or Reel (Story 3.3): format and title, CTA, and a preview placeholder. Drafts (and a new
+ * Create and edit one Story or Reel (Stories 3.3, 3.4): format and title, the linked product, CTA, and a preview placeholder. Drafts (and a new
  * item, once it has a title) autosave; other statuses save with "Save changes"; archived items are read-only.
  * Without `item` the first save creates the Draft and the URL becomes `/content/{id}` without a remount.
  */
@@ -69,6 +70,16 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const dirty = currentKey !== baselineKey;
   const valid = schema.safeParse(values).success;
 
+  // The linked product as last saved, or as picked from the search until the save answers.
+  const [picked, setPicked] = useState<ContentProductSummary | null>(null);
+  const product = !values.product_id
+    ? null
+    : saved?.product?.id === values.product_id
+      ? saved.product
+      : picked?.id === values.product_id
+        ? picked
+        : null;
+
   const status = saved?.status ?? 'draft';
   const readOnly = status === 'archived';
   const autosaves = status === 'draft';
@@ -79,13 +90,19 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         setError('cta_url', { type: 'server', message: 'urlDomain' satisfies EditorErrorKey }, { shouldFocus: true });
         return new FieldRejected();
       }
+      if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_PRODUCT_NOT_LINKABLE) {
+        // The product went away between search and save: say so, and reload what the item links now.
+        toast({ title: m.product.deleted.title, tone: 'danger' });
+        if (savedRef.current) void queryClient.invalidateQueries({ queryKey: queryKeys.content.item(savedRef.current.id) });
+        return err;
+      }
       if (err instanceof ApiError && (err.status === 409 || err.status === 404) && savedRef.current) {
         toast({ title: m.staleItem, tone: 'danger' });
         void queryClient.invalidateQueries({ queryKey: queryKeys.content.item(savedRef.current.id) });
       }
       return err;
     },
-    [m.staleItem, queryClient, setError],
+    [m.product.deleted.title, m.staleItem, queryClient, setError],
   );
 
   /** Send the current values: POST the first time, then PATCH only what changed. */
@@ -184,12 +201,13 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
           <form id="content-editor-form" noValidate onSubmit={(e) => void onSubmit(e)} className={cn('flex-col gap-6', previewOpen ? 'hidden lg:flex' : 'flex')}>
             <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-6">
               <FormatTitleCard autoFocusTitle={!item} />
+              <ProductCard product={product} onPicked={setPicked} />
               <CtaCard domains={domains} />
             </fieldset>
           </form>
           <aside id={PREVIEW_ID} aria-label={m.preview.heading} className={cn('flex-col gap-3 lg:sticky lg:top-6', previewOpen ? 'flex' : 'hidden lg:flex')}>
             <h2 className="text-h3">{m.preview.heading}</h2>
-            <PreviewPlaceholder />
+            <PreviewPlaceholder product={product} />
           </aside>
         </div>
 

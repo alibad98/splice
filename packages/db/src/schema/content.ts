@@ -32,3 +32,17 @@ export const contentItems = pgTable('content_items', {
   createdAt: ts('created_at').notNull().default(sql`now()`),
   updatedAt: ts('updated_at').notNull().default(sql`now()`),
 });
+
+/**
+ * Product links (Story 3.4): one product per content item (unique on store + content). No FK to `products` (owned by
+ * `catalog`, AD-2). Unlinking keeps the row with `product_id` null (links are never hard-deleted outside the store
+ * purge). `slide_id` is reserved for later per-slide links.
+ */
+export const contentProductLinks = pgTable('content_product_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').notNull(),
+  contentId: uuid('content_id').notNull(),
+  productId: uuid('product_id'),
+  slideId: uuid('slide_id'),
+  createdAt: ts('created_at').notNull().default(sql`now()`),
+});

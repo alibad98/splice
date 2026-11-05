@@ -31,6 +31,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   reactivate_to: null,
   auto_publish: false,
   first_published_at: null,
+  product: null,
   created_at: '2026-11-01T10:00:00.000Z',
   updated_at: '2026-11-01T10:00:00.000Z',
   ...over,
@@ -111,6 +112,23 @@ describe('Videos & Stories page', () => {
     expect(cells).toEqual(['', 'Summer sale', 'Reel', '—', 'Published', '—', '—', '']);
     for (const [tab, n] of Object.entries(COUNTS)) expect(screen.getByTestId(`count-${tab}`).textContent).toBe(String(n));
     expect(screen.getByRole('tab', { name: /All/ }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('a deleted linked product shows the warning chip "Linked product deleted" under the title, in Arabic too (Story 3.4)', () => {
+    const product = { id: crypto.randomUUID(), name: 'Oud oil', image_url: null, price_minor: 100, sale_price_minor: null, currency: 'SAR', availability: 'available' as const, has_required_options: false };
+    const gone = item({ title: 'Gone product', product: { ...product, deleted: true } });
+    const live = item({ title: 'Live product', product: { ...product, deleted: false } });
+    const none = item({ title: 'No product' });
+    const { unmount } = setup({ lists: [[DEFAULT, page([gone, live, none])]] });
+    const table = screen.getByRole('table');
+    const rowOf = (id: string) => table.querySelector(`tr[data-row-id="${id}"]`) as HTMLElement;
+    const chip = within(rowOf(gone.id)).getByText('Linked product deleted').closest('[data-slot="status-chip"]')!;
+    expect(chip.closest('td')!.textContent).toContain('Gone product');
+    expect(within(rowOf(live.id)).queryByText('Linked product deleted')).toBeNull();
+    expect(within(rowOf(none.id)).queryByText('Linked product deleted')).toBeNull();
+    unmount();
+    setup({ locale: 'ar', lists: [[DEFAULT, page([gone])]] });
+    expect(screen.getByRole('table').textContent).toContain('المنتج المرتبط محذوف');
   });
 
   it('renders Arabic labels', () => {

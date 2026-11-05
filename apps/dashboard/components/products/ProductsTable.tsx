@@ -11,7 +11,8 @@ import { columnToSort, sortToColumn } from './url-state';
 
 type M = Messages['products'];
 
-function Thumb({ url }: { url: string | null }) {
+/** A product's 40px square thumb, or an empty muted box when it has no image (also the product picker's). */
+export function ProductThumb({ url }: { url: string | null }) {
   // Product images are square: 40x40, rounded-md; an empty muted box when there is none.
   return url ? (
     <img src={url} alt="" width={40} height={40} loading="lazy" className="size-10 shrink-0 rounded-md bg-muted object-cover" />
@@ -50,7 +51,7 @@ function productColumns(m: M, locale: Locale): DataTableColumn<ProductRow>[] {
       className: 'min-w-56',
       cell: (row) => (
         <span className="flex items-center gap-3">
-          <Thumb url={row.image_url} />
+          <ProductThumb url={row.image_url} />
           <span dir="auto" className="line-clamp-2 font-medium">
             {row.name}
           </span>
@@ -68,7 +69,7 @@ function productColumns(m: M, locale: Locale): DataTableColumn<ProductRow>[] {
 function ProductCard({ row, m, locale }: { row: ProductRow; m: M; locale: Locale }) {
   return (
     <div className="flex items-start gap-3">
-      <Thumb url={row.image_url} />
+      <ProductThumb url={row.image_url} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span dir="auto" className="line-clamp-2 font-medium">
           {row.name}

@@ -144,3 +144,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
   summary: "Deleting an item while `processing` makes media's later `finish_processing`/`fail_processing` hit `ContentNotFoundError`."
   evidence: "Story 3.8/3.9: treat `ContentNotFoundError` as terminal in the media job (ack, clean up the upload)."
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-link-product-picker.md`
+  summary: `lifecycle.test.ts` "the sweep finishes pending webhooks and queues a purge…" fails once the shared test DB holds over 100 due `store_purge_schedule` rows, because `duePurges` takes the 100 oldest.
+  evidence: 2026-11-05 the Docker test DB (5436) had 132 leftover schedules from earlier runs; the test passed after clearing them. Fix: give the test its own due window/limit or clean schedules in its setup.

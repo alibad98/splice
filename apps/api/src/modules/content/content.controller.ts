@@ -14,9 +14,11 @@ import {
   Post,
   Query,
   Req,
+  forwardRef,
 } from '@nestjs/common';
 import {
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CONTENT_PRODUCT_NOT_LINKABLE,
   CTA_STYLES,
   CONTENT_INVALID_TRANSITION,
   ContentCreateInput,
@@ -27,17 +29,33 @@ import {
   type ContentListResponse,
   type ContentAction,
   type ContentItem,
+  type ContentProductSummary,
   type CtaStyle,
 } from '@slips/contracts';
 import { withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL } from '../../infra.module.js';
 import type { AuthenticatedRequest } from '../session/access.guard.js';
+import { CatalogService, type ProductSummaryRow } from '../catalog/catalog.service.js';
 import { IntegrationService } from '../integration/integration.service.js';
 import { ContentLifecycle, ContentNotFoundError, InvalidContentFieldsError, InvalidTransitionError } from './content-lifecycle.js';
 import { ContentRepository, type ContentItemRow } from './content.repository.js';
 
-export const toContentItem = (row: ContentItemRow): ContentItem => ({
+/** The API shape of a linked product as the catalog has it now. */
+export const toProductSummary = (p: ProductSummaryRow): ContentProductSummary => ({
+  id: p.id,
+  name: p.name,
+  image_url: p.imageUrl,
+  price_minor: p.priceMinor,
+  sale_price_minor: p.salePriceMinor,
+  currency: p.currency,
+  availability: p.availability,
+  has_required_options: p.hasRequiredOptions,
+  deleted: p.deleted,
+});
+
+/** `product`: the item's linked product summary, or null when it links none (or the catalog no longer knows the id). */
+export const toContentItem = (row: ContentItemRow, product: ContentProductSummary | null = null): ContentItem => ({
   v: 1,
   id: row.id,
   title: row.title,
@@ -52,6 +70,7 @@ export const toContentItem = (row: ContentItemRow): ContentItem => ({
   reactivate_to: row.reactivateTo,
   auto_publish: row.autoPublish,
   first_published_at: row.firstPublishedAt?.toISOString() ?? null,
+  product,
   created_at: row.createdAt.toISOString(),
   updated_at: row.updatedAt.toISOString(),
 });
@@ -65,6 +84,7 @@ export class ContentController {
     @Inject(DB_POOL) private readonly pool: Pool,
     @Inject(ContentLifecycle) private readonly lifecycle: ContentLifecycle,
     @Inject(IntegrationService) private readonly integration: IntegrationService,
+    @Inject(forwardRef(() => CatalogService)) private readonly catalog: CatalogService,
   ) {}
 
   @Post('content')
@@ -74,13 +94,15 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
+    await this.assertLinkable(storeId, parsed.data.product_id);
     const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.create(tx, storeId, parsed.data));
-    return toContentItem(row);
+    return (await this.withProducts(storeId, [row]))[0]!;
   }
 
   /**
-   * Edit an item's title, format and CTA (Story 3.3); the status is unchanged. Archived items answer 409
-   * `invalid-transition`; an open-link URL off the store's synced domains answers 422 `cta-url-not-store-domain`.
+   * Edit an item's title, format, CTA and linked product (Stories 3.3, 3.4); the status is unchanged. Archived items
+   * answer 409 `invalid-transition`; an open-link URL off the store's synced domains answers 422
+   * `cta-url-not-store-domain`; a product the catalog does not know (or has deleted) answers 422 `product-not-linkable`.
    */
   @Patch('content/:id')
   async update(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() raw: unknown): Promise<ContentItem> {
@@ -88,13 +110,42 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
+    await this.assertLinkable(storeId, parsed.data.product_id);
+    let row: ContentItemRow;
     try {
-      const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.edit(tx, storeId, id, parsed.data));
-      return toContentItem(row);
+      row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.edit(tx, storeId, id, parsed.data));
     } catch (err) {
       if (err instanceof InvalidContentFieldsError) throw new BadRequestException({ message: err.message, code: 'invalid_body' });
       throw this.toHttpError(err);
     }
+    return (await this.withProducts(storeId, [row]))[0]!;
+  }
+
+  /** A product to link must be one the store's catalog knows and has not deleted (checked before any write). */
+  private async assertLinkable(storeId: string, productId: string | null | undefined): Promise<void> {
+    if (productId == null) return;
+    const product = (await this.catalog.getProductsByIds(storeId, [productId])).get(productId);
+    if (product && !product.deleted) return;
+    throw new HttpException(
+      { message: 'The product can not be linked', code: 'product_not_linkable', type: CONTENT_PRODUCT_NOT_LINKABLE },
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+  }
+
+  /** API items for rows: their links in one content read, then every linked product in one catalog read. */
+  private async withProducts(storeId: string, rows: readonly ContentItemRow[]): Promise<ContentItem[]> {
+    if (rows.length === 0) return [];
+    const links = await withStoreContext(this.pool, storeId, () => this.repo.linkedProductIds(rows.map((r) => r.id)));
+    return this.attachProducts(storeId, rows, links);
+  }
+
+  /** One catalog read for every product the rows link (`links`: content id -> product id). */
+  private async attachProducts(storeId: string, rows: readonly ContentItemRow[], links: ReadonlyMap<string, string>): Promise<ContentItem[]> {
+    const products = await this.catalog.getProductsByIds(storeId, [...new Set(links.values())]);
+    return rows.map((row) => {
+      const product = products.get(links.get(row.id) ?? '');
+      return toContentItem(row, product ? toProductSummary(product) : null);
+    });
   }
 
   /** An open-link URL must be on one of the store's synced domains (read through the integration module). */
@@ -115,11 +166,11 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content list query is not valid', code: 'invalid_query' });
     const { tab, q, sort, page, page_size } = parsed.data;
     const storeId = req.merchantSession!.storeId;
-    const { rows, total, counts } = await withStoreContext(this.pool, storeId, async () => {
+    const { rows, total, counts, links } = await withStoreContext(this.pool, storeId, async () => {
       const result = await this.repo.list({ statuses: TAB_STATUSES[tab], search: q || undefined, sort, limit: page_size, offset: (page - 1) * page_size });
-      return { ...result, counts: await this.repo.countByTab() };
+      return { ...result, counts: await this.repo.countByTab(), links: await this.repo.linkedProductIds(result.rows.map((r) => r.id)) };
     });
-    return { v: 1, total, page, page_size, counts, items: rows.map(toContentItem) };
+    return { v: 1, total, page, page_size, counts, items: await this.attachProducts(storeId, rows, links) };
   }
 
   @Get('content/:id')
@@ -127,7 +178,7 @@ export class ContentController {
     const storeId = req.merchantSession!.storeId;
     const row = await withStoreContext(this.pool, storeId, () => this.repo.findById(id));
     if (!row) throw new NotFoundException({ message: 'Content item not found', code: 'content_not_found' });
-    return toContentItem(row);
+    return (await this.withProducts(storeId, [row]))[0]!;
   }
 
   @Post('content/:id/archive')
@@ -157,7 +208,7 @@ export class ContentController {
   private async applyTransition(storeId: string, id: string, action: ContentAction): Promise<ContentItem> {
     try {
       const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.apply(tx, storeId, id, action));
-      return toContentItem(row);
+      return action === 'delete' ? toContentItem(row) : (await this.withProducts(storeId, [row]))[0]!;
     } catch (err) {
       throw this.toHttpError(err);
     }

@@ -1,5 +1,5 @@
 import { PRODUCT_VISIBLE_FIELDS } from '@slips/contracts';
-import { schema, StoreScoped, and, eq, isNull, sql, type AvailabilityBucket, type CatalogSyncReason, type StorePlatform } from '@slips/db';
+import { schema, StoreScoped, and, eq, inArray, isNull, sql, type AvailabilityBucket, type CatalogSyncReason, type StorePlatform } from '@slips/db';
 
 const { products, categories, catalogSyncState } = schema;
 
@@ -350,7 +350,24 @@ export interface ProductListRow {
   currency: string;
   taxInclusive: boolean;
   availability: AvailabilityBucket;
+  hasRequiredOptions: boolean;
 }
+
+/** A product as other modules see it (Story 3.4), tombstoned ones included: `deleted` is read from the tombstone. */
+export interface ProductSummaryRow {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  priceMinor: number;
+  salePriceMinor: number | null;
+  currency: string;
+  availability: AvailabilityBucket;
+  hasRequiredOptions: boolean;
+  visible: boolean;
+  deleted: boolean;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Escape `\`, `%` and `_` so a search term is matched literally by (I)LIKE (default escape character `\`). */
 export const escapeLike = (term: string): string => term.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -385,6 +402,7 @@ export class CatalogReadRepository extends StoreScoped {
         currency: products.currency,
         taxInclusive: products.taxInclusive,
         availability: products.availability,
+        hasRequiredOptions: products.hasRequiredOptions,
       })
       .from(products)
       .where(where)
@@ -392,6 +410,27 @@ export class CatalogReadRepository extends StoreScoped {
       .limit(filter.limit)
       .offset(filter.offset);
     return { rows, total };
+  }
+
+  /** The store's products with these ids in one read, tombstoned and hidden ones included. Unknown ids are left out. */
+  async productsByIds(ids: readonly string[]): Promise<ProductSummaryRow[]> {
+    const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return [];
+    return this.db
+      .select({
+        id: products.id,
+        name: products.name,
+        imageUrl: products.imageUrl,
+        priceMinor: products.priceMinor,
+        salePriceMinor: products.salePriceMinor,
+        currency: products.currency,
+        availability: products.availability,
+        hasRequiredOptions: products.hasRequiredOptions,
+        visible: products.visible,
+        deleted: sql<boolean>`${products.deletedAt} is not null`,
+      })
+      .from(products)
+      .where(and(eq(products.storeId, this.storeId), inArray(products.id, wanted)));
   }
 
   async listCategories(): Promise<Array<{ externalId: string; name: string }>> {

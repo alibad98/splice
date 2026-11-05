@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ARCHIVABLE_STATUSES, type ContentFormat, type ContentItem, type ContentSort } from '@slips/contracts';
-import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, type DataTableColumn } from '@slips/ui';
+import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, StatusChip, type DataTableColumn } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 import { directionOf } from '../../i18n/config';
 import type { Messages } from '../../i18n/messages';
@@ -28,6 +28,22 @@ function Thumb({ format }: { format: ContentFormat }) {
 }
 
 const None = ({ m }: { m: M }) => <span className="text-muted-foreground">{m.none}</span>;
+
+/** The title link, with a warning chip under it when the linked product was deleted in the store (Story 3.4). */
+function TitleCell({ row, m }: { row: ContentItem; m: M }) {
+  return (
+    <span className="flex min-w-0 flex-col items-start gap-1">
+      <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
+        {row.title}
+      </Link>
+      {row.product?.deleted ? (
+        <StatusChip tone="warning" icon={<Icon name="warning" className="size-3" />}>
+          {m.flags.productDeleted}
+        </StatusChip>
+      ) : null}
+    </span>
+  );
+}
 
 const canArchive = (item: ContentItem) => (ARCHIVABLE_STATUSES as readonly string[]).includes(item.status);
 
@@ -72,11 +88,7 @@ function contentColumns(m: M, actions: Actions): DataTableColumn<ContentItem>[] 
       header: m.columns.title,
       sortable: true,
       className: 'min-w-56',
-      cell: (row) => (
-        <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
-          {row.title}
-        </Link>
-      ),
+      cell: (row) => <TitleCell row={row} m={m} />,
     },
     { id: 'format', header: m.columns.format, cell: (row) => m.formats[row.format] },
     { id: 'placement', header: m.columns.placement, cell: () => <None m={m} /> },
@@ -92,9 +104,7 @@ function ContentCard({ row, m, actions }: { row: ContentItem; m: M; actions: Act
     <div className="flex items-start gap-3">
       <Thumb format={row.format} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
-          {row.title}
-        </Link>
+        <TitleCell row={row} m={m} />
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted-foreground">
           {m.formats[row.format]}
           <ContentStatusChip status={row.status} labels={m.statuses} />

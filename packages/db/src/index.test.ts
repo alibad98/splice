@@ -19,6 +19,7 @@ describe('@slips/db', () => {
         'catalogSyncState',
         'categories',
         'contentItems',
+        'contentProductLinks',
         'products',
         'lifecycleAudit',
         'lifecycleEventLedger',

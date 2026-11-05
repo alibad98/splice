@@ -15,7 +15,7 @@ import { EVENT_SENDER } from '../../infra.module.js';
 import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
 import { ContentRepository, type ContentItemRow } from './content.repository.js';
 
-const { contentItems } = schema;
+const { contentItems, contentProductLinks } = schema;
 
 export class InvalidTransitionError extends Error {
   constructor(
@@ -50,19 +50,21 @@ const READ_ONLY_STATUSES: readonly ContentStatus[] = ['archived'];
 const EDITABLE_FIELDS = ContentFields.keyof().options;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
-const fieldsOf = (row: ContentItemRow): ContentFields => ({
+const fieldsOf = (row: ContentItemRow, productId: string | null): ContentFields => ({
   title: row.title,
   format: row.format,
   cta_label: row.ctaLabel,
   cta_action: row.ctaAction,
   cta_url: row.ctaUrl,
   cta_style: (CTA_STYLES as readonly (string | null)[]).includes(row.ctaStyle) ? (row.ctaStyle as ContentFields['cta_style']) : null,
+  product_id: productId,
 });
 
 /**
  * The single command service that creates content items and changes their status (Story 3.1).
  * Every transition locks the row (`for update`), validates against `CONTENT_TRANSITIONS`, writes,
  * and emits `content.item.<verb>` through the outbox in the caller's transaction.
+ * It is also the only writer of `content_product_links` (Story 3.4); callers check the product with the catalog first.
  */
 @Injectable()
 export class ContentLifecycle {
@@ -97,6 +99,7 @@ export class ContentLifecycle {
         updatedAt: now,
       })
       .returning();
+    if (parsed.product_id) await this.writeLink(storeId, id, parsed.product_id, now);
     await publishEvent(tx, this.events, this.telemetry, 'content.item.created', {
       v: 1,
       store_id: storeId,
@@ -119,16 +122,18 @@ export class ContentLifecycle {
     if (!row) throw new ContentNotFoundError(contentId);
     if (READ_ONLY_STATUSES.includes(row.status)) throw new InvalidTransitionError(contentId, row.status, 'edit');
 
-    const before = fieldsOf(row);
+    const link = await this.repo.findLink(contentId);
+    const before = fieldsOf(row, link?.productId ?? null);
     const merged: ContentFields = { ...before, ...parsedPatch };
     if (merged.cta_action !== 'open_link' && parsedPatch.cta_url === undefined) merged.cta_url = null;
     const checked = ContentCreateInput.safeParse(merged);
     if (!checked.success) throw new InvalidContentFieldsError(contentId);
-    const next = { ...checked.data, cta_url: checked.data.cta_url ?? null, cta_style: checked.data.cta_style ?? null };
+    const next = { ...checked.data, cta_url: checked.data.cta_url ?? null, cta_style: checked.data.cta_style ?? null, product_id: checked.data.product_id ?? null };
 
     const changed = EDITABLE_FIELDS.filter((f: EditableField) => (before[f] ?? null) !== (next[f] ?? null));
     if (changed.length === 0) return row;
 
+    if (changed.includes('product_id')) await this.writeLink(storeId, contentId, next.product_id, now);
     const [updated] = await requireStoreContext()
       .db.update(contentItems)
       .set({
@@ -150,6 +155,34 @@ export class ContentLifecycle {
       changed,
     });
     return updated!;
+  }
+
+  /**
+   * The linked product was deleted in the store (Story 3.4, `catalog.product.deleted`): emit `content.item.edited`
+   * (`changed: ['product_id']`) for each live item linked to it, so publishing can drop or refresh them. The link rows
+   * stay (the item reads as "Linked product deleted"); no item row changes. Runs in the event delivery's transaction, so
+   * a redelivered event (already recorded in `event_deliveries`) never emits twice. Returns the notified item ids.
+   */
+  async notifyLinkedProductDeleted(tx: TxQueryable, storeId: string, productId: string): Promise<string[]> {
+    const items = await this.repo.liveItemsLinkedTo(productId);
+    for (const item of items) {
+      await publishEvent(tx, this.events, this.telemetry, 'content.item.edited', {
+        v: 1,
+        store_id: storeId,
+        content_id: item.id,
+        status: item.status,
+        changed: ['product_id'],
+      });
+    }
+    return items.map((i) => i.id);
+  }
+
+  /** Point the item's one link row at `productId`, or at nothing (`null`): the row is kept, never hard-deleted. */
+  private async writeLink(storeId: string, contentId: string, productId: string | null, now: Date): Promise<void> {
+    await requireStoreContext()
+      .db.insert(contentProductLinks)
+      .values({ id: uuidv7(now.getTime()), storeId, contentId, productId, slideId: null, createdAt: now })
+      .onConflictDoUpdate({ target: [contentProductLinks.storeId, contentProductLinks.contentId], set: { productId } });
   }
 
   async apply(tx: TxQueryable, storeId: string, contentId: string, action: ContentAction, now: Date = new Date()): Promise<ContentItemRow> {

@@ -14,6 +14,7 @@ export { Pagination, pageRange, type PaginationLabels, type PaginationProps } fr
 export { Meter, type MeterProps, type MeterTone } from './meter.js';
 export { Alert, type AlertAction, type AlertProps, type AlertTone } from './alert.js';
 export { ErrorSummary, type ErrorSummaryItem, type ErrorSummaryProps } from './error-summary.js';
+export { Combobox, type ComboboxProps, type ComboboxStatus } from './combobox.js';
 export { Banner, type BannerAction, type BannerProps, type BannerTone } from './banner.js';
 export { EmptyState, type EmptyStateProps } from './empty-state.js';
 export { Skeleton, type SkeletonProps } from './skeleton.js';

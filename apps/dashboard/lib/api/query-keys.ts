@@ -6,6 +6,8 @@ export const queryKeys = {
     all: ['catalog'] as const,
     productsAll: () => [...queryKeys.catalog.all, 'products'] as const,
     products: (query: ProductListQuery) => [...queryKeys.catalog.productsAll(), query] as const,
+    /** Product picker search (Story 3.4); under `productsAll` so link changes refresh it too. */
+    search: (q: string) => [...queryKeys.catalog.productsAll(), 'search', q] as const,
     categories: () => [...queryKeys.catalog.all, 'categories'] as const,
     sync: () => [...queryKeys.catalog.all, 'sync'] as const,
   },

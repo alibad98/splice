@@ -13,5 +13,6 @@ export const queryKeys = {
     all: ['content'] as const,
     lists: () => [...queryKeys.content.all, 'list'] as const,
     list: (query: ContentListQuery) => [...queryKeys.content.lists(), query] as const,
+    item: (id: string) => [...queryKeys.content.all, 'item', id] as const,
   },
 };

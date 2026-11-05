@@ -1,6 +1,11 @@
-import { Placeholder } from '../../../../components/Placeholder';
+import { Suspense } from 'react';
+import { ContentEditorPage } from '../../../../components/content/editor/ContentEditorPage';
 
-// Story 3.3 replaces this with the editor.
-export default function Page() {
-  return <Placeholder variant="contentEditor" />;
+export default async function EditContentPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  return (
+    <Suspense>
+      <ContentEditorPage id={id} />
+    </Suspense>
+  );
 }

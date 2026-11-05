@@ -15,6 +15,12 @@ import {
   ContentListQuery,
   ContentListResponse,
   TAB_STATUSES,
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CTA_STYLES,
+  ContentUpdateInput,
+  DEFAULT_CTA_STYLE,
+  ctaUrlMatchesAction,
+  isStoreDomainUrl,
 } from './content.js';
 
 const item = {
@@ -80,9 +86,9 @@ describe('content contracts', () => {
         cta_label: 'Learn more',
         cta_action: 'open_link',
         cta_url: 'https://shop.example.com/p/1',
-        cta_style: 'pill',
+        cta_style: 'light',
       }),
-    ).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' });
+    ).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'light' });
 
     // Unknown property rejected (strict)
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart', extra: true }).success).toBe(false);
@@ -96,7 +102,7 @@ describe('content contracts', () => {
       expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link', cta_url: bad }).success).toBe(false);
     }
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link', cta_url: 'https://shop.example.com/sale' }).success).toBe(true);
-    expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart', cta_style: 'a'.repeat(41) }).success).toBe(false);
+    expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart', cta_style: 'pill' }).success).toBe(false);
     // cta_url required for open_link and forbidden for add_to_cart / open_product
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link' }).success).toBe(false);
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link', cta_url: null }).success).toBe(false);
@@ -152,5 +158,51 @@ describe('content list contracts (Story 3.2)', () => {
     expect(parsed.v).toBe(1);
     expect(parsed.counts.drafts).toBe(2);
     expect(ContentListResponse.safeParse({ items: [], total: 0, page: 1, page_size: 10 }).success).toBe(false);
+  });
+});
+
+describe('content editing contracts (Story 3.3)', () => {
+  it('defines the CTA styles (ink default) and the store-domain problem slug', () => {
+    expect(CTA_STYLES).toEqual(['ink', 'light', 'outline']);
+    expect(DEFAULT_CTA_STYLE).toBe('ink');
+    expect(CONTENT_CTA_URL_NOT_STORE_DOMAIN).toBe('cta-url-not-store-domain');
+    expect(ContentItem.safeParse({ ...item, cta_style: 'outline' }).success).toBe(true);
+    expect(ContentItem.safeParse({ ...item, cta_style: 'pill' }).success).toBe(false);
+  });
+
+  it('validates ContentUpdateInput as a strict, non-empty partial of the editable fields', () => {
+    expect(ContentUpdateInput.parse({ title: 'New title' })).toEqual({ title: 'New title' });
+    expect(ContentUpdateInput.parse({ cta_action: 'add_to_cart', cta_url: null })).toEqual({ cta_action: 'add_to_cart', cta_url: null });
+    expect(ContentUpdateInput.safeParse({}).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ status: 'published' }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ title: '' }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ title: 'a'.repeat(81) }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ cta_label: 'a'.repeat(41) }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ cta_url: 'javascript:alert(1)' }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ cta_style: 'pill' }).success).toBe(false);
+    // The open-link rule is checked on the merged item, not on the patch alone.
+    expect(ContentUpdateInput.safeParse({ cta_action: 'open_link' }).success).toBe(true);
+    expect(ctaUrlMatchesAction({ cta_action: 'open_link', cta_url: null })).toBe(false);
+    expect(ctaUrlMatchesAction({ cta_action: 'open_link', cta_url: 'https://a.b' })).toBe(true);
+    expect(ctaUrlMatchesAction({ cta_action: 'add_to_cart', cta_url: null })).toBe(true);
+    expect(ctaUrlMatchesAction({ cta_action: 'open_product', cta_url: 'https://a.b' })).toBe(false);
+  });
+
+  it('isStoreDomainUrl accepts the store host and its subdomains over http(s) only', () => {
+    const domains = ['demo.salla.sa'];
+    expect(isStoreDomainUrl('https://demo.salla.sa/p/1', domains)).toBe(true);
+    expect(isStoreDomainUrl('http://demo.salla.sa', domains)).toBe(true);
+    expect(isStoreDomainUrl('https://www.demo.salla.sa/p', domains)).toBe(true);
+    expect(isStoreDomainUrl('https://DEMO.Salla.SA./x', domains)).toBe(true);
+    expect(isStoreDomainUrl('https://evil.com/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://demo.salla.sa.evil.com/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://evildemo.salla.sa/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://user:pw@demo.salla.sa/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('ftp://demo.salla.sa/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('javascript:alert(1)//demo.salla.sa', domains)).toBe(false);
+    expect(isStoreDomainUrl('not a url', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://demo.salla.sa/x', [])).toBe(false);
+    expect(isStoreDomainUrl('https://shop.example.com/x', ['https://shop.example.com/', 'other.sa'])).toBe(true);
+    expect(isStoreDomainUrl('https://shop.example.com/x', ['', ' '])).toBe(false);
   });
 });

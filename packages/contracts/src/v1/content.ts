@@ -23,6 +23,17 @@ export const CTA_ACTIONS = ['add_to_cart', 'open_product', 'open_link'] as const
 export type CtaAction = (typeof CTA_ACTIONS)[number];
 export const CtaAction = z.enum(CTA_ACTIONS);
 
+/** Preset CTA button styles (Story 3.3). `null` on an item means the default, `ink`. */
+export const CTA_STYLES = ['ink', 'light', 'outline'] as const;
+export type CtaStyle = (typeof CTA_STYLES)[number];
+export const CtaStyle = z.enum(CTA_STYLES);
+export const DEFAULT_CTA_STYLE: CtaStyle = 'ink';
+
+/** Field bounds shared by the API and the editor. */
+export const CONTENT_TITLE_MAX = 80;
+export const CTA_LABEL_MAX = 40;
+export const CTA_URL_MAX = 2048;
+
 /** Lifecycle actions that move a content item between statuses. */
 export const CONTENT_ACTIONS = [
   'create',
@@ -43,7 +54,7 @@ export const CONTENT_ACTIONS = [
 export type ContentAction = (typeof CONTENT_ACTIONS)[number];
 export const ContentAction = z.enum(CONTENT_ACTIONS);
 
-/** Domain events emitted by `content` when a content item changes status. */
+/** Domain events emitted by `content` when a content item changes status, or (`content.item.edited`) its fields. */
 export const CONTENT_EVENT_NAMES = [
   'content.item.created',
   'content.item.processing_started',
@@ -58,6 +69,7 @@ export const CONTENT_EVENT_NAMES = [
   'content.item.unarchived',
   'content.item.restored',
   'content.item.deleted',
+  'content.item.edited',
 ] as const;
 export type ContentEventName = (typeof CONTENT_EVENT_NAMES)[number];
 
@@ -100,21 +112,77 @@ export function canTransition(from: ContentStatus | null, action: ContentAction)
 /** Problem `type` of content lifecycle endpoints when a status transition is not allowed (409). */
 export const CONTENT_INVALID_TRANSITION = 'invalid-transition';
 
+/** Problem `type` when an open-link CTA URL is not on one of the store's synced domains (422). */
+export const CONTENT_CTA_URL_NOT_STORE_DOMAIN = 'cta-url-not-store-domain';
+
+/** The editable fields of a content item, without the cross-field rule (see `ctaUrlMatchesAction`). */
+export const ContentFields = z.strictObject({
+  title: z.string().min(1).max(CONTENT_TITLE_MAX),
+  format: ContentFormat,
+  cta_label: z.string().min(1).max(CTA_LABEL_MAX),
+  cta_action: CtaAction,
+  cta_url: z.url({ protocol: /^https?$/ }).max(CTA_URL_MAX).nullable().optional(),
+  cta_style: CtaStyle.nullable().optional(),
+});
+export type ContentFields = z.infer<typeof ContentFields>;
+
+/** `open_link` requires a `cta_url`; every other action forbids one. */
+export const ctaUrlMatchesAction = (d: { cta_action: CtaAction; cta_url?: string | null | undefined }): boolean =>
+  d.cta_action === 'open_link' ? typeof d.cta_url === 'string' && d.cta_url.length > 0 : d.cta_url == null;
+
+const CTA_URL_RULE = { message: 'cta_url is required for open_link and forbidden otherwise', path: ['cta_url'] };
+
 /** `POST /v1/content` request body: creates a draft Story or Reel. */
-export const ContentCreateInput = z
-  .strictObject({
-    title: z.string().min(1).max(80),
-    format: ContentFormat,
-    cta_label: z.string().min(1).max(40),
-    cta_action: CtaAction,
-    cta_url: z.url({ protocol: /^https?$/ }).max(2048).nullable().optional(),
-    cta_style: z.string().min(1).max(40).nullable().optional(),
-  })
-  .refine((d) => (d.cta_action === 'open_link' ? typeof d.cta_url === 'string' && d.cta_url.length > 0 : d.cta_url == null), {
-    message: 'cta_url is required for open_link and forbidden otherwise',
-    path: ['cta_url'],
-  });
+export const ContentCreateInput = ContentFields.refine(ctaUrlMatchesAction, CTA_URL_RULE);
 export type ContentCreateInput = z.infer<typeof ContentCreateInput>;
+
+/**
+ * `PATCH /v1/content/:id` request body (Story 3.3): any non-empty subset of the editable fields. The open-link rule
+ * applies to the item after the patch is merged, so `ContentLifecycle.edit` re-checks it there.
+ */
+export const ContentUpdateInput = ContentFields.partial().refine((d) => Object.keys(d).length > 0, { message: 'Send at least one field' });
+export type ContentUpdateInput = z.infer<typeof ContentUpdateInput>;
+
+/** The WHATWG URL parser (Node and browsers); contracts compile without DOM or Node typings. */
+interface ParsedUrl {
+  protocol: string;
+  username: string;
+  password: string;
+  hostname: string;
+}
+const WhatwgUrl = (globalThis as unknown as { URL: new (input: string) => ParsedUrl }).URL;
+
+/** Lower-case host of one synced domain entry; tolerates a stored URL (`https://shop.example/`) and a trailing dot. */
+function domainHost(domain: string): string {
+  const raw = domain.trim().toLowerCase();
+  if (!raw.includes('://')) return raw.replace(/\/.*$/, '').replace(/\.$/, '');
+  try {
+    return new WhatwgUrl(raw).hostname.replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * True when `url` is an `http(s)` URL without credentials whose host equals one of the store's synced `domains` or is a
+ * subdomain of one (`www.demo.salla.sa` for `demo.salla.sa`). Pure: the API and the dashboard both run it.
+ */
+export function isStoreDomainUrl(url: string, domains: readonly string[]): boolean {
+  let parsed: ParsedUrl;
+  try {
+    parsed = new WhatwgUrl(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+  if (parsed.username || parsed.password) return false;
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  if (!host) return false;
+  return domains.some((d) => {
+    const domain = domainHost(d);
+    return domain.length > 0 && (host === domain || host.endsWith(`.${domain}`));
+  });
+}
 
 /** One content item returned by the merchant content API. */
 export const ContentItem = z.object({
@@ -125,7 +193,7 @@ export const ContentItem = z.object({
   cta_label: z.string().min(1).max(40),
   cta_action: CtaAction,
   cta_url: z.string().nullable(),
-  cta_style: z.string().nullable(),
+  cta_style: CtaStyle.nullable(),
   status: ContentStatus,
   archived_from: ContentStatus.nullable(),
   reactivate_to: ContentStatus.nullable(),

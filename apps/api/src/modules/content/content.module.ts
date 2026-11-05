@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ContentController } from './content.controller.js';
+import { IntegrationModule } from '../integration/integration.module.js';
 import { ContentLifecycle } from './content-lifecycle.js';
 import { ContentService } from './content.service.js';
 
@@ -8,6 +9,7 @@ import { ContentService } from './content.service.js';
  * and the batch link-count read the Products page needs (`ContentService`).
  */
 @Module({
+  imports: [IntegrationModule],
   controllers: [ContentController],
   providers: [ContentService, ContentLifecycle],
   exports: [ContentService, ContentLifecycle],

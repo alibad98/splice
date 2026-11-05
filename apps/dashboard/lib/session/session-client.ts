@@ -7,7 +7,7 @@ export type SessionErrorCode = 'store_not_installed' | 'platform_unavailable' | 
 
 export type SessionState =
   | { status: 'loading' }
-  | { status: 'signed-in'; mode: 'embedded' | 'direct'; storeName: string; connection: ShellConnection; csrfToken?: string; openInPlatformUrl?: string }
+  | { status: 'signed-in'; mode: 'embedded' | 'direct'; storeName: string; /** Synced storefront hosts; open-link CTAs must point at one (Story 3.3). */ storeDomains: readonly string[]; connection: ShellConnection; csrfToken?: string; openInPlatformUrl?: string }
   | { status: 'signed-out'; reason: SignedOutReason }
   | { status: 'error'; code: SessionErrorCode };
 
@@ -28,6 +28,7 @@ export function stateFromInfo(info: SessionInfo): Extract<SessionState, { status
     status: 'signed-in',
     mode: info.mode,
     storeName: info.store.name,
+    storeDomains: info.store.domains,
     connection: connectionFromStatus(info.connection),
     ...(info.csrf_token ? { csrfToken: info.csrf_token } : {}),
     ...(info.open_in_platform_url ? { openInPlatformUrl: info.open_in_platform_url } : {}),

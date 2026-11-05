@@ -8,6 +8,8 @@ export class ApiError extends Error {
     readonly code?: string,
     /** Seconds from a `Retry-After` header (429), when the API sent one. */
     readonly retryAfter?: number,
+    /** The problem+json `type` slug (e.g. `cta-url-not-store-domain`), when not `about:blank`. */
+    readonly type?: string,
   ) {
     super(`API request failed (${status}${code ? ` ${code}` : ''})`);
     this.name = 'ApiError';
@@ -23,7 +25,7 @@ export async function getJson<S extends z.ZodType>(client: SessionClient, path: 
     throw new ApiError(0);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { code?: string } | null;
+    const body = (await res.json().catch(() => null)) as { code?: string; type?: string } | null;
     throw new ApiError(res.status, body?.code);
   }
   const parsed = schema.safeParse(await res.json().catch(() => null));
@@ -32,17 +34,29 @@ export async function getJson<S extends z.ZodType>(client: SessionClient, path: 
 }
 
 /** POST to a `v1` resource as the signed-in merchant (the session client adds the CSRF token) and parse the answer. */
-export async function postJson<S extends z.ZodType>(client: SessionClient, path: string, schema: S): Promise<z.infer<S>> {
+export function postJson<S extends z.ZodType>(client: SessionClient, path: string, schema: S): Promise<z.infer<S>> {
+  return sendJson(client, 'POST', path, undefined, schema);
+}
+
+/**
+ * Send a state-changing request (`POST`/`PATCH`/`PUT`) with an optional JSON body as the signed-in merchant (the session
+ * client adds the CSRF token) and parse the answer with its contract schema. Failures reject with an `ApiError`.
+ */
+export async function sendJson<S extends z.ZodType>(client: SessionClient, method: 'POST' | 'PATCH' | 'PUT', path: string, body: unknown, schema: S): Promise<z.infer<S>> {
   let res: Response;
   try {
-    res = await client.apiFetch(path, { method: 'POST', headers: { 'x-slips-client': 'dashboard' } });
+    res = await client.apiFetch(path, {
+      method,
+      headers: { 'x-slips-client': 'dashboard', ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
   } catch {
     throw new ApiError(0);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { code?: string } | null;
+    const body = (await res.json().catch(() => null)) as { code?: string; type?: string } | null;
     const retryAfter = Number(res.headers.get('retry-after'));
-    throw new ApiError(res.status, body?.code, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
+    throw new ApiError(res.status, body?.code, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined, body?.type && body.type !== 'about:blank' ? body.type : undefined);
   }
   const parsed = schema.safeParse(await res.json().catch(() => null));
   if (!parsed.success) throw new ApiError(res.status, 'invalid_response');
@@ -58,7 +72,7 @@ export async function deleteResource(client: SessionClient, path: string): Promi
     throw new ApiError(0);
   }
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { code?: string } | null;
+    const body = (await res.json().catch(() => null)) as { code?: string; type?: string } | null;
     throw new ApiError(res.status, body?.code);
   }
 }

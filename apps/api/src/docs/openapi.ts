@@ -1,5 +1,6 @@
 import {
   AUTH_PROBLEM_CODES,
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_INVALID_TRANSITION,
   CatalogSyncStatus,
   CategoryListResponse,
@@ -11,6 +12,7 @@ import {
   CONTENT_SEARCH_MAX,
   ContentListQuery,
   ContentListResponse,
+  ContentUpdateInput,
   EmbeddedSession,
   ForgotPasswordInput,
   HealthResponse,
@@ -99,6 +101,7 @@ const inputs: Array<[z.ZodType, string, string]> = [
   [SetPasswordInput, 'SetPasswordRequest', "Owner's first password with the token from `verify-otp`."],
   [ResendOtpInput, 'ResendOtpRequest', 'Send the code again.'],
   [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA.'],
+  [ContentUpdateInput, 'ContentUpdateRequest', 'Any non-empty subset of the editable fields (title, format, CTA). The open-link rule applies to the merged item.'],
 ];
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -133,7 +136,7 @@ function exportModels(list: Array<[z.ZodType, string, string]>, io: 'input' | 'o
 // Routes
 // ---------------------------------------------------------------------------------------------------------------
 
-type Method = 'get' | 'post' | 'delete';
+type Method = 'get' | 'post' | 'patch' | 'delete';
 type Auth = 'public' | 'merchant' | 'admin';
 
 interface QueryDoc {
@@ -262,11 +265,22 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content',
     tag: 'Content',
     summary: 'Create a content item',
-    description: 'Creates a draft Story or Reel with its title, format and CTA, and emits `content.item.created` in the same transaction. Invalid bodies answer 400 `invalid_body`.',
+    description: `Creates a draft Story or Reel with its title, format and CTA, and emits \`content.item.created\` in the same transaction. Invalid bodies answer 400 \`invalid_body\`. An open-link \`cta_url\` must be http(s) on one of the store's synced domains (or a subdomain of one), else 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`.`,
     auth: 'merchant',
     body: ContentCreateInput,
     success: { status: 201, description: 'Created draft content item', body: ContentItem },
-    errors: [400, 401, 403],
+    errors: [400, 401, 403, 422],
+  },
+  {
+    method: 'patch',
+    path: '/v1/content/:id',
+    tag: 'Content',
+    summary: 'Edit a content item',
+    description: `Changes the title, format and CTA of a live item of the store, keeps its status, and emits \`content.item.edited\` in the same transaction (nothing is written when no field changes). Moving \`cta_action\` off \`open_link\` clears \`cta_url\`. Invalid bodies, or a merged item that breaks the open-link rule, answer 400 \`invalid_body\`; archived items answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`; an off-domain \`cta_url\` answers 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`. Unknown, deleted or other-store items answer 404.`,
+    auth: 'merchant',
+    body: ContentUpdateInput,
+    success: { status: 200, description: 'Edited content item', body: ContentItem },
+    errors: [400, 401, 403, 404, 409, 422],
   },
   {
     method: 'get',
@@ -361,14 +375,15 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 - Password sign-in: ${AUTH_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Queries: \`invalid_query\`
 - Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)
-- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`)`;
+- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`)`;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',
   401: 'Not signed in, session expired, or wrong credentials',
   403: 'Forbidden: missing/invalid CSRF token, store not installed, or admin only',
   404: 'Not found',
-  409: 'Conflict (`type` `invalid-transition` when a status change is not allowed)',
+  409: 'Conflict (`type` `invalid-transition` when a status change or edit is not allowed)',
+  422: 'Unprocessable (`type` says which rule, e.g. `cta-url-not-store-domain`)',
   429: 'Too many attempts; try again later (after `Retry-After` seconds when the header is sent)',
   503: 'A dependency (database or Salla) is unavailable',
 };

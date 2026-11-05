@@ -78,6 +78,7 @@ context:
 | 2 | Sidebar (shadcn) | collapsible icon rail pinned to the viewport's inline-start edge (both directions), width animates with a spacer in flow, state in the `sidebar_state` cookie read on the server (no first-paint shift), Ctrl/Cmd+B, rail strip, tooltips towards the inline end when collapsed, sheet below md (replaces MobileNav) | built (UI rework 3) |
 | 2 | DropdownMenu | row menus | built (UI rework) |
 | 3 | Field, Input, PasswordInput, Select, Textarea, Switch, Checkbox | one control look (`control.ts`), Field wires id/aria-describedby/aria-invalid via context; no native `<select>` or pickers anywhere | built (UI rework) |
+| 3 | ErrorSummary | form error summary on submit: danger tint, `role="alert"`, focuses itself on mount and on each `focusKey` change, one link per error that focuses its field (ids from Field `htmlFor`); renders nothing without items; copy via props | built (Story 3.3) |
 | 3 | OtpInput | LTR digit group, paste + iOS one-time-code autofill, Home/End/arrows | built (UI rework) |
 | 3 | Combobox | product picker | later |
 | 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses. StatusChip: `variant` soft/outline and a leading `icon` node replacing the dot (ended, archived); pulse static under reduced motion | built (UI rework 2; outline/icon Story 3.2) |

@@ -28,6 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
+  ErrorSummary,
   Field,
   Input,
   Label,
@@ -104,7 +105,7 @@ const COPY = {
       badge: 'Badge', badgeTones: { neutral: 'Draft', brand: 'New', accent: 'Pro plan', info: 'Scheduled', success: 'Live', warning: 'Low stock', danger: 'Failed' }, verified: 'Verified for Salla', syncingNow: 'Syncing', small: 'Small', medium: 'Medium', large: 'Large',
       feedback: 'Progress and meter', alerts: 'Alert and banner', empty: 'Empty state and skeleton', pagination: 'Pagination', pages: 'Pages', range: (r: { from: number; to: number; total: number }) => `${r.from}-${r.to} of ${r.total}`, previous: 'Previous', next: 'Next', rowsPerPage: 'Rows per page', forms: 'Form controls', overlays: 'Dialogs, menus and tooltips', themeSection: 'Theme toggle', tabsSection: 'Tabs',
       uploading: 'Uploading video', syncing: 'Syncing products', stories: 'Stories this month', n: (a: number, b: number) => `${a} of ${b}`,
-      errorTitle: 'We could not load your stories', errorBody: 'Your other blocks are fine.', retry: 'Retry', warnTitle: 'Two products are out of stock', okTitle: 'Settings saved', dismiss: 'Dismiss',
+      errorTitle: 'We could not load your stories', errorBody: 'Your other blocks are fine.', retry: 'Retry', warnTitle: 'Two products are out of stock', okTitle: 'Settings saved', dismiss: 'Dismiss', summaryTitle: 'Fix 2 problems to save', summaryItems: ['Enter a title', 'Use a link on your store domain'],
       offline: 'You are offline. Changes will sync when you reconnect.', disconnected: 'Your store is disconnected from Salla.', reconnect: 'Reconnect',
       emptyTitle: 'No stories yet', firstStory: 'Create your first story', emptyBody: 'Create your first story from a product video.', filtered: 'No products match your filters.', loading: 'Loading',
       email: 'Email address', emailHint: 'We send sign-in codes here.', emailPh: 'you@store.com', password: 'Password', passwordError: 'At least 8 characters', show: 'Show password', hide: 'Hide password',
@@ -152,7 +153,7 @@ const COPY = {
       badge: 'الشارة', badgeTones: { neutral: 'مسودة', brand: 'جديد', accent: 'الباقة الاحترافية', info: 'مجدول', success: 'مباشر', warning: 'مخزون منخفض', danger: 'فشل' }, verified: 'معتمد لمتجر سلة', syncingNow: 'نزامن الآن', small: 'صغيرة', medium: 'متوسطة', large: 'كبيرة',
       feedback: 'التقدم والعداد', alerts: 'التنبيه والشريط', empty: 'الحالة الفارغة والهيكل', pagination: 'التنقل بين الصفحات', pages: 'الصفحات', range: (r: { from: number; to: number; total: number }) => `${r.from}-${r.to} من ${r.total}`, previous: 'السابق', next: 'التالي', rowsPerPage: 'عدد الصفوف', forms: 'عناصر النماذج', overlays: 'النوافذ والقوائم والتلميحات', themeSection: 'مبدّل الوضع', tabsSection: 'التبويبات',
       uploading: 'نرفع الفيديو', syncing: 'نزامن المنتجات', stories: 'ستوريز هذا الشهر', n: (a: number, b: number) => `${a} من ${b}`,
-      errorTitle: 'ما قدرنا نحمّل الستوريز', errorBody: 'باقي الأقسام تعمل بشكل طبيعي.', retry: 'حاول مرة ثانية', warnTitle: 'منتجان نفدا من المخزون', okTitle: 'تم حفظ الإعدادات', dismiss: 'إغلاق',
+      errorTitle: 'ما قدرنا نحمّل الستوريز', errorBody: 'باقي الأقسام تعمل بشكل طبيعي.', retry: 'حاول مرة ثانية', warnTitle: 'منتجان نفدا من المخزون', okTitle: 'تم حفظ الإعدادات', dismiss: 'إغلاق', summaryTitle: 'صحّح مشكلتين للحفظ', summaryItems: ['اكتب عنوانًا', 'استخدم رابطًا على نطاق متجرك'],
       offline: 'أنت غير متصل. ستتم مزامنة التغييرات عند عودة الاتصال.', disconnected: 'متجرك غير مرتبط بسلة.', reconnect: 'أعد الربط',
       emptyTitle: 'لا توجد ستوريز بعد', firstStory: 'أنشئ أول ستوري', emptyBody: 'أنشئ أول ستوري من فيديو منتج.', filtered: 'لا توجد منتجات تطابق الفلاتر.', loading: 'نحمّل',
       email: 'البريد الإلكتروني', emailHint: 'نرسل رموز الدخول إلى هذا البريد.', emailPh: 'you@store.com', password: 'كلمة المرور', passwordError: '8 أحرف على الأقل', show: 'إظهار كلمة المرور', hide: 'إخفاء كلمة المرور',
@@ -340,6 +341,8 @@ export function Gallery() {
             <Alert tone="danger" title={k.errorTitle} description={k.errorBody} action={{ label: k.retry, onClick: () => undefined }} />
             <Alert tone="warning" title={k.warnTitle} />
             <Alert tone="success" title={k.okTitle} onDismiss={() => undefined} dismissLabel={k.dismiss} />
+            {/* The gallery must not steal focus on load; in forms the summary focuses itself. */}
+            <ErrorSummary title={k.summaryTitle} items={k.summaryItems.map((label, i) => ({ id: `gallery-summary-${i}`, label }))} autoFocus={false} />
             <Banner tone="warning">{k.offline}</Banner>
             <Banner tone="danger" action={{ label: k.reconnect, onClick: () => undefined }}>
               {k.disconnected}

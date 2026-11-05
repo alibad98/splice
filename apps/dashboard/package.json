@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@hookform/resolvers": "5.9.2",
     "@salla.sa/embedded-sdk": "0.2.6",
     "@slips/contracts": "workspace:*",
     "@slips/ui": "workspace:*",
@@ -23,6 +24,7 @@
     "postcss": "8.5.29",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "react-hook-form": "7.91.0",
     "tailwindcss": "4.3.3",
     "zod": "4.6.7"
   },

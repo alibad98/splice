@@ -39,7 +39,7 @@ class FakePlatform implements CommercePlatform {
   unavailable = false;
   profile: MerchantProfile = this.newProfile();
   newProfile(): MerchantProfile {
-    return { platformStoreId: `ses-${randomUUID()}`, storeName: 'Session Store', platformMerchantId: 'm-1', ownerName: 'Owner', domains: [] };
+    return { platformStoreId: `ses-${randomUUID()}`, storeName: 'Session Store', platformMerchantId: 'm-1', ownerName: 'Owner', domains: ['demo-store.salla.sa'] };
   }
   readonly auth = {
     buildAuthorizeUrl: (state: string) => `https://accounts.example/auth?state=${state}`,
@@ -130,7 +130,7 @@ describe('embedded sign-in', () => {
     expect(session.expires_in).toBeLessThanOrEqual(900);
     const me = await fetch(`${base}/v1/session`, { headers: { authorization: `Bearer ${session.access_token}` } });
     const info = SessionInfo.parse(await me.json());
-    expect(info).toMatchObject({ mode: 'embedded', store: { name: 'Embedded Store' }, connection: { state: 'connected', store_name: 'Embedded Store' } });
+    expect(info).toMatchObject({ mode: 'embedded', store: { name: 'Embedded Store', domains: ['demo-store.salla.sa'] }, connection: { state: 'connected', store_name: 'Embedded Store' } });
     expect(info.csrf_token).toBeUndefined();
     expect(info.open_in_platform_url).toBeUndefined();
     expect((await admin.query('select mode from merchant_sessions where store_id = $1', [store.storeId])).rows).toEqual([{ mode: 'embedded' }]);

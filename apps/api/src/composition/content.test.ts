@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CONTENT_ACTIONS,
   CONTENT_EVENT_NAMES,
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_INVALID_TRANSITION,
   CONTENT_STATUSES,
   CONTENT_TRANSITIONS,
@@ -250,7 +251,7 @@ describe('merchant content API & I/O matrix', () => {
   const installedStore = async (): Promise<{ storeId: string; token: string }> => {
     const storeId = randomUUID();
     await admin.query(
-      `insert into stores (id, store_id, platform, platform_store_id, name) values ($1, $1, 'salla', $2, 'Content Store') on conflict do nothing`,
+      `insert into stores (id, store_id, platform, platform_store_id, name, synced_domains) values ($1, $1, 'salla', $2, 'Content Store', '{shop.example.com}') on conflict do nothing`,
       [storeId, `content-${storeId}`],
     );
     return { storeId, token: (await nest.get(SessionService).create(storeId, 'embedded')).token };
@@ -307,14 +308,14 @@ describe('merchant content API & I/O matrix', () => {
     expect(ContentItem.parse(getRes.body)).toEqual(created);
 
     // open_link with a URL and a style: both survive create, GET and the stored row
-    const linkInput = { ...validCreateInput, cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' };
+    const linkInput = { ...validCreateInput, cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'light' };
     const linkRes = await request(token, 'POST', '/v1/content', linkInput);
     expect(linkRes.res.status).toBe(201);
     const linkItem = ContentItem.parse(linkRes.body);
-    expect(linkItem).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' });
+    expect(linkItem).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'light' });
     const linkGet = await request(token, 'GET', `/v1/content/${linkItem.id}`);
     expect(ContentItem.parse(linkGet.body)).toEqual(linkItem);
-    expect(await rowById(linkItem.id)).toMatchObject({ cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' });
+    expect(await rowById(linkItem.id)).toMatchObject({ cta_url: 'https://shop.example.com/p/1', cta_style: 'light' });
 
     // Invalid bodies -> 400 invalid_body
     for (const bad of [
@@ -496,6 +497,93 @@ describe('merchant content API & I/O matrix', () => {
     }
   });
 
+  it('Edit (Story 3.3): PATCH on a draft changes only the sent fields, keeps the status and emits content.item.edited once; a no-op writes nothing', async () => {
+    const { storeId, token } = await installedStore();
+    const created = ContentItem.parse((await request(token, 'POST', '/v1/content', validCreateInput)).body);
+
+    const { res, body } = await request(token, 'PATCH', `/v1/content/${created.id}`, { cta_label: 'تسوّق الآن', cta_style: 'outline' });
+    expect(res.status).toBe(200);
+    const edited = ContentItem.parse(body);
+    expect(edited).toMatchObject({ id: created.id, status: 'draft', title: created.title, cta_label: 'تسوّق الآن', cta_style: 'outline' });
+    expect(Date.parse(edited.updated_at)).toBeGreaterThanOrEqual(Date.parse(created.updated_at));
+
+    let events = await eventsForContent(storeId, created.id);
+    expect(events.map((e) => e.name)).toEqual(['content.item.created', 'content.item.edited']);
+    expect(events[1]!.payload).toEqual({ v: 1, store_id: storeId, content_id: created.id, status: 'draft', changed: ['cta_label', 'cta_style'] });
+
+    // Sending the same values again changes nothing: no write, no event.
+    const same = await request(token, 'PATCH', `/v1/content/${created.id}`, { cta_label: 'تسوّق الآن' });
+    expect(same.res.status).toBe(200);
+    expect(ContentItem.parse(same.body).updated_at).toBe(edited.updated_at);
+    events = await eventsForContent(storeId, created.id);
+    expect(events).toHaveLength(2);
+
+    // XSS: merchant text is stored verbatim.
+    const xss = '<img src=x onerror=alert(1)>';
+    expect(ContentItem.parse((await request(token, 'PATCH', `/v1/content/${created.id}`, { title: xss })).body).title).toBe(xss);
+    expect(await rowById(created.id)).toMatchObject({ title: xss });
+
+    // Bad bodies: empty, unknown field, status, too long title -> 400 invalid_body.
+    for (const bad of [{}, { status: 'published' }, { extra: 1 }, { title: 'x'.repeat(81) }, { cta_style: 'pill' }, { cta_action: 'open_link' }]) {
+      const r = await request(token, 'PATCH', `/v1/content/${created.id}`, bad);
+      expect(r.res.status).toBe(400);
+      expect(r.body).toMatchObject({ status: 400, code: 'invalid_body' });
+    }
+    expect(await eventsForContent(storeId, created.id)).toHaveLength(3);
+  });
+
+  it('Edit: open_link URL must be on the store domain (subdomains allowed); switching the action away clears the URL', async () => {
+    const { storeId, token } = await installedStore();
+    const created = ContentItem.parse((await request(token, 'POST', '/v1/content', validCreateInput)).body);
+
+    const off = await request(token, 'PATCH', `/v1/content/${created.id}`, { cta_action: 'open_link', cta_url: 'https://evil.com/x' });
+    expect(off.res.status).toBe(422);
+    expect(off.res.headers.get('content-type')).toContain('application/problem+json');
+    expect(off.body).toMatchObject({ status: 422, type: CONTENT_CTA_URL_NOT_STORE_DOMAIN, code: 'cta_url_not_store_domain' });
+    const offCreate = await request(token, 'POST', '/v1/content', { ...validCreateInput, cta_action: 'open_link', cta_url: 'https://evil.com/x' });
+    expect(offCreate.res.status).toBe(422);
+    expect(offCreate.body).toMatchObject({ type: CONTENT_CTA_URL_NOT_STORE_DOMAIN });
+
+    const sub = await request(token, 'PATCH', `/v1/content/${created.id}`, { cta_action: 'open_link', cta_url: 'https://www.shop.example.com/p' });
+    expect(sub.res.status).toBe(200);
+    expect(ContentItem.parse(sub.body)).toMatchObject({ cta_action: 'open_link', cta_url: 'https://www.shop.example.com/p' });
+
+    const back = await request(token, 'PATCH', `/v1/content/${created.id}`, { cta_action: 'add_to_cart' });
+    expect(back.res.status).toBe(200);
+    expect(ContentItem.parse(back.body)).toMatchObject({ cta_action: 'add_to_cart', cta_url: null });
+    expect(await rowById(created.id)).toMatchObject({ cta_action: 'add_to_cart', cta_url: null });
+    const events = await eventsForContent(storeId, created.id);
+    expect(events.at(-1)!.payload).toMatchObject({ changed: ['cta_action', 'cta_url'] });
+  });
+
+  it('Edit: published items stay published; archived items answer 409 invalid-transition; other stores and deleted items answer 404', async () => {
+    const a = await installedStore();
+    const b = await installedStore();
+    const published = await seedItemInStatus(a.storeId, 'published');
+    const ok = await request(a.token, 'PATCH', `/v1/content/${published.id}`, { title: 'Live edit', format: 'reel' });
+    expect(ok.res.status).toBe(200);
+    expect(ContentItem.parse(ok.body)).toMatchObject({ status: 'published', title: 'Live edit', format: 'reel' });
+    expect((await eventsForContent(a.storeId, published.id)).at(-1)!.payload).toMatchObject({ status: 'published', changed: ['title', 'format'] });
+
+    const archived = await seedItemInStatus(a.storeId, 'archived');
+    const before = await rowById(archived.id);
+    const eventsBefore = await eventsForContent(a.storeId, archived.id);
+    const conflict = await request(a.token, 'PATCH', `/v1/content/${archived.id}`, { title: 'Nope' });
+    expect(conflict.res.status).toBe(409);
+    expect(conflict.body).toMatchObject({ status: 409, type: CONTENT_INVALID_TRANSITION });
+    expect(await rowById(archived.id)).toEqual(before);
+    expect(await eventsForContent(a.storeId, archived.id)).toHaveLength(eventsBefore.length);
+
+    const cross = await request(b.token, 'PATCH', `/v1/content/${published.id}`, { title: 'Hijack' });
+    expect(cross.res.status).toBe(404);
+    expect((await request(b.token, 'GET', `/v1/content/${published.id}`)).res.status).toBe(404);
+    expect(await rowById(published.id)).toMatchObject({ title: 'Live edit' });
+
+    await request(a.token, 'DELETE', `/v1/content/${published.id}`);
+    expect((await request(a.token, 'PATCH', `/v1/content/${published.id}`, { title: 'Gone' })).res.status).toBe(404);
+    expect((await request(a.token, 'PATCH', '/v1/content/not-a-uuid', { title: 'x' })).res.status).toBe(404);
+  });
+
   it('Rollback: a transition whose transaction rolls back persists neither the status change nor the outbox event', async () => {
     const storeId = randomUUID();
     const draft = await seedItemInStatus(storeId, 'draft');
@@ -604,7 +692,7 @@ describe('merchant content API & I/O matrix', () => {
 });
 
 describe('worker content event handlers & store data lifecycle', () => {
-  it('dispatches all 13 content events to the logging handlers without error', async () => {
+  it('dispatches all 14 content events to the logging handlers without error', async () => {
     const registry = new EventHandlerRegistry();
     registerContentEventHandlers(registry, telemetry);
     const dispatch = eventDispatcher(app, registry);
@@ -617,7 +705,9 @@ describe('worker content event handlers & store data lifecycle', () => {
           ? { v: 1, store_id: storeId, content_id: contentId, from: null, to: 'draft' }
           : name === 'content.item.deleted'
             ? { v: 1, store_id: storeId, content_id: contentId, from: 'draft' }
-            : { v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'published' };
+            : name === 'content.item.edited'
+              ? { v: 1, store_id: storeId, content_id: contentId, status: 'draft', changed: ['title'] }
+              : { v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'published' };
       const envelope: EventEnvelope = {
         v: 1,
         trace_id: 't',

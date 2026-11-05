@@ -309,6 +309,11 @@ export class IntegrationService {
     return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.lifecycleState === 'active');
   }
 
+  /** The store's synced storefront hosts (empty when the store is unknown). Content checks open-link CTA URLs against them (Story 3.3). */
+  async getSyncedDomains(storeId: string): Promise<string[]> {
+    return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.syncedDomains ?? []);
+  }
+
   /** What the dashboard connection chip shows for a store. */
   async getConnection(storeId: string): Promise<ConnectionStatus> {
     return withStoreContext(this.pool, storeId, async () => {

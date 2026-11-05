@@ -16,7 +16,8 @@ export type EmbeddedSession = z.infer<typeof EmbeddedSession>;
 export const SessionInfo = z.object({
   v: z.literal(1).default(1),
   mode: z.enum(['embedded', 'direct']),
-  store: z.object({ name: z.string() }),
+  /** The store; `domains` are its synced storefront hosts (open-link CTAs must point at one, Story 3.3). */
+  store: z.object({ name: z.string(), domains: z.array(z.string()).default([]) }),
   connection: ConnectionStatus,
   expires_at: z.iso.datetime(),
   /** Direct-link (cookie) sessions only: send it as `x-csrf-token` on every state-changing request. */

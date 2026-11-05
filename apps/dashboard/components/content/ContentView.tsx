@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { CONTENT_PAGE_SIZES, CONTENT_SEARCH_MAX, CONTENT_SORTS, type ContentItem, type ContentSort, type ContentTab } from '@slips/contracts';
 import { Card, Field, Input, Pagination, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, dialog, toast } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 import { directionOf } from '../../i18n/config';
 import { useArchiveContent, useContentList, useDeleteContent, useUndoArchiveContent } from '../../lib/api/content';
 import { fill } from '../products/format';
-import { ContentError, ContentSkeleton, EmptyContent, FilteredEmpty, useDelayed } from './ContentStates';
+import { ContentError, ContentSkeleton, EmptyContent, FilteredEmpty, NEW_CONTENT_HREF, useDelayed } from './ContentStates';
 import { ContentTable } from './ContentTable';
 import { ContentTabs } from './ContentTabs';
 import { toContentQuery, useContentParams } from './url-state';
@@ -180,9 +181,16 @@ export function ContentView() {
 
   return (
     <section className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-h1">{m.title}</h1>
-        <p className="text-body text-muted-foreground">{m.intro}</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-h1">{m.title}</h1>
+          <p className="text-body text-muted-foreground">{m.intro}</p>
+        </div>
+        {data && data.counts.all > 0 ? (
+          <Link href={NEW_CONTENT_HREF} className="inline-flex min-h-11 items-center justify-center self-start rounded-pill bg-accent px-6 font-semibold text-accent-foreground hover:brightness-108 sm:self-auto">
+            {m.create}
+          </Link>
+        ) : null}
       </header>
       <Card>
         <ContentFilters q={params.q} sort={query.sort} onSearch={onSearch} onSort={onSort} />

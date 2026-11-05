@@ -10,24 +10,31 @@ import {
   Inject,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
 } from '@nestjs/common';
 import {
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CTA_STYLES,
   CONTENT_INVALID_TRANSITION,
   ContentCreateInput,
   ContentListQuery,
+  ContentUpdateInput,
   TAB_STATUSES,
+  isStoreDomainUrl,
   type ContentListResponse,
   type ContentAction,
   type ContentItem,
+  type CtaStyle,
 } from '@slips/contracts';
 import { withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL } from '../../infra.module.js';
 import type { AuthenticatedRequest } from '../session/access.guard.js';
-import { ContentLifecycle, ContentNotFoundError, InvalidTransitionError } from './content-lifecycle.js';
+import { IntegrationService } from '../integration/integration.service.js';
+import { ContentLifecycle, ContentNotFoundError, InvalidContentFieldsError, InvalidTransitionError } from './content-lifecycle.js';
 import { ContentRepository, type ContentItemRow } from './content.repository.js';
 
 export const toContentItem = (row: ContentItemRow): ContentItem => ({
@@ -38,7 +45,8 @@ export const toContentItem = (row: ContentItemRow): ContentItem => ({
   cta_label: row.ctaLabel,
   cta_action: row.ctaAction,
   cta_url: row.ctaUrl,
-  cta_style: row.ctaStyle,
+  // A style outside the preset list (none are written since Story 3.3) reads as the default.
+  cta_style: (CTA_STYLES as readonly (string | null)[]).includes(row.ctaStyle) ? (row.ctaStyle as CtaStyle) : null,
   status: row.status,
   archived_from: row.archivedFrom,
   reactivate_to: row.reactivateTo,
@@ -56,6 +64,7 @@ export class ContentController {
   constructor(
     @Inject(DB_POOL) private readonly pool: Pool,
     @Inject(ContentLifecycle) private readonly lifecycle: ContentLifecycle,
+    @Inject(IntegrationService) private readonly integration: IntegrationService,
   ) {}
 
   @Post('content')
@@ -64,8 +73,39 @@ export class ContentController {
     const parsed = ContentCreateInput.safeParse(raw);
     if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
     const storeId = req.merchantSession!.storeId;
+    await this.assertStoreDomain(storeId, parsed.data.cta_url);
     const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.create(tx, storeId, parsed.data));
     return toContentItem(row);
+  }
+
+  /**
+   * Edit an item's title, format and CTA (Story 3.3); the status is unchanged. Archived items answer 409
+   * `invalid-transition`; an open-link URL off the store's synced domains answers 422 `cta-url-not-store-domain`.
+   */
+  @Patch('content/:id')
+  async update(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() raw: unknown): Promise<ContentItem> {
+    const parsed = ContentUpdateInput.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
+    const storeId = req.merchantSession!.storeId;
+    await this.assertStoreDomain(storeId, parsed.data.cta_url);
+    try {
+      const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.edit(tx, storeId, id, parsed.data));
+      return toContentItem(row);
+    } catch (err) {
+      if (err instanceof InvalidContentFieldsError) throw new BadRequestException({ message: err.message, code: 'invalid_body' });
+      throw this.toHttpError(err);
+    }
+  }
+
+  /** An open-link URL must be on one of the store's synced domains (read through the integration module). */
+  private async assertStoreDomain(storeId: string, url: string | null | undefined): Promise<void> {
+    if (url == null) return;
+    const domains = await this.integration.getSyncedDomains(storeId);
+    if (isStoreDomainUrl(url, domains)) return;
+    throw new HttpException(
+      { message: 'The link is not on one of the store domains', code: 'cta_url_not_store_domain', type: CONTENT_CTA_URL_NOT_STORE_DOMAIN },
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
   }
 
   /** Content list (Story 3.2): one page of the tab plus counts for every tab (counts ignore search and page). */
@@ -119,13 +159,17 @@ export class ContentController {
       const row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.apply(tx, storeId, id, action));
       return toContentItem(row);
     } catch (err) {
-      if (err instanceof ContentNotFoundError) {
-        throw new NotFoundException({ message: 'Content item not found', code: 'content_not_found' });
-      }
-      if (err instanceof InvalidTransitionError) {
-        throw new HttpException({ message: err.message, code: 'invalid_transition', type: CONTENT_INVALID_TRANSITION }, HttpStatus.CONFLICT);
-      }
-      throw err;
+      throw this.toHttpError(err);
     }
+  }
+
+  private toHttpError(err: unknown): unknown {
+    if (err instanceof ContentNotFoundError) {
+      return new NotFoundException({ message: 'Content item not found', code: 'content_not_found' });
+    }
+    if (err instanceof InvalidTransitionError) {
+      return new HttpException({ message: err.message, code: 'invalid_transition', type: CONTENT_INVALID_TRANSITION }, HttpStatus.CONFLICT);
+    }
+    return err;
   }
 }

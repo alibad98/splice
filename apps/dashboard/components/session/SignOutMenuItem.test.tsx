@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 const m = getMessages('en').session;
-const info = { v: 1 as const, mode: 'direct' as const, store: { name: 'Demo Store' }, connection: { v: 1 as const, state: 'connected' as const, store_name: 'Demo Store' }, expires_at: '2030-01-01T00:00:00.000Z', csrf_token: 'c' };
+const info = { v: 1 as const, mode: 'direct' as const, store: { name: 'Demo Store', domains: [] }, connection: { v: 1 as const, state: 'connected' as const, store_name: 'Demo Store' }, expires_at: '2030-01-01T00:00:00.000Z', csrf_token: 'c' };
 
 const setup = () => {
   const signOut = vi.spyOn(SessionClient.prototype, 'signOut').mockResolvedValue(undefined);

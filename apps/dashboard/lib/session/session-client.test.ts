@@ -112,7 +112,7 @@ describe('embedded sign-in', () => {
 });
 
 describe('direct-link session', () => {
-  const direct = { status: 'signed-in', mode: 'direct', storeName: 'D', connection: { state: 'connected', storeName: 'D' }, csrfToken: 'csrf-1' } as const;
+  const direct = { status: 'signed-in', mode: 'direct', storeName: 'D', storeDomains: [], connection: { state: 'connected', storeName: 'D' }, csrfToken: 'csrf-1' } as const;
 
   it('sends the cookie and the CSRF token on state-changing requests only', async () => {
     const f = mockFetch(() => Response.json({}));

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CONTENT_STATUSES } from './content.js';
+import { CONTENT_STATUSES, ContentFields } from './content.js';
 import { JobMeta } from './job-meta.js';
 
 /** Modules that may own a domain event (the spine's module list). */
@@ -117,6 +117,20 @@ export const EVENT_CATALOG = {
   'content.item.deleted': defineEvent(
     'content',
     z.strictObject({ v: z.literal(1), store_id: z.uuid(), content_id: z.uuid(), from: z.enum(CONTENT_STATUSES) }),
+  ),
+  /**
+   * The merchant changed an item's fields (Story 3.3); its status is unchanged and carried as `status`. `changed` names
+   * the fields that differ. Consumer: `publishing` (Epic 4) refreshes a published item in the manifest.
+   */
+  'content.item.edited': defineEvent(
+    'content',
+    z.strictObject({
+      v: z.literal(1),
+      store_id: z.uuid(),
+      content_id: z.uuid(),
+      status: z.enum(CONTENT_STATUSES),
+      changed: z.array(ContentFields.keyof()).min(1),
+    }),
   ),
 } as const;
 

@@ -22,6 +22,7 @@ describe('UI gallery (dev only)', () => {
     expect(container.querySelectorAll('[data-slot="meter"]')).toHaveLength(3);
     expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(3);
     expect(container.querySelectorAll('[data-slot="banner"]')).toHaveLength(2);
+    expect(container.querySelector('[data-slot="error-summary"]')?.getAttribute('role')).toBe('alert');
     expect(container.querySelector('[data-slot="empty-state"]')).not.toBeNull();
     expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull();

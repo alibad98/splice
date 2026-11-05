@@ -127,6 +127,16 @@ describe('API docs', () => {
     expect(JSON.stringify(doc.components.schemas.ContentPage)).toContain('#/components/schemas/ContentItem"');
   });
 
+  it('documents the content edit route with its request model and 409/422 problems (Story 3.3)', () => {
+    const editPath = Object.keys(doc.paths).find((p) => p.startsWith('/v1/content/') && doc.paths[p]!.patch)!;
+    const edit = op(editPath, 'patch');
+    expect(JSON.stringify(edit.requestBody)).toContain('#/components/schemas/ContentUpdateRequest');
+    expect(Object.keys(edit.responses)).toEqual(expect.arrayContaining(['200', '400', '404', '409', '422']));
+    expect(String(edit.description)).toContain('cta-url-not-store-domain');
+    expect(Object.keys(op('/v1/content', 'post').responses)).toContain('422');
+    expect(JSON.stringify(doc.components.schemas.ContentUpdateRequest)).toContain('cta_style');
+  });
+
   it('serves a Swagger UI page pointed at the spec', () => {
     expect(docsPage()).toContain("url: '/v1/openapi.json'");
   });

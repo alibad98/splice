@@ -110,7 +110,11 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
-    await this.assertLinkable(storeId, parsed.data.product_id);
+    if (parsed.data.product_id != null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      // Re-sending the product the item already links is not a new link (it may have been hidden since).
+      const links = await withStoreContext(this.pool, storeId, () => this.repo.linkedProductIds([id]));
+      if (links.get(id) !== parsed.data.product_id) await this.assertLinkable(storeId, parsed.data.product_id);
+    }
     let row: ContentItemRow;
     try {
       row = await withStoreContext(this.pool, storeId, (tx) => this.lifecycle.edit(tx, storeId, id, parsed.data));
@@ -121,11 +125,11 @@ export class ContentController {
     return (await this.withProducts(storeId, [row]))[0]!;
   }
 
-  /** A product to link must be one the store's catalog knows and has not deleted (checked before any write). */
+  /** A product to link must be one the store's catalog knows, has not deleted and shows in the storefront (checked before any write). */
   private async assertLinkable(storeId: string, productId: string | null | undefined): Promise<void> {
     if (productId == null) return;
     const product = (await this.catalog.getProductsByIds(storeId, [productId])).get(productId);
-    if (product && !product.deleted) return;
+    if (product && !product.deleted && product.visible) return;
     throw new HttpException(
       { message: 'The product can not be linked', code: 'product_not_linkable', type: CONTENT_PRODUCT_NOT_LINKABLE },
       HttpStatus.UNPROCESSABLE_ENTITY,

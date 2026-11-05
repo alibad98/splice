@@ -142,7 +142,8 @@ export class ContentLifecycle {
         ctaLabel: next.cta_label,
         ctaAction: next.cta_action,
         ctaUrl: next.cta_url,
-        ctaStyle: next.cta_style,
+        // A legacy style outside the presets reads as null; keep it stored unless the patch sets the style.
+        ctaStyle: parsedPatch.cta_style === undefined ? row.ctaStyle : next.cta_style,
         updatedAt: now,
       })
       .where(and(eq(contentItems.storeId, storeId), eq(contentItems.id, contentId)))

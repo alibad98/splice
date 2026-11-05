@@ -94,6 +94,8 @@ context:
 - The content list header now shows a "New story" link once the store has content (otherwise the empty state's "Create your first story" is the only way in).
 - `ApiError` gained the problem `type` (4th arg); `postJson` is now `sendJson('POST', no body)`.
 
+- 2026-11-05 (`/code-review medium`): an edit that does not send `cta_style` keeps a stored legacy style outside the presets (it read as null and was erased before). The content write guard now lets `composition/*.test.ts` seed `content_items` through admin SQL, which is needed to create pre-3.3 legacy rows. Production paths stay guarded, and a guard fixture covers this.
+
 ## Spec Change Log
 
 ## Review Triage Log

@@ -276,6 +276,15 @@ describe('Content editor: draft autosave', () => {
     expect(title().matches(':disabled')).toBe(true);
   });
 
+  it('a 404 on save (deleted elsewhere) shows the not-found state even though the item is cached', async () => {
+    setup({ element: <ContentEditorPage id={ID} /> });
+    client.setQueryData(queryKeys.content.item(ID), item());
+    await until(() => expect(title().value).toBe('Autumn perfumes'));
+    handler = () => problem(404, { code: 'content_not_found' });
+    type(title(), 'Changed');
+    await until(() => expect(screen.getByTestId('content-not-found')).toBeTruthy());
+  });
+
   it('shows merchant text as escaped text with dir=auto (no XSS)', () => {
     const xss = '<img src=x onerror=alert(1)>';
     const { container } = setup({ element: <ContentEditor item={item({ title: xss })} /> });
@@ -493,6 +502,27 @@ describe('Content editor: product picker (Story 3.4)', () => {
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await until(() => expect(screen.getByRole('option', { name: /Musk/ })).toBeTruthy());
+  });
+
+  it('a 422 product-not-linkable puts back the saved link, so later edits do not resend the rejected product', async () => {
+    const base = catalogServer(item());
+    handler = async (call) =>
+      call.method === 'PATCH' && call.body && 'product_id' in (call.body as object)
+        ? problem(422, { type: 'product-not-linkable', code: 'product_not_linkable' })
+        : base(call);
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'oud');
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await until(() => expect(writes()).toHaveLength(1));
+    await until(() => expect(screen.queryByTestId('linked-product')).toBeNull());
+
+    type(title(), 'Autumn perfumes 2');
+    await until(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Autumn perfumes 2' } });
   });
 
   it('Remove unlinks: one PATCH with product_id null', async () => {

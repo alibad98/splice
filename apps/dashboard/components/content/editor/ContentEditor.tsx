@@ -46,7 +46,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const schema = useMemo(() => editorSchema(domains), [domains]);
   const [initialValues] = useState<EditorValues>(() => (item ? fromItem(item) : newItemValues(m.cta.picks.addToCart)));
   const form = useForm<EditorValues>({ resolver: zodResolver(schema), defaultValues: initialValues, mode: 'onTouched', reValidateMode: 'onChange' });
-  const { getValues, handleSubmit, reset, setError, watch } = form;
+  const { getValues, handleSubmit, reset, setError, setValue, watch } = form;
 
   // The API's latest answer for this item; null until a new item is first saved.
   const [saved, setSaved] = useState<ContentItem | null>(item ?? null);
@@ -91,8 +91,10 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         return new FieldRejected();
       }
       if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_PRODUCT_NOT_LINKABLE) {
-        // The product went away between search and save: say so, and reload what the item links now.
+        // The product went away between search and save: say so, put back the product the item links now (the refetch
+        // may not reset the form when nothing else changed), and reload the item.
         toast({ title: m.product.deleted.title, tone: 'danger' });
+        setValue('product_id', savedRef.current?.product?.id ?? null, { shouldDirty: true });
         if (savedRef.current) void queryClient.invalidateQueries({ queryKey: queryKeys.content.item(savedRef.current.id) });
         return err;
       }
@@ -102,7 +104,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
       }
       return err;
     },
-    [m.product.deleted.title, m.staleItem, queryClient, setError],
+    [m.product.deleted.title, m.staleItem, queryClient, setError, setValue],
   );
 
   /** Send the current values: POST the first time, then PATCH only what changed. */

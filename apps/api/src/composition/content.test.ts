@@ -786,6 +786,31 @@ describe('merchant content API & I/O matrix', () => {
     expect((await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: 'not-a-uuid' })).res.status).toBe(400);
   });
 
+  it('Hidden product: linking one answers 422 product-not-linkable; an item already linked to a product hidden since may still re-send it', async () => {
+    const { storeId, token } = await installedStore();
+    const hidden = await seedProduct(storeId, { visible: false });
+    const draft = await seedItemInStatus(storeId, 'draft');
+    const res = await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: hidden });
+    expect(res.res.status).toBe(422);
+    expect(res.body).toMatchObject({ type: CONTENT_PRODUCT_NOT_LINKABLE });
+    expect((await request(token, 'POST', '/v1/content', { ...validCreateInput, product_id: hidden })).res.status).toBe(422);
+
+    const shown = await seedProduct(storeId);
+    expect((await request(token, 'PATCH', `/v1/content/${draft.id}`, { product_id: shown })).res.status).toBe(200);
+    await admin.query('update products set visible = false where id = $1', [shown]);
+    const again = await request(token, 'PATCH', `/v1/content/${draft.id}`, { title: 'Still linked', product_id: shown });
+    expect(again.res.status).toBe(200);
+    expect(ContentItem.parse(again.body).title).toBe('Still linked');
+  });
+
+  it('Legacy CTA style: an edit that does not set cta_style keeps a stored style outside the presets', async () => {
+    const { storeId, token } = await installedStore();
+    const draft = await seedItemInStatus(storeId, 'draft');
+    await admin.query(`update content_items set cta_style = 'brand-blue' where id = $1`, [draft.id]);
+    expect((await request(token, 'PATCH', `/v1/content/${draft.id}`, { title: 'New title' })).res.status).toBe(200);
+    expect((await admin.query<{ cta_style: string }>('select cta_style from content_items where id = $1', [draft.id])).rows[0]!.cta_style).toBe('brand-blue');
+  });
+
   it('Counts: two items link P and one of them is deleted, so P counts 1', async () => {
     const { storeId, token } = await installedStore();
     const productId = await seedProduct(storeId);

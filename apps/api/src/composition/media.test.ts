@@ -2,6 +2,7 @@
 // merchant media API over HTTP, the worker inspection with real file-type/sharp fixtures, and the media purge.
 import 'reflect-metadata';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { crc32 as zlibCrc32, deflateSync } from 'node:zlib';
 import type { INestApplication } from '@nestjs/common';
 import pg from 'pg';
 import { PgBoss } from 'pg-boss';
@@ -12,6 +13,7 @@ import {
   MEDIA_INSPECT_QUEUE,
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
+  MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS,
   MEDIA_UPLOAD_EXPIRED,
   MEDIA_UPLOAD_MISSING,
   MEDIA_UPLOAD_RATE_LIMITED,
@@ -129,7 +131,11 @@ const uploadAndComplete = async (token: string, kind: MediaKind, contentType: st
   return MediaAsset.parse(done.body);
 };
 
-const inspect = (storeId: string, assetId: string, finalAttempt = false) => withStoreContext(app, storeId, () => inspector.inspect(storeId, assetId, { finalAttempt }));
+/** Inspect, then (as the committed media.asset.scanned/failed handler does) release the upload object. */
+const inspect = async (storeId: string, assetId: string, finalAttempt = false) => {
+  await withStoreContext(app, storeId, () => inspector.inspect(storeId, assetId, { finalAttempt }));
+  await withStoreContext(app, storeId, () => inspector.releaseUpload(assetId));
+};
 
 // ---- fixtures, generated in-test ----
 const jpegWithGps = () =>
@@ -284,6 +290,18 @@ describe('POST /v1/media/uploads/:id/complete and GET /v1/media/:id', () => {
     expect(res422.res.status).toBe(422);
     expect(res422.body).toMatchObject({ type: MEDIA_TOO_LARGE });
     expect(await storage.head(key)).toBeNull();
+
+    // Past expiry plus the grace, complete answers 410 even when an object of the same bytes sits at the shared key.
+    const late = Buffer.from('a late file');
+    const lateGrant = await issue(token, 'image', 'image/png', late);
+    storage.upload(lateGrant.url, late, 'image/png');
+    await admin.query(`update media_upload_grants set expires_at = now() - make_interval(secs => $2) where id = $1`, [lateGrant.upload_id, MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS + 60]);
+    const late410 = await request(token, 'POST', `/v1/media/uploads/${lateGrant.upload_id}/complete`);
+    expect(late410.res.status).toBe(410);
+    expect(late410.body).toMatchObject({ type: MEDIA_UPLOAD_EXPIRED });
+    // Within the grace (PUT started before expiry, finished after) it is still accepted.
+    await admin.query(`update media_upload_grants set expires_at = now() - interval '1 minute' where id = $1`, [lateGrant.upload_id]);
+    expect((await request(token, 'POST', `/v1/media/uploads/${lateGrant.upload_id}/complete`)).res.status).toBe(200);
   });
 
   it("Other store's id: complete and GET answer 404, as do unknown and malformed ids", async () => {
@@ -350,6 +368,45 @@ describe('media.asset.inspect', () => {
     expect((await assetRow(first.id)).status).toBe('scanned');
     expect((await assetRow(second.id)).status).toBe('scanned');
     expect(await storage.head(upload)).toBeNull();
+  });
+
+  it('A verdict whose transaction rolls back keeps the upload object, so the retry still inspects the file', async () => {
+    const { storeId, token } = await installedStore();
+    const asset = await uploadAndComplete(token, 'image', 'image/png', await png());
+    const upload = (await assetRow(asset.id)).upload_key;
+    await expect(
+      withStoreContext(app, storeId, async () => {
+        await inspector.inspect(storeId, asset.id, { finalAttempt: false });
+        throw new Error('commit failed');
+      }),
+    ).rejects.toThrow('commit failed');
+    expect((await assetRow(asset.id)).status).toBe('uploaded');
+    expect(await storage.head(upload)).not.toBeNull();
+
+    await inspect(storeId, asset.id);
+    expect((await assetRow(asset.id)).status).toBe('scanned');
+    expect(await storage.head(upload)).toBeNull();
+  });
+
+  it('An image whose header declares more than MAX_IMAGE_PIXELS fails image_too_large without being decoded', async () => {
+    const { storeId, token } = await installedStore();
+    const chunk = (type: string, data: Buffer) => {
+      const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+      const len = Buffer.alloc(4);
+      len.writeUInt32BE(data.length);
+      const crc = Buffer.alloc(4);
+      crc.writeUInt32BE(zlibCrc32(body));
+      return Buffer.concat([len, body, crc]);
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(16_000, 0);
+    ihdr.writeUInt32BE(16_000, 4);
+    ihdr.writeUInt8(8, 8);
+    ihdr.writeUInt8(2, 9);
+    const bomb = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.alloc(1024))), chunk('IEND', Buffer.alloc(0))]);
+    const asset = await uploadAndComplete(token, 'image', 'image/png', bomb);
+    await inspect(storeId, asset.id);
+    expect(await assetRow(asset.id)).toMatchObject({ status: 'failed', failure_reason: 'image_too_large' });
   });
 
   it('A clean video is stored as uploaded under its content address and scanned', async () => {
@@ -420,7 +477,7 @@ describe('media.asset.inspect', () => {
   it('media.asset.uploaded queues exactly one inspect job per asset, even when the event is delivered again', async () => {
     const { storeId } = await installedStore();
     const registry = new EventHandlerRegistry();
-    registerMediaEventHandlers(registry, boss, telemetry);
+    registerMediaEventHandlers(registry, boss, telemetry, inspector);
     const dispatch = eventDispatcher(app, registry);
     const assetId = uuidv7();
     const envelope = (eventId: string) => ({

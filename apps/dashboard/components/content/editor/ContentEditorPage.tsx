@@ -15,10 +15,11 @@ export function ContentEditorPage({ id }: { id: string }) {
   const query = useContentItem(id);
   const showSkeleton = useDelayed(query.isPending && !query.isError);
 
-  if (query.data) return <ContentEditor key={query.data.id} item={query.data} />;
+  // A 404 wins over cached data: an item deleted elsewhere must not stay open in an editor whose saves keep failing.
+  const notFound = query.isError && query.error instanceof ApiError && query.error.status === 404;
+  if (query.data && !notFound) return <ContentEditor key={query.data.id} item={query.data} />;
 
   if (query.isError) {
-    const notFound = query.error instanceof ApiError && query.error.status === 404;
     return (
       <section className="flex flex-col gap-4">
         {notFound ? (

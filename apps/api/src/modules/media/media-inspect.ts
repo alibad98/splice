@@ -45,9 +45,15 @@ export async function readCapped(stream: Readable, maxBytes: number): Promise<Bu
   return Buffer.concat(chunks, total);
 }
 
+/**
+ * Largest decoded image accepted (50 MP, e.g. 8660 x 5773): above any phone camera, far below sharp's ~268 MP default, so
+ * a small file declaring huge dimensions cannot decompress into gigabytes of pixels.
+ */
+export const MAX_IMAGE_PIXELS = 50_000_000;
+
 /** Re-encodes an image in its own format, applying and then dropping the EXIF orientation and all metadata (EXIF, GPS, XMP, ICC). */
 async function reencodeImage(bytes: Buffer, type: MediaContentType): Promise<Buffer> {
-  const image = sharp(bytes, { failOn: 'warning' }).rotate();
+  const image = sharp(bytes, { failOn: 'warning', limitInputPixels: MAX_IMAGE_PIXELS }).rotate();
   if (type === 'image/jpeg') return image.jpeg({ quality: 90, mozjpeg: true }).toBuffer();
   if (type === 'image/png') return image.png().toBuffer();
   return image.webp({ quality: 90 }).toBuffer();
@@ -58,7 +64,8 @@ type Verdict = { status: 'scanned'; storageKey: string; sizeBytes: number } | { 
 /**
  * Inspects one `uploaded` asset inside the job's store context. Failures about the file end in `failed` with a
  * reason; failures that are not (storage or scanner down) throw so the job retries, and on the final attempt the asset
- * is set `failed` (`inspection_failed`). The upload object is deleted once inspection reaches a verdict.
+ * is set `failed` (`inspection_failed`). The upload object is deleted only after the verdict commits
+ * (`releaseUpload`, run by the `media.asset.scanned`/`failed` handlers), so a rolled-back verdict leaves the bytes for the retry.
  */
 export class MediaInspector {
   private readonly repo = new MediaRepository();
@@ -84,7 +91,6 @@ export class MediaInspector {
     } catch (err) {
       if (!opts.finalAttempt) throw err;
       this.telemetry.captureError(err, { component: 'media.inspect', asset_id: assetId });
-      await this.releaseUpload(asset, now()).catch(() => undefined);
       verdict = { status: 'failed', reason: 'inspection_failed' };
     }
     const tx = requireStoreContext();
@@ -98,8 +104,13 @@ export class MediaInspector {
     }
   }
 
-  /** Deletes the upload object unless another upload of the same bytes in this store still needs it (the key is shared). */
-  private async releaseUpload(asset: MediaAssetRow, now: Date): Promise<void> {
+  /**
+   * After an inspected asset's verdict committed (in its store context): deletes its upload object unless another upload of
+   * the same bytes in this store still needs it (the content-addressed key is shared). Idempotent.
+   */
+  async releaseUpload(assetId: string, now: Date = new Date()): Promise<void> {
+    const asset = await this.repo.findAsset(assetId);
+    if (!asset || asset.status === 'uploaded') return;
     if (await this.repo.uploadKeyInUse(asset.uploadKey, { assetId: asset.id }, now)) return;
     await this.storage.delete(asset.uploadKey);
   }
@@ -110,10 +121,7 @@ export class MediaInspector {
     if (!stream) throw new Error(`media inspect: upload object ${asset.uploadKey} is missing`);
     const kind: MediaKind = asset.kind;
     const bytes = await readCapped(stream, MEDIA_LIMITS[kind].max_bytes);
-    const reject = async (reason: MediaFailureReason): Promise<Verdict> => {
-      await this.releaseUpload(asset, new Date());
-      return { status: 'failed', reason };
-    };
+    const reject = async (reason: MediaFailureReason): Promise<Verdict> => ({ status: 'failed', reason });
     // Over the cap or not the declared bytes: either way not the file whose hash was declared.
     if (!bytes || sha256Hex(bytes) !== asset.sha256) return reject('checksum_mismatch');
     const sniffed = (await fileTypeFromBuffer(bytes))?.mime;
@@ -122,6 +130,9 @@ export class MediaInspector {
     const type = sniffed as MediaContentType;
     let clean = bytes;
     if (kind === 'image') {
+      const meta = await sharp(bytes, { limitInputPixels: false }).metadata().catch(() => null);
+      if (!meta?.width || !meta.height) return reject('corrupt');
+      if (meta.width * meta.height > MAX_IMAGE_PIXELS) return reject('image_too_large');
       try {
         clean = await reencodeImage(bytes, type);
       } catch {
@@ -136,7 +147,6 @@ export class MediaInspector {
     }
     const key = cleanKey(storeId, asset.id, sha256Hex(clean), type);
     await this.storage.put(key, clean, type);
-    await this.releaseUpload(asset, new Date());
     return { status: 'scanned', storageKey: key, sizeBytes: clean.length };
   }
 }

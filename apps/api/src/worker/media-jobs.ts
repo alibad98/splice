@@ -10,10 +10,10 @@ import { storeScopedJob } from './store-job.js';
 
 /**
  * `media.asset.uploaded` queues `media.asset.inspect` on pg-boss's own connection. The job id and singleton key are the
- * asset id, so a redelivered event never queues a second inspection. Scanned and failed outcomes are logged (processing,
- * Story 3.8, adds its own consumer).
+ * asset id, so a redelivered event never queues a second inspection. Scanned and failed outcomes are logged and release
+ * the upload object (processing, Story 3.8, adds its own consumer).
  */
-export function registerMediaEventHandlers(registry: EventHandlerRegistry, boss: JobSender, telemetry: Telemetry): void {
+export function registerMediaEventHandlers(registry: EventHandlerRegistry, boss: JobSender, telemetry: Telemetry, inspector: MediaInspector): void {
   registry.on('media.asset.uploaded', 'media.inspect.on.media.asset.uploaded', async (event) => {
     const { store_id: storeId, asset_id: assetId } = event.payload;
     const payload: MediaInspectJob = { ...jobMeta(telemetry, storeId), store_id: storeId, asset_id: assetId };
@@ -23,6 +23,12 @@ export function registerMediaEventHandlers(registry: EventHandlerRegistry, boss:
   registry.on('media.asset.scanned', 'media.log.media.asset.scanned', async (event) => {
     telemetry.log.info('media event', { event: event.name, event_id: event.id, asset_id: event.payload.asset_id, size_bytes: event.payload.size_bytes });
   });
+  // The verdict committed: only now is the upload object deleted (a rolled-back verdict keeps it for the retry). Store context is set by the dispatcher.
+  for (const name of ['media.asset.scanned', 'media.asset.failed'] as const) {
+    registry.on(name, `media.release-upload.on.${name}`, async (event) => {
+      await inspector.releaseUpload(event.payload.asset_id);
+    });
+  }
   registry.on('media.asset.failed', 'media.log.media.asset.failed', async (event) => {
     telemetry.log.info('media event', { event: event.name, event_id: event.id, asset_id: event.payload.asset_id, reason: event.payload.reason });
   });

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   MEDIA_LIMITS,
+  MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS,
   MEDIA_UPLOAD_TTL_SECONDS,
   MEDIA_UPLOAD_WINDOW_SECONDS,
   isAllowedMediaType,
@@ -104,7 +105,9 @@ export class MediaService {
     const limit = this.config.uploadRateLimit;
     const key = uploadKey(storeId, input.sha256);
     const expiresAt = new Date(now.getTime() + MEDIA_UPLOAD_TTL_SECONDS * 1000);
-    const { id, presigned } = await withStoreContext(this.pool, storeId, async () => {
+    // Signed before the per-store lock is taken, so storage signing never holds the lock or a pooled connection.
+    const presigned = await this.storage.presignPut({ key, contentType, sizeBytes: input.size_bytes, sha256Hex: input.sha256, expiresInSeconds: MEDIA_UPLOAD_TTL_SECONDS });
+    const id = await withStoreContext(this.pool, storeId, async () => {
       await this.repo.lockStoreGrants();
       const windowMs = MEDIA_UPLOAD_WINDOW_SECONDS * 1000;
       const nth = await this.repo.nthRecentGrantSince(new Date(now.getTime() - windowMs), limit);
@@ -114,7 +117,6 @@ export class MediaService {
         this.telemetry.log.warn('media upload throttled', { store_id: storeId, limit, retry_after_seconds: retryAfterSeconds });
         throw new MediaUploadRateLimitedError(retryAfterSeconds);
       }
-      const presigned = await this.storage.presignPut({ key, contentType, sizeBytes: input.size_bytes, sha256Hex: input.sha256, expiresInSeconds: MEDIA_UPLOAD_TTL_SECONDS });
       const grant = await this.repo.insertGrant({
         id: uuidv7(now.getTime()),
         storeId,
@@ -127,7 +129,7 @@ export class MediaService {
         completedAssetId: null,
         createdAt: now,
       });
-      return { id: grant.id, presigned };
+      return grant.id;
     });
     return { v: 1, upload_id: id, url: presigned.url, method: 'PUT', headers: presigned.headers, expires_at: expiresAt.toISOString() };
   }
@@ -140,6 +142,8 @@ export class MediaService {
     const grant = await withStoreContext(this.pool, storeId, () => this.repo.findGrant(uploadId));
     if (!grant) throw new MediaUploadNotFoundError();
     if (grant.completedAssetId) return this.getAsset(storeId, grant.completedAssetId);
+    // Past expiry plus the grace for a PUT still in flight, the grant is closed even if the same bytes exist at the shared key.
+    if (now.getTime() > grant.expiresAt.getTime() + MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS * 1000) throw new MediaUploadExpiredError();
     const head = await this.storage.head(grant.storageKey);
     if (!head) throw now.getTime() > grant.expiresAt.getTime() ? new MediaUploadExpiredError() : new MediaUploadMissingError();
     if (head.sizeBytes !== grant.sizeBytes) {

@@ -92,33 +92,19 @@ export class MediaRepository extends StoreScoped {
    * the same bytes share one object: another asset still `uploaded`, or an open grant (not completed, not expired).
    */
   async uploadKeyInUse(key: string, except: { assetId?: string; grantId?: string }, now: Date): Promise<boolean> {
-    const asset = await this.db
-      .select({ id: mediaAssets.id })
-      .from(mediaAssets)
-      .where(
-        and(
-          eq(mediaAssets.storeId, this.storeId),
-          eq(mediaAssets.uploadKey, key),
-          eq(mediaAssets.status, 'uploaded'),
-          except.assetId ? sql`${mediaAssets.id} <> ${except.assetId}` : undefined,
-        ),
-      )
-      .limit(1);
-    if (asset.length > 0) return true;
-    const grant = await this.db
-      .select({ id: mediaUploadGrants.id })
-      .from(mediaUploadGrants)
-      .where(
-        and(
-          eq(mediaUploadGrants.storeId, this.storeId),
-          eq(mediaUploadGrants.storageKey, key),
-          sql`${mediaUploadGrants.completedAssetId} is null`,
-          sql`${mediaUploadGrants.expiresAt} > ${now.toISOString()}`,
-          except.grantId ? sql`${mediaUploadGrants.id} <> ${except.grantId}` : undefined,
-        ),
-      )
-      .limit(1);
-    return grant.length > 0;
+    // One statement, one snapshot: a sibling complete (grant closed + asset inserted in one commit) is seen on one side or the other.
+    const exceptAsset = except.assetId ?? '00000000-0000-0000-0000-000000000000';
+    const exceptGrant = except.grantId ?? '00000000-0000-0000-0000-000000000000';
+    const result = await this.db.execute<{ in_use: boolean }>(sql`
+      select exists (
+        select 1 from media_assets
+        where store_id = ${this.storeId} and upload_key = ${key} and status = 'uploaded' and id <> ${exceptAsset}::uuid
+      ) or exists (
+        select 1 from media_upload_grants
+        where store_id = ${this.storeId} and storage_key = ${key} and completed_asset_id is null
+          and expires_at > ${now.toISOString()}::timestamptz and id <> ${exceptGrant}::uuid
+      ) as in_use`);
+    return Boolean(result.rows[0]?.in_use);
   }
 
   /** The asked ids that are `processed` (the only publishable status). */

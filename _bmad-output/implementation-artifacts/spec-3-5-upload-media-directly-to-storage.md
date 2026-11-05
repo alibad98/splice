@@ -93,6 +93,13 @@ context:
 - **Known risks.** Inspection buffers the whole file in memory (up to 200 MB per job, media concurrency 2) and holds the asset row lock and a DB transaction across storage I/O. Upload keys are content-addressed per store, so two uploads of the same bytes in one store share an upload object. Fixed in verification: the object is deleted only when no other `uploaded` asset or open grant uses the key (`MediaRepository.uploadKeyInUse`, used by the inspector and by the size-mismatch path of complete; test "Same bytes uploaded twice"). Remaining race: two inspections of the same key that commit at the same moment can each see the other and leave the upload object behind (it holds no published data and the store purge removes it).
 - **Malware scanner.** Only `EicarMalwareScanner` ships and it is wired in every environment, production included, until a vendor is chosen (Q-05).
 
+- **After `/code-review medium` (2026-11-05).**
+  - The upload object is deleted only after the verdict commits. Handlers `media.release-upload.on.media.asset.scanned|failed` call `MediaInspector.releaseUpload`, so a rolled-back verdict leaves the bytes for the retry. This also closes the race noted above: release runs after commit.
+  - `uploadKeyInUse` is one statement (one snapshot).
+  - Complete answers 410 once `MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS` (30 min) have passed after expiry, even if the same bytes exist at the shared key. Inside the grace, a PUT that started before expiry is accepted.
+  - Presigning happens before the per-store lock.
+  - Images whose header declares more than 50 MP fail `image_too_large` (new failure reason) without being decoded; sharp also gets `limitInputPixels`.
+
 ## Spec Change Log
 
 ## Review Triage Log

@@ -22,6 +22,11 @@ export const isAllowedMediaType = (kind: MediaKind, contentType: string): conten
 
 /** A pre-signed upload URL is valid this long. */
 export const MEDIA_UPLOAD_TTL_SECONDS = 15 * 60;
+/**
+ * How long after the URL expires a completion is still accepted: a PUT that started before expiry may finish later (up to
+ * 200 MB on a slow link). After it, complete answers 410 even if an object of the same bytes exists at the shared key.
+ */
+export const MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS = 30 * 60;
 /** Window of the per-store upload-URL throttle. */
 export const MEDIA_UPLOAD_WINDOW_SECONDS = 10 * 60;
 
@@ -31,7 +36,7 @@ export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
 export const MediaAssetStatus = z.enum(MEDIA_ASSET_STATUSES);
 
 /** Why an asset `failed` (the dashboard maps each to friendly copy). */
-export const MEDIA_FAILURE_REASONS = ['checksum_mismatch', 'type_not_allowed', 'type_mismatch', 'corrupt', 'malware', 'inspection_failed'] as const;
+export const MEDIA_FAILURE_REASONS = ['checksum_mismatch', 'type_not_allowed', 'type_mismatch', 'corrupt', 'image_too_large', 'malware', 'inspection_failed'] as const;
 export type MediaFailureReason = (typeof MEDIA_FAILURE_REASONS)[number];
 export const MediaFailureReason = z.enum(MEDIA_FAILURE_REASONS);
 

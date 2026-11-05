@@ -121,8 +121,8 @@ export async function startWorker(
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
   registerContentEventHandlers(events, telemetry, new ContentLifecycle(boss, telemetry));
-  registerMediaEventHandlers(events, boss, telemetry);
   const inspector = new MediaInspector(infra.storage, infra.scanner, boss, telemetry);
+  registerMediaEventHandlers(events, boss, telemetry, inspector);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.

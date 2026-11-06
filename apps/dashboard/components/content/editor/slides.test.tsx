@@ -54,6 +54,7 @@ const savedSlide = (n: number, over: Partial<ContentSlide> = {}): ContentSlide =
   alt_text: `Photo ${n}`,
   status: 'processed',
   failure_reason: null,
+  source_url: null,
   ...over,
 });
 
@@ -63,6 +64,9 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
 /** Media assets the fake API knows: id -> asset. */
 let assets: Map<string, MediaAsset>;
 let assetStatusOnGet: MediaAsset['status'] = 'uploaded';
+/** Per-asset answers of GET /v1/media/:id that win over `assetStatusOnGet` (imports, Story 3.7). */
+let assetOnGet: Map<string, Pick<MediaAsset, 'status' | 'failure_reason'>>;
+let importStatus: number;
 let grantStatus: number;
 let grants = 0;
 
@@ -89,11 +93,31 @@ function api(start: ContentItem): Handler {
       });
       return json({ v: 1, upload_id: upload, url: `https://storage.test/put/${grants}`, method: 'PUT', headers: { 'content-type': b.content_type, 'x-amz-checksum-sha256': 'abc=' }, expires_at: '2026-11-05T10:15:00.000Z' }, 201);
     }
+    if (method === 'POST' && path === '/v1/media/imports') {
+      if (importStatus !== 201) return json({ type: 'media-url-not-allowed', status: importStatus, code: 'media_url_not_allowed' }, importStatus);
+      grants += 1;
+      const b = body as { kind: 'image' | 'video'; url: string };
+      const asset: MediaAsset = {
+        v: 1,
+        id: assetId(grants),
+        kind: b.kind,
+        content_type: null,
+        size_bytes: null,
+        status: 'importing',
+        failure_reason: null,
+        created_at: '2026-11-06T10:00:00.000Z',
+        updated_at: '2026-11-06T10:00:00.000Z',
+      };
+      assets.set(asset.id, asset);
+      return json(asset, 201);
+    }
     const complete = /^\/v1\/media\/uploads\/[^/]+-0000000003(\d\d)\/complete$/.exec(path);
     if (method === 'POST' && complete) return json(assets.get(assetId(Number(complete[1])))!);
     const get = /^\/v1\/media\/([^/]+)$/.exec(path);
     if (method === 'GET' && get) {
       const a = assets.get(get[1]!)!;
+      const override = assetOnGet.get(a.id);
+      if (override) return json({ ...a, ...override });
       const status = assetStatusOnGet;
       return json({ ...a, status, failure_reason: status === 'failed' ? 'type_mismatch' : null });
     }
@@ -216,6 +240,8 @@ beforeEach(() => {
   calls = [];
   assets = new Map();
   assetStatusOnGet = 'uploaded';
+  assetOnGet = new Map();
+  importStatus = 201;
   grantStatus = 201;
   grants = 0;
   FakeXhr.all = [];
@@ -445,5 +471,106 @@ describe('Slides card (Story 3.6): order, alt text and states', () => {
     expect((screen.getByRole('button', { name: 'Move slide 1 later' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Remove slide 2' }) as HTMLButtonElement).disabled).toBe(true);
     expect(rows()[0]!.getAttribute('draggable')).toBe('false');
+  });
+});
+
+describe('Slides card (Story 3.7): add from a link', () => {
+  const linkInput = () => screen.getByRole('textbox', { name: 'Or add from a link' }) as HTMLInputElement;
+  const addLink = (url: string) => {
+    fireEvent.change(linkInput(), { target: { value: url } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+  };
+  const imports = () => calls.filter((c) => c.method === 'POST' && c.path === '/v1/media/imports');
+
+  it('a link with a known extension becomes a slide right away: Importing, the kind inferred, announced; it saves once the alt text is given', async () => {
+    assetOnGet.set(assetId(1), { status: 'importing', failure_reason: null });
+    setup(item());
+    // Enter in the field adds it (no nested form).
+    linkInput().focus();
+    fireEvent.change(linkInput(), { target: { value: '  https://cdn.example.com/look/Abaya.JPG  ' } });
+    fireEvent.keyDown(linkInput(), { key: 'Enter' });
+    expect(rows()).toHaveLength(1);
+    expect(stateOf(0)).toBe('Importing');
+    expect(linkInput().value).toBe('');
+    await until(() => expect(imports()).toHaveLength(1));
+    expect(imports()[0]!.body).toEqual({ kind: 'image', url: 'https://cdn.example.com/look/Abaya.JPG' });
+    await until(() => expect(announcer()).toBe('Link added as slide 1'));
+    await until(() => expect(calls.some((c) => c.method === 'GET' && c.path === `/v1/media/${assetId(1)}`)).toBe(true));
+    expect(stateOf(0)).toBe('Importing');
+    expect(rows()[0]!.querySelector('[data-icon="image"]')).not.toBeNull();
+    // Focus stays in the link field (the alt field does not steal it from another field).
+    expect(document.activeElement).toBe(linkInput());
+
+    fireEvent.change(altInput(1), { target: { value: 'Red abaya' } });
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ slides: [{ media_asset_id: assetId(1), alt_text: 'Red abaya' }] });
+  });
+
+  it('a link without a known extension needs the Image/Video choice; a bad link is refused before it becomes a slide', async () => {
+    setup(item());
+    addLink('ftp://cdn.example.com/a.jpg');
+    expect(screen.getByText('Enter a link that starts with http:// or https://, without a port or a password')).toBeTruthy();
+    addLink('https://cdn.example.com:8080/a.jpg');
+    expect(screen.getByText('Enter a link that starts with http:// or https://, without a port or a password')).toBeTruthy();
+    expect(rows()).toHaveLength(0);
+
+    addLink('https://cdn.example.com/media?id=7');
+    expect(screen.getByText("We can't tell the file type from the link. Choose Image or Video.")).toBeTruthy();
+    expect(rows()).toHaveLength(0);
+    fireEvent.click(screen.getByRole('radio', { name: 'Video' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+    expect(rows()).toHaveLength(1);
+    await until(() => expect(imports()).toHaveLength(1));
+    expect(imports()[0]!.body).toEqual({ kind: 'video', url: 'https://cdn.example.com/media?id=7' });
+    expect(screen.queryByRole('radio', { name: 'Video' })).toBeNull();
+  });
+
+  it('a failed import shows the friendly reason and Retry imports the same link again, swapping the slide asset', async () => {
+    assetOnGet.set(assetId(1), { status: 'failed', failure_reason: 'fetch_blocked' });
+    assetOnGet.set(assetId(2), { status: 'importing', failure_reason: null });
+    setup(item());
+    addLink('https://cdn.example.com/clip.mp4');
+    await until(() => expect(stateOf(0)).toBe('Failed'));
+    expect(rows()[0]!.textContent).toContain("We can't import from this address. Use a public link.");
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await until(() => expect(imports()).toHaveLength(2));
+    expect(imports()[1]!.body).toEqual({ kind: 'video', url: 'https://cdn.example.com/clip.mp4' });
+    await until(() => expect(stateOf(0)).toBe('Importing'));
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ slides: [{ media_asset_id: assetId(2), alt_text: null }] });
+  });
+
+  it('after a reload, a failed imported slide keeps its link: Retry starts a new import of it and saves the new asset', async () => {
+    assetOnGet.set(assetId(1), { status: 'importing', failure_reason: null });
+    setup(item({ slides: [savedSlide(5, { status: 'failed', failure_reason: 'fetch_failed', source_url: 'https://cdn.example.com/a.png' })] }));
+    expect(stateOf(0)).toBe('Failed');
+    expect(rows()[0]!.textContent).toContain("We couldn't download the file from the link. Check the link and retry.");
+    expect(rows()[0]!.textContent).not.toContain('Add the file again to retry.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await until(() => expect(imports()).toHaveLength(1));
+    expect(imports()[0]!.body).toEqual({ kind: 'image', url: 'https://cdn.example.com/a.png' });
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ slides: [{ media_asset_id: assetId(1), alt_text: 'Photo 5' }] });
+  });
+
+  it('a saved slide still importing shows Importing after a reload', async () => {
+    setup(item({ slides: [savedSlide(1, { status: 'importing', source_url: 'https://cdn.example.com/a.jpg' })] }));
+    expect(stateOf(0)).toBe('Importing');
+  });
+
+  it('a link the API refuses shows the link reason with Retry; the field is disabled when the item is full', async () => {
+    importStatus = 422;
+    const { unmount } = setup(item());
+    addLink('https://10.0.0.5/a.jpg');
+    await until(() => expect(stateOf(0)).toBe('Failed'));
+    expect(rows()[0]!.textContent).toContain("This link can't be imported. Use a public http or https link.");
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+    unmount();
+
+    setup(item({ slides: Array.from({ length: 10 }, (_, i) => savedSlide(i + 1)) }));
+    expect(linkInput().disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Add link' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

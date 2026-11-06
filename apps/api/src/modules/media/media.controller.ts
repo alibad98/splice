@@ -5,6 +5,8 @@ import {
   MEDIA_UPLOAD_EXPIRED,
   MEDIA_UPLOAD_MISSING,
   MEDIA_UPLOAD_RATE_LIMITED,
+  MEDIA_URL_NOT_ALLOWED,
+  MediaImportRequest,
   MediaUploadRequest,
   type MediaAsset,
   type MediaUploadGrant,
@@ -20,6 +22,7 @@ import {
   MediaUploadMissingError,
   MediaUploadNotFoundError,
   MediaUploadRateLimitedError,
+  MediaUrlNotAllowedError,
 } from './media.service.js';
 
 /** Merchant media endpoints (Story 3.5). The store comes from the merchant session only. */
@@ -35,6 +38,23 @@ export class MediaController {
     if (!parsed.success) throw new BadRequestException({ message: 'The upload request is not valid', code: 'invalid_body' });
     try {
       return await this.media.issueUpload(req.merchantSession!.storeId, parsed.data);
+    } catch (err) {
+      if (err instanceof MediaUploadRateLimitedError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      throw toHttpError(err);
+    }
+  }
+
+  /**
+   * Imports the file at an external link (Story 3.7): records an `importing` asset; the worker fetches it (SSRF-safe) and
+   * the same inspection as an upload follows. Counts toward the upload throttle.
+   */
+  @Post('media/imports')
+  @HttpCode(HttpStatus.CREATED)
+  async import(@Req() req: AuthenticatedRequest, @Body() raw: unknown, @Res({ passthrough: true }) res: Response): Promise<MediaAsset> {
+    const parsed = MediaImportRequest.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException({ message: 'The import request is not valid', code: 'invalid_body' });
+    try {
+      return await this.media.importFromUrl(req.merchantSession!.storeId, parsed.data);
     } catch (err) {
       if (err instanceof MediaUploadRateLimitedError) res.setHeader('Retry-After', String(err.retryAfterSeconds));
       throw toHttpError(err);
@@ -68,6 +88,9 @@ function toHttpError(err: unknown): unknown {
   }
   if (err instanceof MediaTooLargeError) {
     return new HttpException({ message: err.message, code: 'media_too_large', type: MEDIA_TOO_LARGE }, HttpStatus.UNPROCESSABLE_ENTITY);
+  }
+  if (err instanceof MediaUrlNotAllowedError) {
+    return new HttpException({ message: err.message, code: 'media_url_not_allowed', type: MEDIA_URL_NOT_ALLOWED }, HttpStatus.UNPROCESSABLE_ENTITY);
   }
   if (err instanceof MediaUploadRateLimitedError) {
     return new HttpException({ message: err.message, code: 'media_upload_rate_limited', type: MEDIA_UPLOAD_RATE_LIMITED }, HttpStatus.TOO_MANY_REQUESTS);

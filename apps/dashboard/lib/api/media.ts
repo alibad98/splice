@@ -7,10 +7,12 @@ import type { SessionClient } from '../session/session-client';
 import { ApiError, getJson, postJson, sendJson } from './fetch';
 import { queryKeys } from './query-keys';
 
-/** How often an `uploaded` asset is asked for again while it waits for inspection (Story 3.6). */
+/** How often an `importing` or `uploaded` asset is asked for again while it waits for its import or inspection (Stories 3.6, 3.7). */
 export const MEDIA_STATUS_POLL_MS = 3_000;
 /** Polling stops after this long; the slide keeps showing Processing and the next reload has the real status. */
 export const MEDIA_STATUS_POLL_MAX_MS = 2 * 60_000;
+/** Imports poll longer: the worker may take up to 2 minutes per fetch attempt and retries (Story 3.7). */
+export const MEDIA_IMPORT_POLL_MAX_MS = 10 * 60_000;
 
 /** The PUT to storage failed: `status` 0 for a network error or an abort, otherwise the storage HTTP status. */
 export class StorageUploadError extends Error {
@@ -69,20 +71,33 @@ export async function uploadMedia(
 }
 
 /**
- * The current status of one asset, polled every 3 s while it is `uploaded` (waiting for inspection), for at most two
- * minutes after `since`. Disabled without an id.
+ * Import the file at an external link (Story 3.7): the API records an `importing` asset that the worker fetches and then
+ * inspects like an upload. API failures reject with `ApiError` (422 `media-url-not-allowed`, 429 with `retryAfter`).
  */
-export function useMediaAssetStatus(id: string | null, opts: { enabled?: boolean; since?: number } = {}) {
+export function importMedia(client: SessionClient, url: string, kind: MediaKind): Promise<MediaAsset> {
+  return sendJson(client, 'POST', '/v1/media/imports', { kind, url }, MediaAsset);
+}
+
+/** Statuses that are still on their way (polled). */
+const PENDING_STATUSES: ReadonlySet<MediaAsset['status']> = new Set(['importing', 'uploaded']);
+export const isPendingAssetStatus = (status: MediaAsset['status'] | undefined): boolean => status !== undefined && PENDING_STATUSES.has(status);
+
+/**
+ * The current status of one asset, polled every 3 s while it is `importing` or `uploaded` (waiting for its import or
+ * inspection), for at most `maxMs` (two minutes by default) after `since`. Disabled without an id.
+ */
+export function useMediaAssetStatus(id: string | null, opts: { enabled?: boolean; since?: number; maxMs?: number } = {}) {
   const session = useSession();
   const client = session?.client;
   const signedIn = session?.state.status === 'signed-in';
   const since = opts.since ?? 0;
+  const maxMs = opts.maxMs ?? MEDIA_STATUS_POLL_MAX_MS;
   return useQuery({
     queryKey: queryKeys.media.asset(id ?? ''),
     queryFn: () => getJson(client!, `/v1/media/${encodeURIComponent(id!)}`, MediaAsset),
     enabled: Boolean(client) && signedIn && Boolean(id) && (opts.enabled ?? true),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
     refetchOnWindowFocus: false,
-    refetchInterval: (query) => (query.state.data?.status === 'uploaded' && Date.now() - since < MEDIA_STATUS_POLL_MAX_MS ? MEDIA_STATUS_POLL_MS : false),
+    refetchInterval: (query) => (isPendingAssetStatus(query.state.data?.status) && Date.now() - since < maxMs ? MEDIA_STATUS_POLL_MS : false),
   });
 }

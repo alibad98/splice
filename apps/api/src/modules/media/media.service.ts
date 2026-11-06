@@ -8,6 +8,7 @@ import {
   type MediaAsset,
   type MediaAssetStatus,
   type MediaFailureReason,
+  type MediaImportRequest,
   type MediaKind,
   type MediaUploadGrant,
   type MediaUploadRequest,
@@ -15,6 +16,7 @@ import {
 import { requireStoreContext, withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
+import { checkFetchUrl } from '../../ports/fetch-url-policy.js';
 import { DB_POOL, EVENT_SENDER, MEDIA_CONFIG, type MediaConfig } from '../../infra.module.js';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../ports/object-storage.js';
 import { Metric, TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
@@ -38,6 +40,14 @@ export class MediaUploadRateLimitedError extends Error {
   constructor(readonly retryAfterSeconds: number) {
     super('Too many upload URLs were issued for this store recently');
     this.name = 'MediaUploadRateLimitedError';
+  }
+}
+
+/** An import link is not allowed (Story 3.7): scheme, port, user info, length, or a blocked IP host. */
+export class MediaUrlNotAllowedError extends Error {
+  constructor(readonly problem: string) {
+    super('The link can not be imported');
+    this.name = 'MediaUrlNotAllowedError';
   }
 }
 
@@ -105,21 +115,12 @@ export class MediaService {
     const contentType = input.content_type.trim().toLowerCase();
     if (!isAllowedMediaType(input.kind, contentType)) throw new MediaTypeNotAllowedError();
     if (input.size_bytes > MEDIA_LIMITS[input.kind].max_bytes) throw new MediaTooLargeError();
-    const limit = this.config.uploadRateLimit;
     const key = uploadKey(storeId, input.sha256);
     const expiresAt = new Date(now.getTime() + MEDIA_UPLOAD_TTL_SECONDS * 1000);
     // Signed before the per-store lock is taken, so storage signing never holds the lock or a pooled connection.
     const presigned = await this.storage.presignPut({ key, contentType, sizeBytes: input.size_bytes, sha256Hex: input.sha256, expiresInSeconds: MEDIA_UPLOAD_TTL_SECONDS });
     const id = await withStoreContext(this.pool, storeId, async () => {
-      await this.repo.lockStoreGrants();
-      const windowMs = MEDIA_UPLOAD_WINDOW_SECONDS * 1000;
-      const nth = await this.repo.nthRecentGrantSince(new Date(now.getTime() - windowMs), limit);
-      if (nth) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((nth.getTime() + windowMs - now.getTime()) / 1000));
-        this.telemetry.counter(Metric.MediaUploadThrottled);
-        this.telemetry.log.warn('media upload throttled', { store_id: storeId, limit, retry_after_seconds: retryAfterSeconds });
-        throw new MediaUploadRateLimitedError(retryAfterSeconds);
-      }
+      await this.assertWithinUploadLimit(storeId, now);
       const grant = await this.repo.insertGrant({
         id: uuidv7(now.getTime()),
         storeId,
@@ -135,6 +136,56 @@ export class MediaService {
       return grant.id;
     });
     return { v: 1, upload_id: id, url: presigned.url, method: 'PUT', headers: presigned.headers, expires_at: expiresAt.toISOString() };
+  }
+
+  /**
+   * Inside the store's transaction: takes the per-store advisory lock, then throws `MediaUploadRateLimitedError` when the
+   * store already has `uploadRateLimit` upload grants and link imports in the window (metric + warn log).
+   */
+  private async assertWithinUploadLimit(storeId: string, now: Date): Promise<void> {
+    const limit = this.config.uploadRateLimit;
+    await this.repo.lockStoreGrants();
+    const windowMs = MEDIA_UPLOAD_WINDOW_SECONDS * 1000;
+    const nth = await this.repo.nthRecentIssueSince(new Date(now.getTime() - windowMs), limit);
+    if (nth) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((nth.getTime() + windowMs - now.getTime()) / 1000));
+      this.telemetry.counter(Metric.MediaUploadThrottled);
+      this.telemetry.log.warn('media upload throttled', { store_id: storeId, limit, retry_after_seconds: retryAfterSeconds });
+      throw new MediaUploadRateLimitedError(retryAfterSeconds);
+    }
+  }
+
+  /**
+   * Records an import from an external link (Story 3.7) as an `importing` asset with its `source_url` and emits
+   * `media.asset.import_requested` in the same transaction; the worker fetches it. The link must be http(s) on port 80/443
+   * without user info and its host must not be a blocked IP literal (`MediaUrlNotAllowedError`); hosts given by name are
+   * checked when the worker resolves them. Imports count toward the same per-store throttle as upload URLs.
+   */
+  async importFromUrl(storeId: string, input: MediaImportRequest, now: Date = new Date()): Promise<MediaAsset> {
+    const checked = checkFetchUrl(input.url);
+    if (!checked.ok) throw new MediaUrlNotAllowedError(checked.problem);
+    const sourceUrl = checked.url.href;
+    const row = await withStoreContext(this.pool, storeId, async () => {
+      await this.assertWithinUploadLimit(storeId, now);
+      const asset = await this.repo.insertAsset({
+        id: uuidv7(now.getTime()),
+        storeId,
+        kind: input.kind,
+        contentType: null,
+        sizeBytes: null,
+        sha256: null,
+        uploadKey: null,
+        storageKey: null,
+        sourceUrl,
+        status: 'importing',
+        failureReason: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await publishEvent(requireStoreContext(), this.events, this.telemetry, 'media.asset.import_requested', { v: 1, store_id: storeId, asset_id: asset.id, kind: asset.kind });
+      return asset;
+    });
+    return toMediaAsset(row);
   }
 
   /**
@@ -165,6 +216,7 @@ export class MediaService {
       const asset = await this.repo.insertAsset({
         id: uuidv7(now.getTime()),
         storeId,
+        sourceUrl: null,
         kind: locked.kind,
         contentType: locked.contentType,
         sizeBytes: locked.sizeBytes,
@@ -182,8 +234,8 @@ export class MediaService {
         store_id: storeId,
         asset_id: asset.id,
         kind: asset.kind,
-        content_type: asset.contentType,
-        size_bytes: asset.sizeBytes,
+        content_type: locked.contentType,
+        size_bytes: locked.sizeBytes,
       });
       return asset;
     });
@@ -204,7 +256,9 @@ export class MediaService {
   async getAssetsByIds(storeId: string, ids: readonly string[]): Promise<Map<string, MediaAssetSummary>> {
     if (ids.length === 0) return new Map();
     const rows = await withStoreContext(this.pool, storeId, () => this.repo.summariesByIds(ids));
-    return new Map(rows.map((r) => [r.id, { kind: r.kind, status: r.status, failure_reason: (r.failureReason as MediaFailureReason | null) ?? null }]));
+    return new Map(
+      rows.map((r) => [r.id, { kind: r.kind, status: r.status, failure_reason: (r.failureReason as MediaFailureReason | null) ?? null, source_url: r.sourceUrl }]),
+    );
   }
 
   /** The asked asset ids that may be published: `processed` only (never `uploaded`, `scanned` or `failed`). */
@@ -213,7 +267,7 @@ export class MediaService {
     return withStoreContext(this.pool, storeId, () => this.repo.processedIds(ids));
   }
 
-  /** Bytes the store keeps in media storage: `size_bytes` of its assets that are not `failed`. */
+  /** Bytes the store keeps in media storage: `size_bytes` of its assets that are not `failed` (imports count once fetched). */
   async storedBytes(storeId: string): Promise<number> {
     return withStoreContext(this.pool, storeId, () => this.repo.storedBytes());
   }
@@ -224,6 +278,8 @@ export interface MediaAssetSummary {
   kind: MediaKind;
   status: MediaAssetStatus;
   failure_reason: MediaFailureReason | null;
+  /** The link an imported asset came from (Story 3.7); null for uploads. */
+  source_url: string | null;
 }
 
 export class MediaAssetNotFoundError extends Error {

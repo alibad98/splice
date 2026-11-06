@@ -1,6 +1,6 @@
 // The single source of queue groups, concurrency and retry policy (AD-1).
 // Default: 5 attempts with exponential backoff 30 s -> 15 min; media: 3 attempts.
-import { EVENT_QUEUE, MEDIA_INSPECT_QUEUE } from '@slips/contracts';
+import { EVENT_QUEUE, MEDIA_IMPORT_QUEUE, MEDIA_INSPECT_QUEUE } from '@slips/contracts';
 import type { QueueOptions } from 'pg-boss';
 
 export const QUEUE_GROUPS = ['realtime', 'media', 'batch'] as const;
@@ -52,6 +52,7 @@ export const QUEUES: readonly QueueDefinition[] = [
   { name: 'catalog.reconcile.schedule', group: 'batch' },
   { name: 'catalog.reconcile', group: 'batch' },
   { name: MEDIA_INSPECT_QUEUE, group: 'media' },
+  { name: MEDIA_IMPORT_QUEUE, group: 'media' },
 ];
 
 export function queuesFor(groups: readonly QueueGroup[], queues: readonly QueueDefinition[] = QUEUES): QueueDefinition[] {

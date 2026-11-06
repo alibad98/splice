@@ -33,13 +33,31 @@ export const MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS = 30 * 60;
 /** Window of the per-store upload-URL throttle. */
 export const MEDIA_UPLOAD_WINDOW_SECONDS = 10 * 60;
 
-/** `uploaded -> scanned -> processed | failed`. Only `processed` assets are publishable; `processed` comes from Story 3.8. */
-export const MEDIA_ASSET_STATUSES = ['uploaded', 'scanned', 'processed', 'failed'] as const;
+/**
+ * `[importing ->] uploaded -> scanned -> processed | failed`. Only `processed` assets are publishable; `processed` comes
+ * from Story 3.8. `importing`: the worker is fetching an external link into storage (Story 3.7).
+ */
+export const MEDIA_ASSET_STATUSES = ['importing', 'uploaded', 'scanned', 'processed', 'failed'] as const;
 export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
 export const MediaAssetStatus = z.enum(MEDIA_ASSET_STATUSES);
 
-/** Why an asset `failed` (the dashboard maps each to friendly copy). */
-export const MEDIA_FAILURE_REASONS = ['checksum_mismatch', 'type_not_allowed', 'type_mismatch', 'corrupt', 'image_too_large', 'malware', 'inspection_failed'] as const;
+/**
+ * Why an asset `failed` (the dashboard maps each to friendly copy). The `fetch_*` reasons are imports (Story 3.7): the
+ * address is not allowed (private, loopback, metadata...), the file is over the kind's limit, or the source answered an
+ * error or could not be reached.
+ */
+export const MEDIA_FAILURE_REASONS = [
+  'checksum_mismatch',
+  'type_not_allowed',
+  'type_mismatch',
+  'corrupt',
+  'image_too_large',
+  'malware',
+  'inspection_failed',
+  'fetch_blocked',
+  'fetch_too_large',
+  'fetch_failed',
+] as const;
 export type MediaFailureReason = (typeof MEDIA_FAILURE_REASONS)[number];
 export const MediaFailureReason = z.enum(MEDIA_FAILURE_REASONS);
 
@@ -49,6 +67,11 @@ export const MEDIA_TOO_LARGE = 'media-too-large';
 export const MEDIA_UPLOAD_RATE_LIMITED = 'media-upload-rate-limited';
 export const MEDIA_UPLOAD_MISSING = 'media-upload-missing';
 export const MEDIA_UPLOAD_EXPIRED = 'media-upload-expired';
+/**
+ * An import link is not allowed (422, Story 3.7): not http/https, a port other than 80/443, user info, longer than
+ * `MEDIA_IMPORT_URL_MAX`, or a host that is a blocked IP address (private, loopback, link-local, metadata...).
+ */
+export const MEDIA_URL_NOT_ALLOWED = 'media-url-not-allowed';
 /** A slide references a media asset that is unknown to the store or `failed` (422, Story 3.6). */
 export const MEDIA_NOT_ATTACHABLE = 'media-not-attachable';
 
@@ -81,13 +104,29 @@ export const MediaUploadGrant = z.object({
 });
 export type MediaUploadGrant = z.infer<typeof MediaUploadGrant>;
 
-/** One media asset of the store. `failure_reason` is set only when `status` is `failed`. */
+/** Longest import link accepted (Story 3.7). */
+export const MEDIA_IMPORT_URL_MAX = 2048;
+
+/**
+ * `POST /v1/media/imports` request body (Story 3.7): fetch the file at `url` as an asset of `kind`. The URL rules are
+ * checked by the API (422 `media-url-not-allowed`), not here.
+ */
+export const MediaImportRequest = z.strictObject({
+  kind: MediaKind,
+  url: z.string().trim().min(1).max(MEDIA_IMPORT_URL_MAX),
+});
+export type MediaImportRequest = z.infer<typeof MediaImportRequest>;
+
+/**
+ * One media asset of the store. `failure_reason` is set only when `status` is `failed`. `content_type` and `size_bytes`
+ * are null while an import is `importing`, and stay null when an import failed before its file was stored (Story 3.7).
+ */
 export const MediaAsset = z.object({
   v: z.literal(1).default(1),
   id: z.uuid(),
   kind: MediaKind,
-  content_type: z.string(),
-  size_bytes: z.number().int().positive(),
+  content_type: z.string().nullable(),
+  size_bytes: z.number().int().positive().nullable(),
   status: MediaAssetStatus,
   failure_reason: MediaFailureReason.nullable(),
   created_at: z.iso.datetime(),
@@ -101,3 +140,10 @@ export const MEDIA_INSPECT_QUEUE = 'media.asset.inspect';
 /** Payload of a `media.asset.inspect` job: the envelope (store required) plus the asset. */
 export const MediaInspectJob = JobMeta.extend({ store_id: z.uuid(), asset_id: z.uuid() });
 export type MediaInspectJob = z.infer<typeof MediaInspectJob>;
+
+/** Worker queue (media group) that fetches an imported link into storage (Story 3.7). */
+export const MEDIA_IMPORT_QUEUE = 'media.asset.import';
+
+/** Payload of a `media.asset.import` job: the envelope (store required) plus the `importing` asset. */
+export const MediaImportJob = JobMeta.extend({ store_id: z.uuid(), asset_id: z.uuid() });
+export type MediaImportJob = z.infer<typeof MediaImportJob>;

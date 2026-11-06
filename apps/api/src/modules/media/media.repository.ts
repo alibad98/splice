@@ -18,18 +18,21 @@ export class MediaRepository extends StoreScoped {
   }
 
   /**
-   * Created time of the `limit`-th most recent grant issued after `since`, or undefined when fewer than `limit` were
-   * issued. When defined the store is at its limit, and that grant leaving the window frees one slot.
+   * Created time of the `limit`-th most recent upload grant or link import (Story 3.7) issued after `since`, or undefined
+   * when fewer than `limit` were issued. When defined the store is at its limit, and that one leaving the window frees a slot.
    */
-  async nthRecentGrantSince(since: Date, limit: number): Promise<Date | undefined> {
-    const rows = await this.db
-      .select({ createdAt: mediaUploadGrants.createdAt })
-      .from(mediaUploadGrants)
-      .where(and(eq(mediaUploadGrants.storeId, this.storeId), sql`${mediaUploadGrants.createdAt} > ${since.toISOString()}`))
-      .orderBy(sql`${mediaUploadGrants.createdAt} desc`)
-      .offset(limit - 1)
-      .limit(1);
-    return rows[0]?.createdAt;
+  async nthRecentIssueSince(since: Date, limit: number): Promise<Date | undefined> {
+    const after = since.toISOString();
+    const result = await this.db.execute<{ created_at: string | Date }>(sql`
+      select created_at from (
+        select created_at from media_upload_grants where store_id = ${this.storeId} and created_at > ${after}::timestamptz
+        union all
+        select created_at from media_assets where store_id = ${this.storeId} and source_url is not null and created_at > ${after}::timestamptz
+      ) issued
+      order by created_at desc
+      offset ${limit - 1} limit 1`);
+    const at = result.rows[0]?.created_at;
+    return at === undefined ? undefined : new Date(at);
   }
 
   async insertGrant(row: NewMediaUploadGrantRow): Promise<MediaUploadGrantRow> {
@@ -88,6 +91,28 @@ export class MediaRepository extends StoreScoped {
   }
 
   /**
+   * Import outcome (worker only, Story 3.7): `uploaded` with the fetched file's hash, size, type and upload key (the
+   * inspection follows), or `failed` with a reason.
+   */
+  async finishImport(
+    id: string,
+    outcome: { status: 'uploaded'; sha256: string; sizeBytes: number; contentType: string; uploadKey: string } | { status: 'failed'; reason: MediaFailureReason },
+    now: Date,
+  ): Promise<MediaAssetRow> {
+    const set =
+      outcome.status === 'uploaded'
+        ? { status: outcome.status, sha256: outcome.sha256, sizeBytes: outcome.sizeBytes, contentType: outcome.contentType, uploadKey: outcome.uploadKey, failureReason: null, updatedAt: now }
+        : { status: outcome.status, failureReason: outcome.reason, updatedAt: now };
+    const [row] = await this.db
+      .update(mediaAssets)
+      .set(set)
+      .where(and(eq(mediaAssets.storeId, this.storeId), eq(mediaAssets.id, id), eq(mediaAssets.status, 'importing')))
+      .returning();
+    if (!row) throw new Error(`media import: asset ${id} is no longer importing`);
+    return row;
+  }
+
+  /**
    * Whether another upload still needs the object at `key`. Upload keys are content-addressed per store, so two uploads of
    * the same bytes share one object: another asset still `uploaded`, or an open grant (not completed, not expired).
    */
@@ -107,12 +132,14 @@ export class MediaRepository extends StoreScoped {
     return Boolean(result.rows[0]?.in_use);
   }
 
-  /** Kind, status and failure reason of the asked ids that are the store's assets, in one read (Story 3.6). */
-  async summariesByIds(ids: readonly string[]): Promise<Array<{ id: string; kind: MediaAssetRow['kind']; status: MediaAssetStatus; failureReason: string | null }>> {
+  /** Kind, status, failure reason and import link of the asked ids that are the store's assets, in one read (Stories 3.6, 3.7). */
+  async summariesByIds(
+    ids: readonly string[],
+  ): Promise<Array<{ id: string; kind: MediaAssetRow['kind']; status: MediaAssetStatus; failureReason: string | null; sourceUrl: string | null }>> {
     const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));
     if (wanted.length === 0) return [];
     return this.db
-      .select({ id: mediaAssets.id, kind: mediaAssets.kind, status: mediaAssets.status, failureReason: mediaAssets.failureReason })
+      .select({ id: mediaAssets.id, kind: mediaAssets.kind, status: mediaAssets.status, failureReason: mediaAssets.failureReason, sourceUrl: mediaAssets.sourceUrl })
       .from(mediaAssets)
       .where(and(eq(mediaAssets.storeId, this.storeId), inArray(mediaAssets.id, wanted)));
   }

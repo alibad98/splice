@@ -16,6 +16,7 @@ import { contentStoreData } from './modules/content/content.lifecycle.js';
 import { mediaStoreData } from './modules/media/media.lifecycle.js';
 import { S3ObjectStorage } from './adapters/storage/s3-storage.js';
 import { EicarMalwareScanner } from './adapters/scanner/eicar-scanner.js';
+import { SsrfSafeFetcher } from './adapters/fetch/ssrf-safe-fetcher.js';
 import { unconfiguredStorage, type ObjectStorage } from './ports/object-storage.js';
 import type { Telemetry } from './ports/telemetry.js';
 import { ConsoleMailer } from './adapters/mailer/console-mailer.js';
@@ -164,6 +165,8 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     // Development-only adapter: flags the EICAR test string. A real scanner is a deferred decision (no vendor chosen).
     scanner: overrides.scanner ?? new EicarMalwareScanner(),
     media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60 },
+    // External media links are fetched by the worker only (Story 3.7).
+    ...(role === 'worker' ? { fetcher: overrides.fetcher ?? new SsrfSafeFetcher() } : {}),
     lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage)],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),

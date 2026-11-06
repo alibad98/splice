@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaAsset, MediaContentType, MediaKind } from '@slips/contracts';
 import { ApiError } from '../../../lib/api/fetch';
-import { StorageUploadError, uploadMedia } from '../../../lib/api/media';
+import { StorageUploadError, importMedia, uploadMedia } from '../../../lib/api/media';
 import { useSession } from '../../session/SessionProvider';
 
 /** At most this many files upload at once (Story 3.6); the rest wait their turn in drop order. */
@@ -12,29 +12,30 @@ export const UPLOAD_CONCURRENCY = 3;
 /** Why an upload did not finish: the network or storage, the throttle (with the wait), or the API refused the file. */
 export type UploadError = { kind: 'network' } | { kind: 'throttled'; minutes: number } | { kind: 'rejected' };
 
+/** What a row brings in: a local file to upload (Story 3.6) or an external link to import (Story 3.7). */
+export type UploadSource = { type: 'file'; file: File; contentType: MediaContentType } | { type: 'link'; url: string };
+
 export interface UploadState {
   key: string;
-  /** The local file, held for the session so Retry can upload it again. */
-  file: File;
+  /** The local file or the link, held for the session so Retry can upload or import it again. */
+  source: UploadSource;
   kind: MediaKind;
-  contentType: MediaContentType;
-  /** Object URL of the file, the slide thumb during the session; revoked on remove and unmount. */
+  /** Object URL of the file, the slide thumb during the session (none for links); revoked on remove and unmount. */
   previewUrl: string | null;
   phase: 'waiting' | 'uploading' | 'done' | 'error';
-  /** 0..1 while uploading. */
+  /** 0..1 while uploading (a link import has no progress). */
   progress: number;
   error: UploadError | null;
   /** The recorded asset once completed (its status as last known). */
   asset: MediaAsset | null;
-  /** When the upload completed (ms), so status polling can stop two minutes later. */
+  /** When the upload or import request completed (ms), so status polling can stop later. */
   completedAt: number | null;
 }
 
 export interface NewUpload {
   key: string;
-  file: File;
+  source: UploadSource;
   kind: MediaKind;
-  contentType: MediaContentType;
 }
 
 const toUploadError = (err: unknown): UploadError => {
@@ -43,9 +44,10 @@ const toUploadError = (err: unknown): UploadError => {
   return { kind: 'network' };
 };
 
-const createUrl = (file: File): string | null => {
+const createUrl = (source: UploadSource): string | null => {
+  if (source.type !== 'file') return null;
   try {
-    return typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null;
+    return typeof URL.createObjectURL === 'function' ? URL.createObjectURL(source.file) : null;
   } catch {
     return null;
   }
@@ -56,8 +58,9 @@ const revokeUrl = (url: string | null) => {
 
 /**
  * The editor's upload queue (Story 3.6): files upload in drop order, at most `UPLOAD_CONCURRENCY` at a time, with
- * progress. The listener given to `bind` is told when a file's asset is recorded. Failed uploads keep their file for
- * `retry`. Object URLs are revoked and uploads aborted on remove and on unmount.
+ * progress; links (Story 3.7) are queued the same way and only ask the API to import them. The listener given to `bind`
+ * is told when a row's asset is recorded. Failed rows keep their file or link for `retry`. Object URLs are revoked and
+ * uploads aborted on remove and on unmount.
  */
 export function useUploads() {
   const session = useSession();
@@ -96,9 +99,12 @@ export function useUploads() {
       controllers.current.set(u.key, controller);
       patch(u.key, { phase: 'uploading', progress: 0, error: null });
       const client = clientRef.current;
-      const run = client
-        ? uploadMedia(client, u.file, u.kind, { contentType: u.contentType, signal: controller.signal, onProgress: (progress) => patch(u.key, { progress }) })
-        : Promise.reject(new ApiError(0));
+      const source = u.source;
+      const run = !client
+        ? Promise.reject(new ApiError(0))
+        : source.type === 'file'
+          ? uploadMedia(client, source.file, u.kind, { contentType: source.contentType, signal: controller.signal, onProgress: (progress) => patch(u.key, { progress }) })
+          : importMedia(client, source.url, u.kind);
       run
         .then((asset) => {
           if (!store.current.has(u.key) || controller.signal.aborted) return;
@@ -116,11 +122,12 @@ export function useUploads() {
     }
   }, [patch]);
 
-  /** Queue files (in this order) and start as many as the concurrency allows. */
+  /** Queue files or links (in this order) and start as many as the concurrency allows. A key already held is replaced. */
   const add = useCallback(
     (files: readonly NewUpload[]) => {
       for (const f of files) {
-        store.current.set(f.key, { ...f, previewUrl: createUrl(f.file), phase: 'waiting', progress: 0, error: null, asset: null, completedAt: null });
+        revokeUrl(store.current.get(f.key)?.previewUrl ?? null);
+        store.current.set(f.key, { ...f, previewUrl: createUrl(f.source), phase: 'waiting', progress: 0, error: null, asset: null, completedAt: null });
       }
       publish();
       pump();
@@ -128,7 +135,7 @@ export function useUploads() {
     [publish, pump],
   );
 
-  /** Upload the held file again (a failed upload, or an asset that failed inspection). False when nothing is held. */
+  /** Upload the held file, or import the held link, again (a failed row, or an asset that failed). False when nothing is held. */
   const retry = useCallback(
     (key: string): boolean => {
       const current = store.current.get(key);

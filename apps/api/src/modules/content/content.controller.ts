@@ -64,6 +64,7 @@ export const toContentSlide = (s: SlideRow, asset: MediaAssetSummary | undefined
   alt_text: s.altText,
   status: asset?.status ?? 'failed',
   failure_reason: asset ? asset.failure_reason : 'inspection_failed',
+  source_url: asset?.source_url ?? null,
 });
 
 /** The API shape of a linked product as the catalog has it now. */

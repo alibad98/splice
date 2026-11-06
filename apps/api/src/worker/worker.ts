@@ -13,6 +13,7 @@ import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegr
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { registerContentEventHandlers } from './content-jobs.js';
 import { mediaJobHandlers, registerMediaEventHandlers } from './media-jobs.js';
+import { MediaImporter } from '../modules/media/media-import.js';
 import { MediaInspector } from '../modules/media/media-inspect.js';
 import { ContentLifecycle } from '../modules/content/content-lifecycle.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
@@ -123,11 +124,14 @@ export async function startWorker(
   registerContentEventHandlers(events, telemetry, new ContentLifecycle(boss, telemetry));
   const inspector = new MediaInspector(infra.storage, infra.scanner, boss, telemetry);
   registerMediaEventHandlers(events, boss, telemetry, inspector);
+  // External links are fetched here only, never in the API (Story 3.7).
+  if (!infra.fetcher) throw new Error('the worker needs the external fetcher');
+  const importer = new MediaImporter(infra.fetcher, infra.storage, boss, telemetry);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector), ...handlers };
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer), ...handlers };
   let stopPoller = () => {};
   try {
     if (env.NODE_ENV === 'development') await ensureDevBucket(infra.storage, telemetry);

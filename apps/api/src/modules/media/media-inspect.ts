@@ -110,13 +110,16 @@ export class MediaInspector {
    */
   async releaseUpload(assetId: string, now: Date = new Date()): Promise<void> {
     const asset = await this.repo.findAsset(assetId);
-    if (!asset || asset.status === 'uploaded') return;
+    // An import that failed before its file was stored has no upload object.
+    if (!asset || asset.status === 'uploaded' || asset.status === 'importing' || !asset.uploadKey) return;
     if (await this.repo.uploadKeyInUse(asset.uploadKey, { assetId: asset.id }, now)) return;
     await this.storage.delete(asset.uploadKey);
   }
 
   /** The verdict for the uploaded bytes. Throws only for failures that are not about the file. */
   private async examine(storeId: string, asset: MediaAssetRow): Promise<Verdict> {
+    // An `uploaded` asset always has these (a CHECK: they are null only while importing or after a failed import).
+    if (!asset.uploadKey || !asset.sha256 || !asset.contentType) throw new Error(`media inspect: uploaded asset ${asset.id} lacks its file fields`);
     const stream = await this.storage.getStream(asset.uploadKey);
     if (!stream) throw new Error(`media inspect: upload object ${asset.uploadKey} is missing`);
     const kind: MediaKind = asset.kind;

@@ -85,6 +85,26 @@ describe('media tables', () => {
     await expect(ins('image', 1, SHA, 'scanned', 'malware')).rejects.toMatchObject({ code: '23514' });
     await expect(ins('image', 1, SHA, 'failed', 'malware')).resolves.toBeDefined();
     await expect(ins('video', 200 * 1024 * 1024, SHA, 'processed', null)).resolves.toBeDefined();
-    expect(schema.MEDIA_ASSET_STATUSES).toEqual(['uploaded', 'scanned', 'processed', 'failed']);
+    expect(schema.MEDIA_ASSET_STATUSES).toEqual(['importing', 'uploaded', 'scanned', 'processed', 'failed']);
+  });
+
+  it('imports (0020): hash, size, type and upload key are null only while importing or after an import failed before fetching', async () => {
+    const s = randomUUID();
+    const ins = (status: string, reason: string | null, source: string | null, filled: boolean) =>
+      admin.query(
+        `insert into media_assets (store_id, kind, content_type, size_bytes, sha256, upload_key, status, failure_reason, source_url)
+         values ($1, 'image', $2, $3, $4, $5, $6, $7, $8)`,
+        [s, filled ? 'image/png' : null, filled ? 10 : null, filled ? SHA : null, filled ? 'k' : null, status, reason, source],
+      );
+    const url = 'https://cdn.example.com/a.png';
+    await expect(ins('importing', null, url, false)).resolves.toBeDefined();
+    await expect(ins('failed', 'fetch_blocked', url, false)).resolves.toBeDefined();
+    await expect(ins('uploaded', null, url, true)).resolves.toBeDefined();
+    await expect(ins('uploaded', null, url, false)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('scanned', null, url, false)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('failed', 'corrupt', null, false)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('importing', null, null, false)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('importing', null, null, true)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('importing', null, 'x'.repeat(2049), false)).rejects.toMatchObject({ code: '23514' });
   });
 });

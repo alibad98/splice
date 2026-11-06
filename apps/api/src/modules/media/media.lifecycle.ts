@@ -2,7 +2,7 @@ import type { ObjectStorage } from '../../ports/object-storage.js';
 import type { StoreDataLifecycle } from '../../ports/store-data-lifecycle.js';
 import { storePrefix } from './media.service.js';
 
-const ASSET_EXPORT_COLUMNS = 'id::text as id, kind, content_type, size_bytes, sha256, storage_key, status, failure_reason, created_at, updated_at';
+const ASSET_EXPORT_COLUMNS = 'id::text as id, kind, content_type, size_bytes, sha256, storage_key, source_url, status, failure_reason, created_at, updated_at';
 const GRANT_EXPORT_COLUMNS = 'id::text as id, kind, content_type, size_bytes, sha256, expires_at, completed_asset_id::text as completed_asset_id, created_at';
 
 /**

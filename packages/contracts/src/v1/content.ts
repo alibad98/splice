@@ -243,6 +243,8 @@ export const ContentSlide = z.object({
   alt_text: z.string().nullable(),
   status: MediaAssetStatus,
   failure_reason: MediaFailureReason.nullable(),
+  /** The link the asset was imported from (Story 3.7), so Retry works after a reload; null for uploads. */
+  source_url: z.string().nullable().default(null),
 });
 export type ContentSlide = z.infer<typeof ContentSlide>;
 

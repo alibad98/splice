@@ -892,6 +892,28 @@ describe('merchant content API & I/O matrix', () => {
       )
     ).rows;
 
+  it('Slides (Story 3.7): an importing asset is attachable; the slide carries its source_url (null for uploads), also once the import failed', async () => {
+    const { storeId, token } = await installedStore();
+    const link = 'https://cdn.example.com/a.jpg';
+    const importing = (
+      await admin.query<{ id: string }>(
+        `insert into media_assets (store_id, kind, status, source_url) values ($1, 'image', 'importing', $2) returning id::text as id`,
+        [storeId, link],
+      )
+    ).rows[0]!.id;
+    const uploaded = await seedAsset(storeId, 'video');
+    const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: importing, alt_text: 'Red' }, { media_asset_id: uploaded, alt_text: null }] });
+    expect(created.res.status).toBe(201);
+    const item = ContentItem.parse(created.body);
+    expect(item.slides.map((s) => [s.status, s.source_url])).toEqual([
+      ['importing', link],
+      ['uploaded', null],
+    ]);
+    await admin.query(`update media_assets set status = 'failed', failure_reason = 'fetch_failed' where id = $1`, [importing]);
+    const reloaded = ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body);
+    expect(reloaded.slides[0]).toMatchObject({ status: 'failed', failure_reason: 'fetch_failed', source_url: link });
+  });
+
   it('Slides (Story 3.6): POST with slides saves them in order; GET and the list return them with kind and current asset status; no status change', async () => {
     const { storeId, token } = await installedStore();
     const img1 = await seedAsset(storeId, 'image');

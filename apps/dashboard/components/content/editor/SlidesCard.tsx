@@ -1,16 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { Controller, useFormContext, useWatch } from 'react-hook-form';
-import { MEDIA_LIMITS, SLIDES_MAX, SLIDE_ALT_MAX, type ContentSlide, type MediaAsset, type MediaFailureReason } from '@slips/contracts';
+import { MEDIA_IMPORT_URL_MAX, MEDIA_KINDS, MEDIA_LIMITS, SLIDES_MAX, SLIDE_ALT_MAX, type ContentSlide, type MediaAsset, type MediaFailureReason, type MediaKind } from '@slips/contracts';
 import { Alert, Button, Card, CardTitle, DropZone, Field, Icon, Input, Progress, StatusChip, cn, type StatusTone } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
 import type { Messages } from '../../../i18n/messages';
-import { useMediaAssetStatus } from '../../../lib/api/media';
+import { MEDIA_IMPORT_POLL_MAX_MS, isPendingAssetStatus, useMediaAssetStatus } from '../../../lib/api/media';
 import { fill } from '../../products/format';
 import { fieldId, slideAltId, type EditorErrorKey, type EditorValues, type SlideValue } from './form';
+import { checkLink, inferLinkKind } from './media-link';
 import { precheckFile, type PrecheckReason } from './media-precheck';
-import type { UploadState, Uploads } from './use-uploads';
+import type { NewUpload, UploadState, Uploads } from './use-uploads';
 
 type SlidesCopy = Messages['content']['editor']['slides'];
 
@@ -60,6 +61,7 @@ const focusInField = (): boolean => {
 type View =
   | { state: 'waiting' }
   | { state: 'uploading'; percent: number }
+  | { state: 'importing' }
   | { state: 'processing' }
   | { state: 'ready' }
   | { state: 'failed'; message: string; canRetry: boolean };
@@ -67,14 +69,15 @@ type View =
 const CHIP: Record<View['state'], { tone: StatusTone; pulse?: boolean }> = {
   waiting: { tone: 'neutral' },
   uploading: { tone: 'info' },
+  importing: { tone: 'info', pulse: true },
   processing: { tone: 'info', pulse: true },
   ready: { tone: 'success' },
   failed: { tone: 'danger' },
 };
 
 /**
- * The slides (Story 3.6): a multi-file drop zone with a browser pre-check, the ordered slide list with thumbs, per-file
- * upload state, alt text, Move earlier/later, drag (desktop) and Remove. Order changes are announced ("Slide 2 of 3")
+ * The slides (Story 3.6): a multi-file drop zone with a browser pre-check, an "Add from a link" field (Story 3.7), the
+ * ordered slide list with thumbs, per-file upload or import state, alt text, Move earlier/later, drag (desktop) and Remove. Order changes are announced ("Slide 2 of 3")
  * and focus stays on the moved slide. The list is the form's `slides`; uploads live in `uploads`.
  */
 export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Uploads; savedSlides: readonly ContentSlide[]; readOnly: boolean }) {
@@ -116,7 +119,7 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
     const checked = await Promise.all(files.map(async (file) => ({ file, result: await precheckFile(file) })));
     const messagesOut: string[] = [];
     let room = SLIDES_MAX - getValues('slides').length;
-    const accepted: Array<{ key: string; file: File; kind: SlideValue['kind']; contentType: Parameters<Uploads['add']>[0][number]['contentType'] }> = [];
+    const accepted: NewUpload[] = [];
     for (const { file, result } of checked) {
       if (!result.ok) {
         messagesOut.push(fill(s.rejected[result.reason], { file: file.name, ...reasonValues(result.reason) }));
@@ -127,12 +130,22 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
         continue;
       }
       room -= 1;
-      accepted.push({ key: newKey(), file, kind: result.kind, contentType: result.contentType });
+      accepted.push({ key: newKey(), source: { type: 'file', file, contentType: result.contentType }, kind: result.kind });
     }
     setRejections(messagesOut);
     if (accepted.length === 0) return;
-    write([...getValues('slides'), ...accepted.map((a) => ({ key: a.key, media_asset_id: null, kind: a.kind, alt_text: '' }))]);
+    write([...getValues('slides'), ...accepted.map((a) => ({ key: a.key, media_asset_id: null, kind: a.kind, alt_text: '', source_url: null }))]);
     uploads.add(accepted);
+  };
+
+  /** A link becomes a slide right away (Importing); the API import runs in the upload queue. */
+  const onLink = (url: string, kind: MediaKind) => {
+    const list = getValues('slides');
+    if (list.length >= SLIDES_MAX) return;
+    const key = newKey();
+    write([...list, { key, media_asset_id: null, kind, alt_text: '', source_url: url }]);
+    uploads.add([{ key, source: { type: 'link', url }, kind }]);
+    announce(fill(s.linkAdded, { n: list.length + 1 }));
   };
 
   const move = (index: number, to: number, via: 'earlier' | 'later' | 'drag') => {
@@ -213,8 +226,10 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
     [getValues, savedSlides, setValue, uploads],
   );
 
+  // The held file or link again. After a reload only an imported slide can retry: a new import of its link swaps the asset.
   const retry = (row: SlideValue) => {
-    uploads.retry(row.key);
+    if (uploads.retry(row.key) || !row.source_url) return;
+    uploads.add([{ key: row.key, source: { type: 'link', url: row.source_url }, kind: row.kind }]);
   };
 
   const full = slides.length >= SLIDES_MAX;
@@ -237,6 +252,7 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
           inputId={fieldId('slides')}
         />
       </div>
+      <LinkForm copy={s} disabled={readOnly || full} onAdd={onLink} />
       {rejections.length > 0 ? (
         <Alert
           tone="warning"
@@ -289,18 +305,107 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
 
 const failureMessage = (copy: SlidesCopy, reason: MediaFailureReason | null): string => (reason ? copy.failures[reason] : copy.failures.inspection_failed);
 
-/** The row's state: the upload while it runs, then the asset's status (polled while it waits for inspection). */
-function viewOf(copy: SlidesCopy, upload: UploadState | null, asset: Pick<MediaAsset, 'status' | 'failure_reason'> | null): View {
-  if (upload?.phase === 'waiting') return { state: 'waiting' };
-  if (upload?.phase === 'uploading') return { state: 'uploading', percent: Math.round(upload.progress * 100) };
+/**
+ * The row's state: the upload (or the import request) while it runs, then the asset's status (polled while it is being
+ * imported or waits for inspection). A failed asset can retry while its file is held or when it came from a link.
+ */
+function viewOf(copy: SlidesCopy, upload: UploadState | null, asset: Pick<MediaAsset, 'status' | 'failure_reason'> | null, sourceUrl: string | null): View {
+  const link = upload ? upload.source.type === 'link' : Boolean(sourceUrl);
+  if (upload?.phase === 'waiting') return link ? { state: 'importing' } : { state: 'waiting' };
+  if (upload?.phase === 'uploading') return link ? { state: 'importing' } : { state: 'uploading', percent: Math.round(upload.progress * 100) };
   if (upload?.phase === 'error') {
     const e = upload.error;
-    const message = e?.kind === 'throttled' ? fill(copy.failures.throttled, { minutes: e.minutes }) : e?.kind === 'rejected' ? copy.failures.rejected : copy.failures.network;
+    const rejected = link ? copy.failures.linkRejected : copy.failures.rejected;
+    const message = e?.kind === 'throttled' ? fill(copy.failures.throttled, { minutes: e.minutes }) : e?.kind === 'rejected' ? rejected : copy.failures.network;
     return { state: 'failed', message, canRetry: true };
   }
-  if (!asset) return { state: 'processing' };
-  if (asset.status === 'failed') return { state: 'failed', message: failureMessage(copy, asset.failure_reason), canRetry: Boolean(upload) };
+  if (!asset) return link ? { state: 'importing' } : { state: 'processing' };
+  if (asset.status === 'failed') return { state: 'failed', message: failureMessage(copy, asset.failure_reason), canRetry: Boolean(upload) || Boolean(sourceUrl) };
+  if (asset.status === 'importing') return { state: 'importing' };
   return asset.status === 'processed' ? { state: 'ready' } : { state: 'processing' };
+}
+
+/**
+ * "Add from a link" (Story 3.7): the link and, when its path does not tell the kind, a required Image/Video choice. The
+ * link is checked as the API does (http/https, port 80/443, no user info) before it becomes a slide. Not a nested form
+ * (the editor is one): Enter in the field adds the link.
+ */
+function LinkForm({ copy, disabled, onAdd }: { copy: SlidesCopy; disabled: boolean; onAdd: (url: string, kind: MediaKind) => void }) {
+  const id = useId();
+  const inputId = `${id}-link`;
+  const [value, setValue] = useState('');
+  const [choice, setChoice] = useState<MediaKind | null>(null);
+  const [error, setError] = useState<'invalid' | 'kind' | null>(null);
+  const parsed = checkLink(value);
+  const inferred = parsed ? inferLinkKind(parsed) : null;
+  const needsKind = parsed !== null && inferred === null;
+
+  const submit = (e: KeyboardEvent | MouseEvent) => {
+    e.preventDefault();
+    if (disabled) return;
+    if (!parsed) return setError('invalid');
+    const kind = inferred ?? choice;
+    if (!kind) return setError('kind');
+    onAdd(parsed.href, kind);
+    setValue('');
+    setChoice(null);
+    setError(null);
+  };
+
+  const errorText = error === 'invalid' ? copy.linkInvalid : error === 'kind' ? copy.linkKindRequired : undefined;
+  return (
+    <div className="flex flex-col gap-2" data-slot="slides-link">
+      <Field label={copy.linkLabel} htmlFor={inputId} hint={copy.linkHint} error={errorText}>
+        <div className="flex gap-2">
+          <Input
+            id={inputId}
+            type="url"
+            inputMode="url"
+            dir="ltr"
+            autoComplete="off"
+            placeholder={copy.linkPlaceholder}
+            maxLength={MEDIA_IMPORT_URL_MAX}
+            value={value}
+            disabled={disabled}
+            onChange={(e) => {
+              setValue(e.target.value);
+              if (error) setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit(e);
+            }}
+          />
+          <Button type="button" variant="secondary" disabled={disabled} onClick={submit}>
+            {copy.linkAdd}
+          </Button>
+        </div>
+      </Field>
+      {needsKind ? (
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1.5 text-small font-semibold text-foreground">{copy.linkKind}</legend>
+          <div className="flex flex-wrap gap-4">
+            {MEDIA_KINDS.map((kind) => (
+              <label key={kind} className="inline-flex cursor-pointer items-center gap-2 text-small">
+                <input
+                  type="radio"
+                  name={`${id}-kind`}
+                  value={kind}
+                  checked={choice === kind}
+                  disabled={disabled}
+                  onChange={() => {
+                    setChoice(kind);
+                    if (error === 'kind') setError(null);
+                  }}
+                  className="size-4 accent-foreground"
+                />
+                {copy.kinds[kind]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
+    </div>
+  );
 }
 
 interface SlideItemProps {
@@ -330,14 +435,19 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
 
   // The asset as last known: polled, else from the upload, else from the saved item.
   const known = upload?.asset ?? saved ?? null;
-  const polled = useMediaAssetStatus(row.media_asset_id, { enabled: known?.status === 'uploaded', since: upload?.completedAt ?? mountedAt });
+  const sourceUrl = row.source_url ?? saved?.source_url ?? null;
+  const polled = useMediaAssetStatus(row.media_asset_id, {
+    enabled: isPendingAssetStatus(known?.status),
+    since: upload?.completedAt ?? mountedAt,
+    ...(sourceUrl ? { maxMs: MEDIA_IMPORT_POLL_MAX_MS } : {}),
+  });
   const asset = polled.data && polled.data.id === row.media_asset_id ? polled.data : (known as Pick<MediaAsset, 'status' | 'failure_reason'> | null);
   const failedId = polled.data?.status === 'failed' ? polled.data.id : null;
   useEffect(() => {
     if (failedId && polled.data) onAssetFailed(row.key, polled.data);
   }, [failedId]);
 
-  const view = viewOf(copy, upload, row.media_asset_id || upload ? asset : null);
+  const view = viewOf(copy, upload, row.media_asset_id || upload ? asset : null, sourceUrl);
   const chip = CHIP[view.state];
   const label =
     view.state === 'uploading'

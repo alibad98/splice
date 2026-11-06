@@ -1,4 +1,4 @@
-// Story 3.5 composition tests: live Postgres (non-owner RLS role, real pg-boss outbox), in-memory object storage, the
+// Story 3.5 and 3.7 composition tests: live Postgres (non-owner RLS role, real pg-boss outbox), in-memory object storage, the
 // merchant media API over HTTP, the worker inspection with real file-type/sharp fixtures, and the media purge.
 import 'reflect-metadata';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   EVENT_QUEUE,
+  MEDIA_IMPORT_QUEUE,
   MEDIA_INSPECT_QUEUE,
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
@@ -17,6 +18,7 @@ import {
   MEDIA_UPLOAD_EXPIRED,
   MEDIA_UPLOAD_MISSING,
   MEDIA_UPLOAD_RATE_LIMITED,
+  MEDIA_URL_NOT_ALLOWED,
   MediaAsset,
   MediaUploadGrant,
   type EventEnvelope,
@@ -31,10 +33,12 @@ import { uuidv7 } from '../events/outbox.js';
 import { grantEventPublishing } from '../events/queue-grants.js';
 import { createHttpApp } from '../http.js';
 import type { SessionConfig } from '../infra.module.js';
+import { MediaImporter } from '../modules/media/media-import.js';
 import { MediaInspector } from '../modules/media/media-inspect.js';
 import { mediaStoreData } from '../modules/media/media.lifecycle.js';
 import { MediaService } from '../modules/media/media.service.js';
 import { SessionService } from '../modules/session/session.service.js';
+import { ExternalFetchTransientError, type ExternalFetchResult, type ExternalFetcher } from '../ports/external-fetcher.js';
 import { Metric } from '../ports/telemetry.js';
 import { mediaJobHandlers, registerMediaEventHandlers } from '../worker/media-jobs.js';
 
@@ -54,6 +58,20 @@ let boss: PgBoss;
 let nest: INestApplication;
 let base: string;
 let inspector: MediaInspector;
+let importer: MediaImporter;
+
+/** A fake fetcher (the real one is tested on its own): each link answers what the test registered; others are refused. */
+class FakeFetcher implements ExternalFetcher {
+  readonly links = new Map<string, () => ExternalFetchResult>();
+  readonly calls: Array<{ url: string; maxBytes: number }> = [];
+  async fetch(url: string, opts: { maxBytes: number }): Promise<ExternalFetchResult> {
+    this.calls.push({ url, maxBytes: opts.maxBytes });
+    const answer = this.links.get(url);
+    if (!answer) throw new ExternalFetchTransientError('connect ECONNREFUSED');
+    return answer();
+  }
+}
+const fetcher = new FakeFetcher();
 
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
@@ -80,7 +98,9 @@ beforeAll(async () => {
   await boss.createQueue(EVENT_QUEUE);
   await boss.createQueue(MEDIA_INSPECT_QUEUE);
   await grantEventPublishing(admin, telemetry, EVENT_QUEUE, SCHEMA, 'slips_app');
+  await boss.createQueue(MEDIA_IMPORT_QUEUE);
   inspector = new MediaInspector(storage, scanner, boss, telemetry);
+  importer = new MediaImporter(fetcher, storage, boss, telemetry);
   nest = await createHttpApp(
     { CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' },
     { pool: new pg.Pool({ connectionString: APP_URL, max: 4 }), events: boss, telemetry, session: sessionConfig, storage, scanner, media: { uploadRateLimit: 60 } },
@@ -462,7 +482,7 @@ describe('media.asset.inspect', () => {
     try {
       await expect(inspect(storeId, asset.id)).rejects.toThrow('storage unavailable');
       expect((await assetRow(asset.id)).status).toBe('uploaded');
-      const handler = mediaJobHandlers(app, inspector)[MEDIA_INSPECT_QUEUE]!;
+      const handler = mediaJobHandlers(app, inspector, importer)[MEDIA_INSPECT_QUEUE]!;
       const data = { v: 1, trace_id: 't', store_id: storeId, asset_id: asset.id };
       await expect(handler(data, { id: 'j1', data, retryCount: 1, retryLimit: 2 })).rejects.toThrow();
       expect((await assetRow(asset.id)).status).toBe('uploaded');
@@ -498,6 +518,185 @@ describe('media.asset.inspect', () => {
     const jobs = (await admin.query<{ id: string; data: { asset_id: string; store_id: string } }>(`select id::text, data from ${SCHEMA}.job where name = $1 and data->>'asset_id' = $2`, [MEDIA_INSPECT_QUEUE, assetId])).rows;
     expect(jobs).toHaveLength(1);
     expect(jobs[0]).toMatchObject({ id: assetId, data: { store_id: storeId, asset_id: assetId } });
+  });
+});
+
+describe('Story 3.7: import media from an external link', () => {
+  const importLink = (token: string, kind: MediaKind, url: string) => request(token, 'POST', '/v1/media/imports', { kind, url });
+
+  /** Runs the import job body (as the worker does, in the store context), then inspection when the asset became uploaded. */
+  const runImport = async (storeId: string, assetId: string, finalAttempt = false) => {
+    await withStoreContext(app, storeId, () => importer.import(storeId, assetId, { finalAttempt }));
+  };
+
+  const fullRow = async (id: string) =>
+    (
+      await admin.query<{ status: string; failure_reason: string | null; source_url: string | null; sha256: string | null; size_bytes: string | null; content_type: string | null; upload_key: string | null; storage_key: string | null }>(
+        'select * from media_assets where id = $1',
+        [id],
+      )
+    ).rows[0]!;
+
+  it('Public JPEG link: 201 importing asset and media.asset.import_requested; the import stores it at the upload key, uploaded; the same inspection strips EXIF and scans', async () => {
+    const { storeId, token } = await installedStore();
+    const original = await jpegWithGps();
+    const url = `https://cdn.example.com/${randomUUID()}/a.jpg`;
+    fetcher.links.set(url, () => ({ outcome: 'ok', body: original, contentType: 'image/jpeg' }));
+
+    const out = await importLink(token, 'image', url);
+    expect(out.res.status).toBe(201);
+    const asset = MediaAsset.parse(out.body);
+    expect(asset).toMatchObject({ kind: 'image', status: 'importing', content_type: null, size_bytes: null, failure_reason: null });
+    expect(await fullRow(asset.id)).toMatchObject({ status: 'importing', source_url: url, sha256: null, upload_key: null });
+    expect((await mediaEvents(storeId, asset.id)).map((e) => [e.name, e.payload])).toEqual([['media.asset.import_requested', { v: 1, store_id: storeId, asset_id: asset.id, kind: 'image' }]]);
+
+    await runImport(storeId, asset.id);
+    const fetched = await fullRow(asset.id);
+    expect(fetched).toMatchObject({ status: 'uploaded', sha256: sha(original), content_type: 'image/jpeg', upload_key: `stores/${storeId}/uploads/${sha(original)}`, failure_reason: null });
+    expect(Number(fetched.size_bytes)).toBe(original.length);
+    expect(fetcher.calls.at(-1)).toEqual({ url, maxBytes: 10 * MB });
+    expect(storage.objects.get(fetched.upload_key!)!.body.equals(original)).toBe(true);
+    expect((await mediaEvents(storeId, asset.id)).at(-1)).toMatchObject({ name: 'media.asset.uploaded', payload: { asset_id: asset.id, kind: 'image', content_type: 'image/jpeg', size_bytes: original.length } });
+    expect(MediaAsset.parse((await request(token, 'GET', `/v1/media/${asset.id}`)).body)).toMatchObject({ status: 'uploaded', content_type: 'image/jpeg' });
+
+    await inspect(storeId, asset.id);
+    const row = await fullRow(asset.id);
+    expect(row.status).toBe('scanned');
+    const clean = storage.objects.get(row.storage_key!)!;
+    expect((await sharp(clean.body).metadata()).exif).toBeUndefined();
+    expect(clean.body.includes(Buffer.from('TestCam'))).toBe(false);
+    expect(await storage.head(fetched.upload_key!)).toBeNull();
+    // Never hotlinked: nothing stored or recorded points at the source except source_url.
+    expect([...storage.objects.keys()].some((k) => k.includes('cdn.example.com'))).toBe(false);
+    expect((await mediaEvents(storeId, asset.id)).map((e) => e.name)).toEqual(['media.asset.import_requested', 'media.asset.uploaded', 'media.asset.scanned']);
+
+    // A redelivered import job does nothing once the asset left importing.
+    const calls = fetcher.calls.length;
+    await runImport(storeId, asset.id);
+    expect(fetcher.calls).toHaveLength(calls);
+  });
+
+  it.each([
+    ['http://127.0.0.1/'],
+    ['http://169.254.169.254/latest/meta-data/'],
+    ['http://[::1]/a.jpg'],
+    ['http://[::ffff:10.0.0.1]/a.jpg'],
+    ['ftp://cdn.example.com/a.jpg'],
+    ['https://u:p@cdn.example.com/a.jpg'],
+    ['http://cdn.example.com:8080/a.jpg'],
+    ['not a link'],
+  ])('%s answers 422 media-url-not-allowed and records nothing', async (url) => {
+    const { storeId, token } = await installedStore();
+    const out = await importLink(token, 'image', url);
+    expect(out.res.status).toBe(422);
+    expect(out.body).toMatchObject({ type: MEDIA_URL_NOT_ALLOWED, code: 'media_url_not_allowed' });
+    expect((await admin.query('select 1 from media_assets where store_id = $1', [storeId])).rowCount).toBe(0);
+  });
+
+  it('a malformed body answers 400 and no session 401', async () => {
+    const { token } = await installedStore();
+    expect((await request(token, 'POST', '/v1/media/imports', { kind: 'audio', url: 'https://x/a' })).res.status).toBe(400);
+    expect((await request(token, 'POST', '/v1/media/imports', { kind: 'image', url: `https://x/${'a'.repeat(2048)}` })).res.status).toBe(400);
+    expect((await fetch(`${base}/v1/media/imports`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image', url: 'https://x/a.jpg' }) })).status).toBe(401);
+  });
+
+  const outcomes: Array<[string, MediaKind, () => Promise<ExternalFetchResult>, string]> = [
+    ['DNS name resolving to 10.0.0.5', 'image', async () => ({ outcome: 'blocked', detail: 'resolved address' }), 'fetch_blocked'],
+    ['Redirect to a private IP', 'image', async () => ({ outcome: 'blocked', detail: 'redirect: blocked_address' }), 'fetch_blocked'],
+    ['Oversize', 'video', async () => ({ outcome: 'too_large' }), 'fetch_too_large'],
+    ['404', 'image', async () => ({ outcome: 'failed', detail: 'HTTP 404', status: 404 }), 'fetch_failed'],
+    ['HTML page link', 'image', async () => ({ outcome: 'ok', body: Buffer.from('<!doctype html><html><body>hi</body></html>'), contentType: 'text/html' }), 'type_not_allowed'],
+    ['SVG link', 'image', async () => ({ outcome: 'ok', body: svg, contentType: 'image/svg+xml' }), 'type_not_allowed'],
+    ['A video linked as an image', 'image', async () => ({ outcome: 'ok', body: fakeMp4(), contentType: 'video/mp4' }), 'type_mismatch'],
+    ['An image linked as a video', 'video', async () => ({ outcome: 'ok', body: await png(), contentType: 'image/png' }), 'type_mismatch'],
+  ];
+
+  it.each(outcomes)('%s: failed with the reason, nothing stored, media.asset.failed emitted, no retry', async (_name, kind, answer, reason) => {
+    const { storeId, token } = await installedStore();
+    const url = `https://cdn.example.com/${randomUUID()}`;
+    const result = await answer();
+    fetcher.links.set(url, () => result);
+    const asset = MediaAsset.parse((await importLink(token, kind, url)).body);
+    await runImport(storeId, asset.id);
+    expect(await fullRow(asset.id)).toMatchObject({ status: 'failed', failure_reason: reason, sha256: null, upload_key: null, source_url: url });
+    expect([...storage.objects.keys()].some((k) => k.startsWith(`stores/${storeId}/`))).toBe(false);
+    expect((await mediaEvents(storeId, asset.id)).at(-1)).toMatchObject({ name: 'media.asset.failed', payload: { asset_id: asset.id, reason } });
+    expect(MediaAsset.parse((await request(token, 'GET', `/v1/media/${asset.id}`)).body)).toMatchObject({ status: 'failed', failure_reason: reason, content_type: null, size_bytes: null });
+    // The failed asset releases nothing (it has no upload object).
+    await withStoreContext(app, storeId, () => inspector.releaseUpload(asset.id));
+  });
+
+  it('Server down: attempts 1 and 2 throw so the job retries; the final attempt (through the job handler) records fetch_failed', async () => {
+    const { storeId, token } = await installedStore();
+    const url = `https://down.example.com/${randomUUID()}.mp4`;
+    const asset = MediaAsset.parse((await importLink(token, 'video', url)).body);
+    const handler = mediaJobHandlers(app, inspector, importer)[MEDIA_IMPORT_QUEUE]!;
+    const data = { v: 1, trace_id: 't', store_id: storeId, asset_id: asset.id };
+    await expect(handler(data, { id: 'j1', data, retryCount: 0, retryLimit: 2 })).rejects.toThrow('ECONNREFUSED');
+    await expect(handler(data, { id: 'j1', data, retryCount: 1, retryLimit: 2 })).rejects.toThrow('ECONNREFUSED');
+    expect((await fullRow(asset.id)).status).toBe('importing');
+    await handler(data, { id: 'j1', data, retryCount: 2, retryLimit: 2 });
+    expect(await fullRow(asset.id)).toMatchObject({ status: 'failed', failure_reason: 'fetch_failed' });
+    expect((await mediaEvents(storeId, asset.id)).map((e) => e.name)).toEqual(['media.asset.import_requested', 'media.asset.failed']);
+  });
+
+  it('media.asset.import_requested queues exactly one import job per asset; the uploaded import then queues its inspection', async () => {
+    const { storeId } = await installedStore();
+    const registry = new EventHandlerRegistry();
+    registerMediaEventHandlers(registry, boss, telemetry, inspector);
+    const dispatch = eventDispatcher(app, registry);
+    const assetId = uuidv7();
+    const envelope = (eventId: string) => ({
+      v: 1,
+      trace_id: 'trace-import',
+      store_id: storeId,
+      event_id: eventId,
+      name: 'media.asset.import_requested',
+      occurred_at: new Date().toISOString(),
+      payload: { v: 1, store_id: storeId, asset_id: assetId, kind: 'image' },
+    });
+    const first = envelope(uuidv7());
+    await dispatch(first, { id: first.event_id, data: first });
+    await dispatch(first, { id: first.event_id, data: first });
+    const second = envelope(uuidv7());
+    await dispatch(second, { id: second.event_id, data: second });
+    const jobs = (await admin.query<{ id: string; data: { store_id: string; asset_id: string } }>(`select id::text, data from ${SCHEMA}.job where name = $1 and data->>'asset_id' = $2`, [MEDIA_IMPORT_QUEUE, assetId])).rows;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ id: assetId, data: { store_id: storeId, asset_id: assetId } });
+  });
+
+  it('Imports count toward the per-store upload throttle (grants and imports together)', async () => {
+    const { storeId, token } = await installedStore();
+    const hash = 'd'.repeat(64);
+    await admin.query(
+      `insert into media_upload_grants (store_id, kind, content_type, size_bytes, sha256, storage_key, expires_at)
+       select $1, 'image', 'image/png', 10, $2, 'k', now() from generate_series(1, 30)`,
+      [storeId, hash],
+    );
+    await admin.query(
+      `insert into media_assets (store_id, kind, status, source_url) select $1, 'image', 'importing', 'https://cdn.example.com/x.jpg' from generate_series(1, 29)`,
+      [storeId],
+    );
+    expect((await importLink(token, 'image', 'https://cdn.example.com/60.jpg')).res.status).toBe(201);
+    const limited = await importLink(token, 'image', 'https://cdn.example.com/61.jpg');
+    expect(limited.res.status).toBe(429);
+    expect(limited.body).toMatchObject({ type: MEDIA_UPLOAD_RATE_LIMITED });
+    expect(Number(limited.res.headers.get('retry-after'))).toBeGreaterThan(0);
+    const grant = await request(token, 'POST', '/v1/media/uploads', { kind: 'image', content_type: 'image/png', size_bytes: 10, sha256: hash });
+    expect(grant.res.status).toBe(429);
+  });
+
+  it("Other store's import: GET answers 404 and the job does nothing in the wrong store", async () => {
+    const a = await installedStore();
+    const b = await installedStore();
+    const url = `https://cdn.example.com/${randomUUID()}.png`;
+    fetcher.links.set(url, () => ({ outcome: 'ok', body: Buffer.alloc(0), contentType: null }));
+    const asset = MediaAsset.parse((await importLink(a.token, 'image', url)).body);
+    expect((await request(b.token, 'GET', `/v1/media/${asset.id}`)).res.status).toBe(404);
+    const calls = fetcher.calls.length;
+    await runImport(b.storeId, asset.id);
+    expect(fetcher.calls).toHaveLength(calls);
+    expect((await fullRow(asset.id)).status).toBe('importing');
   });
 });
 

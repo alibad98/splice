@@ -172,6 +172,17 @@ describe('API docs', () => {
     expect(JSON.stringify(doc.components.schemas.MediaUploadGrant)).toContain('expires_at');
   });
 
+  it('documents the media import route, its body and problems (Story 3.7)', () => {
+    const imp = op('/v1/media/imports', 'post');
+    expect(Object.keys(imp.responses)).toEqual(expect.arrayContaining(['201', '400', '422', '429']));
+    expect(jsonSchema(imp.responses['201']!).$ref).toBe('#/components/schemas/MediaAsset');
+    expect(String(imp.description)).toContain('media-url-not-allowed');
+    expect(String(imp.description)).toContain('fetch_blocked');
+    expect(JSON.stringify(doc.components.schemas.MediaImportRequest)).toContain('url');
+    expect(JSON.stringify(doc.components.schemas.MediaAsset)).toContain('importing');
+    expect(JSON.stringify(doc.components.schemas.ContentSlide)).toContain('source_url');
+  });
+
   it('serves a Swagger UI page pointed at the spec', () => {
     expect(docsPage()).toContain("url: '/v1/openapi.json'");
   });

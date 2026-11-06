@@ -10,6 +10,7 @@ import { FEATURE_FLAGS, type FeatureFlags } from './ports/feature-flags.js';
 import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from './ports/store-data-lifecycle.js';
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 import { MAILER, type Mailer } from './ports/mailer.js';
+import type { ExternalFetcher } from './ports/external-fetcher.js';
 import { MALWARE_SCANNER, type MalwareScanner } from './ports/malware-scanner.js';
 import { OBJECT_STORAGE, type ObjectStorage } from './ports/object-storage.js';
 import { STORE_INSTALL_LISTENERS, type StoreInstallListener } from './ports/store-install-listener.js';
@@ -84,6 +85,11 @@ export interface InfraDeps {
   storage: ObjectStorage;
   /** Malware scanning of uploaded media (dev: EICAR only). */
   scanner: MalwareScanner;
+  /**
+   * The SSRF-safe fetcher for media links (Story 3.7). Worker role only: the API never fetches external links, so it is
+   * not bound in the Nest container.
+   */
+  fetcher?: ExternalFetcher;
   media: MediaConfig;
   /** Modules that hold tenant data, registered for uninstall, reinstall and purge (the integration module adds its own, last). */
   lifecycles: readonly StoreDataLifecycle[];

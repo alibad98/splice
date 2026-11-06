@@ -18,13 +18,15 @@ import {
 /**
  * One slide row of the editor (Story 3.6), in slide order. `key` is stable for the row's life (the saved slide id, or a
  * local id for a new upload). `media_asset_id` is null until the upload completes, and again when a new upload's asset
- * failed: such rows are shown but never sent. `alt_text` is a plain string (empty when none).
+ * failed: such rows are shown but never sent. `alt_text` is a plain string (empty when none). `source_url` is the link an
+ * imported slide came from (Story 3.7), kept so Retry can import it again after a reload; it is never sent.
  */
 export interface SlideValue {
   key: string;
   media_asset_id: string | null;
   kind: MediaKind;
   alt_text: string;
+  source_url?: string | null;
 }
 
 /** What the editor form holds. `cta_url` is a plain string (empty when unused); it is sent as `null` unless the action is open link. */
@@ -70,7 +72,7 @@ const altOf = (s: SlideValue): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const SlideValueSchema = z.object({ key: z.string(), media_asset_id: z.string().nullable(), kind: MediaKind, alt_text: z.string() });
+const SlideValueSchema = z.object({ key: z.string(), media_asset_id: z.string().nullable(), kind: MediaKind, alt_text: z.string(), source_url: z.string().nullable().optional() });
 
 const contractUrl = ContentFields.shape.cta_url;
 
@@ -131,7 +133,7 @@ export function fromItem(item: ContentItem): EditorValues {
     cta_url: item.cta_url ?? '',
     cta_style: item.cta_style ?? DEFAULT_CTA_STYLE,
     product_id: item.product?.id ?? null,
-    slides: item.slides.map((s) => ({ key: s.id, media_asset_id: s.media_asset_id, kind: s.kind, alt_text: s.alt_text ?? '' })),
+    slides: item.slides.map((s) => ({ key: s.id, media_asset_id: s.media_asset_id, kind: s.kind, alt_text: s.alt_text ?? '', source_url: s.source_url ?? null })),
   };
 }
 

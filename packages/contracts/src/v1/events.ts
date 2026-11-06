@@ -133,7 +133,12 @@ export const EVENT_CATALOG = {
       changed: z.array(ContentFields.keyof()).min(1),
     }),
   ),
-  /** An upload was completed and recorded as `uploaded` (Story 3.5). Consumer: the worker queues `media.asset.inspect`. */
+  /** An import from a link was recorded as `importing` (Story 3.7). Consumer: the worker queues `media.asset.import`. */
+  'media.asset.import_requested': defineEvent('media', z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), kind: z.enum(MEDIA_KINDS) })),
+  /**
+   * An upload was completed, or an import fetched, and recorded as `uploaded` (Stories 3.5, 3.7). Consumer: the worker
+   * queues `media.asset.inspect`.
+   */
   'media.asset.uploaded': defineEvent(
     'media',
     z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), kind: z.enum(MEDIA_KINDS), content_type: z.string().min(1), size_bytes: z.number().int().positive() }),

@@ -30,7 +30,10 @@ import {
   MEDIA_UPLOAD_EXPIRED,
   MEDIA_UPLOAD_MISSING,
   MEDIA_UPLOAD_RATE_LIMITED,
+  MEDIA_URL_NOT_ALLOWED,
+  MEDIA_IMPORT_URL_MAX,
   MediaAsset,
+  MediaImportRequest,
   MediaUploadGrant,
   MediaUploadRequest,
   OtpPurpose,
@@ -103,10 +106,10 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
   [ContentProductSummary, 'ContentProduct', 'The product linked to a content item, as the catalog has it now. `deleted`: the product was deleted in the store (the item shows "Linked product deleted"); it clears if the product is re-created.'],
-  [ContentSlide, 'ContentSlide', "One slide of a content item: its media asset, the asset's `kind`, the alt text, and the asset's current `status` (and `failure_reason` when `failed`)."],
+  [ContentSlide, 'ContentSlide', "One slide of a content item: its media asset, the asset's `kind`, the alt text, the asset's current `status` (and `failure_reason` when `failed`), and `source_url`, the link an imported asset came from (null for uploads)."],
   [ContentItem, 'ContentItem', 'One content item (Story or Reel), its lifecycle status, its linked `product` (or null) and its ordered `slides`.'],
   [MediaUploadGrant, 'MediaUploadGrant', 'A pre-signed upload: PUT the file to `url` with `headers` before `expires_at` (15 minutes). The URL signs `Content-Length`, `Content-Type` and `x-amz-checksum-sha256`, so only the declared file is accepted.'],
-  [MediaAsset, 'MediaAsset', 'An uploaded media file and its status: `uploaded` (waiting for inspection), `scanned` (type checked, metadata stripped, malware-scanned), `processed` (publishable) or `failed` with `failure_reason`.'],
+  [MediaAsset, 'MediaAsset', 'An uploaded or imported media file and its status: `importing` (the link is being fetched; `content_type` and `size_bytes` are null until it is), `uploaded` (waiting for inspection), `scanned` (type checked, metadata stripped, malware-scanned), `processed` (publishable) or `failed` with `failure_reason`.'],
   [ContentListResponse, 'ContentPage', 'One page of content items for a tab: `items` (at most `page_size`), `total` matching items, `page`, `page_size`, and `counts` for every tab (counts ignore search and page).'],
 ];
 
@@ -121,6 +124,7 @@ const inputs: Array<[z.ZodType, string, string]> = [
   [SetPasswordInput, 'SetPasswordRequest', "Owner's first password with the token from `verify-otp`."],
   [ResendOtpInput, 'ResendOtpRequest', 'Send the code again.'],
   [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA and, optionally, the one linked product (`product_id`) and its ordered `slides`.'],
+  [MediaImportRequest, 'MediaImportRequest', '`kind` and the link to import: http or https, port 80 or 443, no user info, at most ' + MEDIA_IMPORT_URL_MAX + ' characters.'],
   [MediaUploadRequest, 'MediaUploadRequest', "`kind`, the file's `content_type`, its exact `size_bytes` and its SHA-256 (64 lower-case hex characters)."],
   [ContentUpdateInput, 'ContentUpdateRequest', 'Any non-empty subset of the editable fields (title, format, CTA, `product_id`; `null` unlinks; `slides` replaces the whole slide list). The open-link rule applies to the merged item.'],
 ];
@@ -372,6 +376,17 @@ export const ROUTES: RouteDoc[] = [
   },
   {
     method: 'post',
+    path: '/v1/media/imports',
+    tag: 'Media',
+    summary: 'Import from a link',
+    description: `Records an \`importing\` asset for the file at \`url\`. The worker fetches it (never the API; the link is never served or hotlinked), checking every address the host resolves to and every redirect (at most 3) against private, loopback, link-local and metadata ranges, within the kind's size limit and a 2 minute timeout. The file then gets the same inspection as an upload. The outcome shows on \`GET /v1/media/{id}\`, e.g. \`failed\` with \`fetch_blocked\`, \`fetch_too_large\`, \`fetch_failed\`, \`type_not_allowed\` or \`type_mismatch\`. A link that is not http(s) on port 80/443, has user info, is longer than ${MEDIA_IMPORT_URL_MAX} characters, or whose host is a blocked IP address answers 422 with problem \`type\` \`${MEDIA_URL_NOT_ALLOWED}\`. Imports count toward the upload throttle (429 \`${MEDIA_UPLOAD_RATE_LIMITED}\` with \`Retry-After\`). Cookie sessions need \`x-csrf-token\`.`,
+    auth: 'merchant',
+    body: MediaImportRequest,
+    success: { status: 201, description: 'The importing asset', body: MediaAsset },
+    errors: [400, 401, 403, 422, 429],
+  },
+  {
+    method: 'post',
     path: '/v1/media/uploads/:upload_id/complete',
     tag: 'Media',
     summary: 'Complete an upload',
@@ -435,7 +450,7 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 - Queries: \`invalid_query\`
 - Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)
 - Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`), \`product_not_linkable\` (422, problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\`), \`media_not_attachable\` (422, problem \`type\` \`${MEDIA_NOT_ATTACHABLE}\`), \`slide_alt_text_required\` (422, problem \`type\` \`${CONTENT_SLIDE_ALT_REQUIRED}\`)
-- Media: \`invalid_body\`, \`media_type_not_allowed\` (422, \`${MEDIA_TYPE_NOT_ALLOWED}\`), \`media_too_large\` (422, \`${MEDIA_TOO_LARGE}\`), \`media_upload_rate_limited\` (429, \`${MEDIA_UPLOAD_RATE_LIMITED}\`, with \`Retry-After\`), \`media_upload_missing\` (409, \`${MEDIA_UPLOAD_MISSING}\`), \`media_upload_expired\` (410, \`${MEDIA_UPLOAD_EXPIRED}\`), \`media_upload_not_found\`, \`media_not_found\``;
+- Media: \`invalid_body\`, \`media_url_not_allowed\` (422, \`${MEDIA_URL_NOT_ALLOWED}\`), \`media_type_not_allowed\` (422, \`${MEDIA_TYPE_NOT_ALLOWED}\`), \`media_too_large\` (422, \`${MEDIA_TOO_LARGE}\`), \`media_upload_rate_limited\` (429, \`${MEDIA_UPLOAD_RATE_LIMITED}\`, with \`Retry-After\`), \`media_upload_missing\` (409, \`${MEDIA_UPLOAD_MISSING}\`), \`media_upload_expired\` (410, \`${MEDIA_UPLOAD_EXPIRED}\`), \`media_upload_not_found\`, \`media_not_found\``;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',

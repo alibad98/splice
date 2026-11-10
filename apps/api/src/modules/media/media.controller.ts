@@ -8,6 +8,7 @@ import {
   MEDIA_URL_NOT_ALLOWED,
   MediaImportRequest,
   MediaUploadRequest,
+  RenditionProfile,
   type MediaAsset,
   type MediaUploadGrant,
 } from '@slips/contracts';
@@ -76,6 +77,28 @@ export class MediaController {
   async getById(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<MediaAsset> {
     try {
       return await this.media.getAsset(req.merchantSession!.storeId, id);
+    } catch (err) {
+      throw toHttpError(err);
+    }
+  }
+
+  @Get('media/:id/source')
+  async getSource(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    return this.previewBytes(req, id, 'source', res);
+  }
+
+  @Get('media/:id/renditions/:profile')
+  async getRendition(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Param('profile') profile: string, @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (!RenditionProfile.safeParse(profile).success) throw toHttpError(new MediaAssetNotFoundError());
+    return this.previewBytes(req, id, profile, res);
+  }
+
+  private async previewBytes(req: AuthenticatedRequest, id: string, profile: string, res: Response): Promise<StreamableFile> {
+    res.setHeader('Cache-Control', 'private, no-store');
+    try {
+      const bytes = await this.media.getPreviewBytes(req.merchantSession!.storeId, id, profile);
+      return new StreamableFile(bytes.stream, { type: bytes.contentType, length: bytes.sizeBytes });
     } catch (err) {
       throw toHttpError(err);
     }

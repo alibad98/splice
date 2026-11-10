@@ -74,6 +74,18 @@ export class MediaRepository extends StoreScoped {
     return (await (opts.forUpdate ? q.for('update') : q))[0];
   }
 
+  async assetsByIds(ids: readonly string[]): Promise<MediaAssetRow[]> {
+    const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return [];
+    return this.db.select().from(mediaAssets).where(and(eq(mediaAssets.storeId, this.storeId), inArray(mediaAssets.id, wanted)));
+  }
+
+  async renditionsByAssetIds(ids: readonly string[]): Promise<RenditionRow[]> {
+    const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return [];
+    return this.db.select().from(renditions).where(and(eq(renditions.storeId, this.storeId), inArray(renditions.assetId, wanted)));
+  }
+
   /** Inspection outcome (worker only): `scanned` with the clean copy, or `failed` with a reason. */
   async finishInspection(
     id: string,

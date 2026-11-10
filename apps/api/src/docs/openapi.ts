@@ -6,6 +6,10 @@ import {
   CONTENT_SLIDE_ALT_REQUIRED,
   ContentProductSummary,
   ContentSlide,
+  StoreManifest,
+  ManifestItem,
+  ManifestSlide,
+  ManifestRendition,
   SLIDES_MAX,
   SLIDE_ALT_MAX,
   CatalogSyncStatus,
@@ -91,6 +95,10 @@ const EmbeddedSignInRequest = z.object({ token: z.string().min(1).max(4096).desc
 const CatalogSyncState = CatalogSyncStatus;
 
 const outputs: Array<[z.ZodType, string, string]> = [
+  [StoreManifest, 'StoreManifest', 'Version 1 publishing manifest with resolved URLs and ordered slides.'],
+  [ManifestItem, 'ManifestItem', 'One saved content item with its current linked product snapshot.'],
+  [ManifestSlide, 'ManifestSlide', 'A slide with explicit null URLs and empty renditions when media is unavailable.'],
+  [ManifestRendition, 'ManifestRendition', 'A resolved rendition with profile, content type and dimensions.'],
   [Problem, 'Problem', 'RFC 9457 problem details. Every error response uses this shape with `application/problem+json`.'],
   [HealthResponse, 'Health', 'Process liveness and dependency checks.'],
   [ConnectionStatus, 'ConnectionStatus', 'Whether the store is connected to Salla (shell connection chip).'],
@@ -214,6 +222,9 @@ const productExample = {
 };
 
 export const ROUTES: RouteDoc[] = [
+  { method: 'get', path: '/v1/preview/content/:id', tag: 'Content', summary: 'Preview one saved content item', description: 'Any live item of the session store, regardless of status, schedule or placement. No writes or events. Media URLs are API-relative and require the API origin and merchant credentials. Only inspected media is exposed; importing, uploaded and failed assets are placeholders. Missing, malformed, deleted and other-store IDs return 404.', auth: 'merchant', success: { status: 200, description: 'One-item StoreManifest v1', body: StoreManifest, headers: { 'Cache-Control': 'private, no-store' } }, errors: [401, 404] },
+  { method: 'get', path: '/v1/media/:id/source', tag: 'Media', summary: 'Stream inspected media source', description: 'Streams only the sanitized malware-scanned storage copy of a scanned or processed asset of the session store. Never streams raw uploads or imported external links. Unavailable, unsafe and missing objects return 404.', auth: 'merchant', success: { status: 200, description: 'Inspected source bytes', contentType: 'application/octet-stream', headers: { 'Cache-Control': 'private, no-store' } }, errors: [401, 404] },
+  { method: 'get', path: '/v1/media/:id/renditions/:profile', tag: 'Media', summary: 'Stream a media rendition', description: 'Profiles: web for images; 480p, 720p, 1080p and poster for processed videos. While scanned, only an available image web rendition or video poster may be used. Requires merchant credentials; other-store, unknown profiles, unsafe assets and missing objects return 404. Content-Type reflects the stored rendition.', auth: 'merchant', success: { status: 200, description: 'Selected rendition bytes', contentType: 'application/octet-stream', headers: { 'Cache-Control': 'private, no-store' } }, errors: [401, 404] },
   { method: 'get', path: '/v1/health', tag: 'Ops', summary: 'Health check', description: 'Liveness plus a database check. 503 when the database is down.', auth: 'public', success: { status: 200, description: 'Healthy', body: HealthResponse }, errors: [503] },
   { method: 'get', path: '/metrics', tag: 'Ops', summary: 'Prometheus metrics', description: 'Needs `Authorization: Bearer <METRICS_TOKEN>`. Disabled when the token is not configured.', auth: 'public', success: { status: 200, description: 'Prometheus text exposition format', contentType: 'text/plain' }, errors: [401] },
 
@@ -506,7 +517,7 @@ export function buildOpenApi(serverUrl: string, version = '0.0.0') {
         ...(ok.body
           ? { content: { 'application/json': { schema: refFor(ok.body, outputs), ...(ok.example ? { example: ok.example } : {}) } } }
           : ok.contentType
-            ? { content: { [ok.contentType]: { schema: { type: 'string' } } } }
+            ? { content: { [ok.contentType]: { schema: { type: 'string', ...(ok.contentType === 'application/octet-stream' ? { format: 'binary' } : {}) } } } }
             : {}),
       },
     };

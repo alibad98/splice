@@ -6,6 +6,8 @@ import {
   MEDIA_UPLOAD_TTL_SECONDS,
   MEDIA_UPLOAD_WINDOW_SECONDS,
   isAllowedMediaType,
+  RenditionProfile,
+  type ManifestRendition,
   type MediaAsset,
   type MediaAssetStatus,
   type MediaFailureReason,
@@ -123,6 +125,52 @@ export class MediaService {
     @Inject(TELEMETRY) private readonly telemetry: Telemetry,
     @Inject(MEDIA_CONFIG) private readonly config: MediaConfig,
   ) {}
+
+  /** Safe preview URLs, resolved in a batch by the media owner. Never returns storage keys or import links. */
+  async getPreviewMediaByIds(storeId: string, ids: readonly string[]): Promise<Map<string, PreviewMedia>> {
+    const { assets, renditions } = await withStoreContext(this.pool, storeId, async () => ({
+      assets: await this.repo.assetsByIds(ids),
+      renditions: await this.repo.renditionsByAssetIds(ids),
+    }));
+    return new Map(assets.map((asset) => {
+      const safe = asset.status === 'scanned' || asset.status === 'processed';
+      const selected = safe ? renditions.filter((r) => r.assetId === asset.id &&
+        (asset.kind === 'image' ? r.profile === 'web' : ['480p', '720p', '1080p', 'poster'].includes(r.profile))) : [];
+      const url = (profile: string) => `/v1/media/${asset.id}/renditions/${profile}`;
+      const poster = selected.find((r) => r.profile === (asset.kind === 'image' ? 'web' : 'poster'));
+      const playable = asset.status === 'processed' ? selected.filter((r) => r.profile !== 'poster') : [];
+      playable.sort((a, b) => ['web', '480p', '720p', '1080p'].indexOf(a.profile) - ['web', '480p', '720p', '1080p'].indexOf(b.profile));
+      const source = safe && asset.storageKey && asset.storageKey !== asset.uploadKey ? `/v1/media/${asset.id}/source` : null;
+      return [asset.id, {
+        status: asset.status,
+        source_url: asset.status === 'processed' ? (playable[0] ? url(playable[0].profile) : null) : (poster ? url(poster.profile) : source),
+        poster_url: poster ? url(poster.profile) : null,
+        renditions: playable.map((r) => ({ profile: r.profile, url: url(r.profile), content_type: r.contentType, width: r.width, height: r.height })),
+      }];
+    }));
+  }
+
+  /** Only selected safe profiles or the inspected, sanitized source can be streamed. */
+  async getPreviewBytes(storeId: string, id: string, profile: string): Promise<{ stream: Readable; contentType: string; sizeBytes: number }> {
+    const object = await withStoreContext(this.pool, storeId, async () => {
+      const asset = await this.repo.findAsset(id);
+      if (!asset || !['scanned', 'processed'].includes(asset.status)) throw new MediaAssetNotFoundError();
+      if (profile === 'source') {
+        if (!asset.storageKey || asset.storageKey === asset.uploadKey || !asset.contentType || asset.sizeBytes === null) throw new MediaAssetNotFoundError();
+        return { storageKey: asset.storageKey, contentType: asset.contentType, sizeBytes: asset.sizeBytes };
+      }
+      const parsed = RenditionProfile.safeParse(profile);
+      if (!parsed.success || !(asset.kind === 'image' ? profile === 'web' : ['480p', '720p', '1080p', 'poster'].includes(profile))) throw new MediaAssetNotFoundError();
+      // Processing assets may use an available poster, but unfinished video renditions are not playable yet.
+      if (asset.status !== 'processed' && profile !== (asset.kind === 'image' ? 'web' : 'poster')) throw new MediaAssetNotFoundError();
+      const rendition = await this.repo.findRendition(id, parsed.data);
+      if (!rendition) throw new MediaAssetNotFoundError();
+      return rendition;
+    });
+    const stream = await this.storage.getStream(object.storageKey);
+    if (!stream) throw new MediaAssetNotFoundError();
+    return { stream, contentType: object.contentType, sizeBytes: object.sizeBytes };
+  }
 
   /**
    * A pre-signed PUT URL for one file. Checks the type and size limits, then, serialized per store by an advisory
@@ -330,6 +378,13 @@ export interface MediaAssetSummary {
   source_url: string | null;
   /** `/v1/media/:id/poster` when `status === 'processed'`, otherwise `null` (Story 3.8). */
   poster_url: string | null;
+}
+
+export interface PreviewMedia {
+  status: MediaAssetStatus;
+  source_url: string | null;
+  poster_url: string | null;
+  renditions: ManifestRendition[];
 }
 
 export class MediaAssetNotFoundError extends Error {

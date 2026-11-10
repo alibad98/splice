@@ -9,12 +9,13 @@ import { CredentialsController } from '../modules/auth/credentials.controller.js
 import { CatalogController } from '../modules/catalog/catalog.controller.js';
 import { ContentController } from '../modules/content/content.controller.js';
 import { MediaController } from '../modules/media/media.controller.js';
+import { PreviewController } from '../modules/publishing/preview.controller.js';
 import { HealthController } from '../modules/health/health.controller.js';
 import { IntegrationController } from '../modules/integration/integration.controller.js';
 import { WebhookController } from '../modules/integration/webhook.controller.js';
 import { buildOpenApi, docsPage, ROUTES } from './openapi.js';
 
-const CONTROLLERS = [MetricsController, AdminController, AuthController, CredentialsController, CatalogController, ContentController, MediaController, HealthController, IntegrationController, WebhookController];
+const CONTROLLERS = [MetricsController, AdminController, AuthController, CredentialsController, CatalogController, ContentController, MediaController, PreviewController, HealthController, IntegrationController, WebhookController];
 
 const join = (...parts: string[]) => `/${parts.flatMap((p) => p.split('/')).filter(Boolean).join('/')}`;
 const first = (v: unknown): string => (Array.isArray(v) ? String(v[0]) : String(v ?? ''));
@@ -49,6 +50,23 @@ function walk(node: unknown, visit: (key: string, value: unknown, parent: Json) 
 }
 
 describe('API docs', () => {
+  it('documents private preview manifests and authenticated inspected media bytes', () => {
+    const preview = op('/v1/preview/content/:id', 'get');
+    expect(jsonSchema(preview.responses['200']!).$ref).toBe('#/components/schemas/StoreManifest');
+    expect(JSON.stringify(doc.components.schemas.StoreManifest)).toContain('#/components/schemas/ManifestItem');
+    expect(JSON.stringify(doc.components.schemas.ManifestItem)).toContain('#/components/schemas/ContentProduct');
+    expect(JSON.stringify(doc.components.schemas.ManifestSlide)).toContain('#/components/schemas/ManifestRendition');
+    for (const operation of [preview, op('/v1/media/:id/source', 'get'), op('/v1/media/:id/renditions/:profile', 'get')]) {
+      expect(operation.security).toEqual([{ bearerAuth: [] }, { cookieAuth: [] }]);
+      expect(Object.keys(operation.responses).sort()).toEqual(['200', '401', '404']);
+      expect(JSON.stringify(operation.responses['200']!.headers)).toContain('private, no-store');
+    }
+    for (const path of ['/v1/media/:id/source', '/v1/media/:id/renditions/:profile']) {
+      const content = op(path, 'get').responses['200']!.content as Json;
+      expect((content['application/octet-stream'] as Json).schema).toEqual({ type: 'string', format: 'binary' });
+    }
+  });
+
   it('documents exactly the routes the controllers declare', () => {
     expect(ROUTES.map((r) => `${r.method} ${r.path}`).sort()).toEqual(declaredRoutes());
   });

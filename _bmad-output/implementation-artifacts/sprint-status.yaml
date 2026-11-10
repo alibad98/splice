@@ -72,7 +72,7 @@ development_status:
   3-7-import-media-from-an-external-link: review
   3-8-process-videos-into-renditions-and-posters: review
   3-9-run-quality-checks-retry-failures-and-auto-publish: review
-  3-10-serve-a-preview-manifest-for-one-content-item: backlog
+  3-10-serve-a-preview-manifest-for-one-content-item: review
   3-11-render-content-in-the-player-s-preview-mode: backlog
   3-12-show-the-live-preview-panel-in-the-editor: backlog
   3-13-edit-duplicate-archive-restore-and-delete-content: backlog

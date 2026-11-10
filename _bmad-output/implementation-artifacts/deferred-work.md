@@ -163,3 +163,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-9-run-quality-checks-retry-failures-auto-publish.md`
   summary: Extend the production processor probe to support WebM without Duration and verify encoded resolution against representative container fixtures.
   evidence: The development adapter requires explicit duration metadata and uses presentation dimensions. Keep conservative rejection when duration is unknown. Timestamp-derived WebM duration and encoded-versus-presentation resolution validation must accompany the production FFmpeg/cloud adapter deferred under Q-05; encoded-resolution bypass impact remains unverified until a representative fixture is tested.
+
+- source_spec: `spec-3-10-serve-a-preview-manifest-for-one-content-item.md`
+  summary: Normalize generated OpenAPI paths to brace parameters and declare required path parameter schemas across all routes.
+  evidence: Existing buildOpenApi uses paths[r.path] with Express colon segments and only generates query parameters; Swagger/generated clients cannot substitute the documented IDs. Story 3.10 inherits this pre-existing generator behavior.

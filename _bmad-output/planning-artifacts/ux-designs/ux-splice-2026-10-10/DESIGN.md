@@ -119,7 +119,7 @@ components:
   card: { background: '{colors.card}', rounded: '{rounded.base}', padding: 22px, shadow: '0 8px 24px -14px rgba(40,24,16,.16)', shadowDark: '0 8px 24px -14px rgba(0,0,0,.6)' }
   kpi-tile: { background: '{colors.card}', foreground: '{colors.foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}', label: '{colors.muted-foreground}', deltaUp: '{colors.delta-up}', deltaDown: '{colors.delta-down}' }
   kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '{colors.primary-foreground}', delta: '{colors.primary-foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
-  input: { background: '{colors.background}', border: '{colors.input-border}', rounded: '{rounded.md}', height: 36px, focusRing: '{components.focus-ring}' }
+  input: { background: '{colors.background}', border: '{colors.input-border}', rounded: '{rounded.md}', height: 36px, focusRing: '1px amber at 80%, zero offset; 0 2px 8px shadow at 14%', hoverRing: '1px amber at 25%; 0 1px 4px shadow at 6%, fine pointers only' }
   focus-ring: { color: '{colors.ring}', width: 2px, offset: 0, opacity: 1, note: 'single flush amber outline; deeper amber on light surfaces for contrast, existing accent amber in dark mode; no inner ring or gap' }
   status-published: { background: '{colors.success-tint}', foreground: '{colors.success-text}', dot: '{colors.success}' }
   status-scheduled: { background: '{colors.primary-tint}', foreground: '{colors.info-text}', dot: '{colors.primary}' }

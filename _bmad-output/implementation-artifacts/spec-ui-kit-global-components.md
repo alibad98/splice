@@ -166,6 +166,8 @@ Rejected:
 
 ## Spec Change Log
 
+- 2026-11-11 — Follow-up form-control polish: thinner 1px focus outline at 80% opacity, zero gap, a faded `0 2px 8px` amber shadow at 14%, and a faint hover outline/shadow on fine-pointer devices. Shared Input, Textarea, Select trigger and OTP styling use the same treatment. Invalid borders and forced-color focus are preserved. UI tests, softened-outline contrast checks, lint and desktop/mobile browser inspection in both themes pass; Impeccable detector reports no findings.
+
 - 2026-11-11 — Corrected the scope of focus polish after user review: removed teal tokens and restored original component colors (coral sidebar/checkbox/switch, neutral tabs and options). Only focus uses amber, with a darker light-theme shade for contrast; input border and outline meet with zero gap. Upload feedback and language switching are retained.
 - Verification: UI 101 tests and 71 affected dashboard tests pass; UI/dashboard lint passes. Rebuilt the shared UI for the running local server. Chromium at 1440px English and 390px Arabic, light/dark, confirms matching input border/outline colors and zero outline offset, plus original coral checkboxes and neutral active tabs. Component sources for sidebar, tabs, checkbox, switch, select, dropdown and combobox match the pre-teal versions. Impeccable detector: no findings.
 

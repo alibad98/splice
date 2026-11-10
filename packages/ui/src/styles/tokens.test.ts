@@ -103,6 +103,16 @@ describe('design tokens', () => {
     }
   });
 
+  it('the softened control focus outline keeps 3:1 contrast against surrounding surfaces', () => {
+    for (const theme of [light, dark]) {
+      for (const surface of ['card', 'background', 'page', 'muted']) {
+        const background = theme[`--${surface}`]!;
+        const outline = over(theme['--ring']! + 'cc', background);
+        expect(ratio(outline, background), surface).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
   it('coral is never body text and ink sits on coral', () => {
     expect(light['--primary-foreground']).toBe('#15110F');
     expect(dark['--primary-foreground']).toBe('#15110F');

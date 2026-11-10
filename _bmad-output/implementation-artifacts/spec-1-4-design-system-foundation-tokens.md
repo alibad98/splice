@@ -44,6 +44,7 @@ deferred: []
 **Acceptance Criteria:**
 - Given the token file, when parsed, then every DESIGN.md token exists for light and dark, no purple, one gradient token.
 - Given a focusable dashboard element, then a single 2px amber outline renders at zero offset with no gap or inner ring. Use deep amber #9A6500 in light mode and the existing amber #FFC23D in dark mode; maintain at least 3:1 contrast against surrounding surfaces and preserve invalid-field borders.
+- Text-like controls refine that outline to 1px at 80% opacity with a subtle 8px blurred shadow at 14% opacity. Hover uses a 25% outline and 6% shadow on fine-pointer devices; disabled and invalid controls do not get the hover effect. Forced colors keep a solid system Highlight outline.
 - Given token pairs, then 4.5:1 text and 3:1 UI hold in light and dark.
 - Given Arabic, then `:lang(ar)` orders Plex first, letter-spacing 0, body line-height 1.6, display weight 700.
 

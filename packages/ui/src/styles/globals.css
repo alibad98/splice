@@ -212,7 +212,21 @@
   /* A single amber focus outline touches the border and survives component shadows. */
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
   :focus:not(:focus-visible) { outline: none; }
+  /* Text-like controls get a finer, softer treatment than navigation/button focus. */
+  .ui-control:focus-visible {
+    outline: 1px solid color-mix(in srgb, var(--ring) 80%, transparent);
+    outline-offset: 0;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--ring) 14%, transparent);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .ui-control:not(:disabled):not([aria-disabled="true"]):not([aria-invalid="true"]):hover:not(:focus-visible) {
+      outline: 1px solid color-mix(in srgb, var(--ring) 25%, transparent);
+      outline-offset: 0;
+      box-shadow: 0 1px 4px color-mix(in srgb, var(--ring) 6%, transparent);
+    }
+  }
   @media (forced-colors: active) { :focus-visible { outline-color: Highlight; } }
+  @media (forced-colors: active) { .ui-control:focus-visible { outline: 2px solid Highlight; box-shadow: none; } }
   input, textarea, select, [role="combobox"], [role="checkbox"], [role="switch"] { border-color: var(--input-border); }
   /* No horizontal page scroll from wide children; `clip` keeps position: sticky working. */
   body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; overflow-x: clip; }
@@ -226,7 +240,7 @@
   .num, [data-num] { font-variant-numeric: tabular-nums; }
   /* Chrome autofill: keep the field on theme instead of the browser's yellow/blue. */
   input:-webkit-autofill { -webkit-text-fill-color: var(--foreground); box-shadow: 0 0 0 1000px var(--background) inset; caret-color: var(--foreground); }
-  input:-webkit-autofill:focus { box-shadow: 0 0 0 1000px var(--background) inset; }
+  input.ui-control:-webkit-autofill:focus-visible { box-shadow: 0 0 0 1000px var(--background) inset, 0 2px 8px color-mix(in srgb, var(--ring) 14%, transparent); }
   input[type="search"]::-webkit-search-cancel-button { appearance: none; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 }

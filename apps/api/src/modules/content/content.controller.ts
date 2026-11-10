@@ -34,7 +34,6 @@ import {
   type ContentProductSummary,
   type ContentSlide,
   type CtaStyle,
-  type MediaKind,
   type SlideInput,
 } from '@slips/contracts';
 import { withStoreContext } from '@slips/db';
@@ -51,6 +50,7 @@ import {
   InvalidTransitionError,
   SlideAltTextRequiredError,
   SlideAssetUnknownError,
+  type SlideAssetInfo,
 } from './content-lifecycle.js';
 import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
 
@@ -65,6 +65,7 @@ export const toContentSlide = (s: SlideRow, asset: MediaAssetSummary | undefined
   status: asset?.status ?? 'failed',
   failure_reason: asset ? asset.failure_reason : 'inspection_failed',
   source_url: asset?.source_url ?? null,
+  poster_url: asset?.poster_url ?? null,
 });
 
 /** The API shape of a linked product as the catalog has it now. */
@@ -152,7 +153,7 @@ export class ContentController {
       const links = await withStoreContext(this.pool, storeId, () => this.repo.linkedProductIds([id]));
       if (links.get(id) !== parsed.data.product_id) await this.assertLinkable(storeId, parsed.data.product_id);
     }
-    let kinds: Map<string, MediaKind> = new Map();
+    let kinds: Map<string, SlideAssetInfo> = new Map();
     if (parsed.data.slides !== undefined && UUID_RE.test(id)) {
       // A slide the item already has stays attachable even if its asset failed since (the editor re-sends the list).
       const current = await withStoreContext(this.pool, storeId, () => this.repo.liveSlides([id]));
@@ -183,7 +184,7 @@ export class ContentController {
    * Every slide asset must be a store asset media knows; a `failed` one only when `existing` (already a live slide of the
    * item). One media read; returns asset id -> kind for the lifecycle (alt-text rule, `kind` copy). Checked before any write.
    */
-  private async assertAttachable(storeId: string, slides: readonly SlideInput[] | undefined, existing: ReadonlySet<string>): Promise<Map<string, MediaKind>> {
+  private async assertAttachable(storeId: string, slides: readonly SlideInput[] | undefined, existing: ReadonlySet<string>): Promise<Map<string, SlideAssetInfo>> {
     if (!slides || slides.length === 0) return new Map();
     const assets = await this.media.getAssetsByIds(storeId, slides.map((s) => s.media_asset_id));
     for (const s of slides) {
@@ -195,7 +196,7 @@ export class ContentController {
         );
       }
     }
-    return new Map([...assets].map(([id, a]) => [id, a.kind]));
+    return new Map([...assets].map(([id, a]) => [id, { kind: a.kind, status: a.status }]));
   }
 
   /** API items for rows: their links and live slides in one content read, then one catalog read and one media read. */

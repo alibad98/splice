@@ -301,6 +301,7 @@ export const en = {
           image_too_large: 'The image has too many pixels.',
           malware: 'The file was blocked by our safety check.',
           inspection_failed: "We couldn't check this file. Retry.",
+          processing_failed: "We couldn't process this file. Retry.",
           fetch_blocked: "We can't import from this address. Use a public link.",
           fetch_too_large: 'The linked file is larger than allowed.',
           fetch_failed: "We couldn't download the file from the link. Check the link and retry.",

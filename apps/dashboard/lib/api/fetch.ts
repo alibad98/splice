@@ -73,3 +73,10 @@ export async function deleteResource(client: SessionClient, path: string): Promi
   }
   if (!res.ok) throw await errorOf(res);
 }
+
+/** Resolve an API-relative path (such as `poster_url`) against `apiBase` or `NEXT_PUBLIC_API_URL` when set. */
+export function apiUrl(path: string, apiBase?: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = (apiBase ?? process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+  return base ? `${base}${path.startsWith('/') ? path : `/${path}`}` : path;
+}

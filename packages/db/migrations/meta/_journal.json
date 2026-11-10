@@ -148,6 +148,13 @@
       "when": 1761868800000,
       "tag": "0020_media_imports",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1761955200000,
+      "tag": "0021_renditions",
+      "breakpoints": true
     }
   ]
 }

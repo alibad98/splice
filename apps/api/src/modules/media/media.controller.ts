@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, NotFoundException, Param, Post, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, NotFoundException, Param, Post, Req, Res, StreamableFile } from '@nestjs/common';
 import {
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
@@ -76,6 +76,18 @@ export class MediaController {
   async getById(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<MediaAsset> {
     try {
       return await this.media.getAsset(req.merchantSession!.storeId, id);
+    } catch (err) {
+      throw toHttpError(err);
+    }
+  }
+
+  /** Streams the poster (`poster` rendition for videos, `web` rendition for images) of a `processed` asset (Story 3.8). */
+  @Get('media/:id/poster')
+  async getPoster(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    try {
+      const poster = await this.media.getPoster(req.merchantSession!.storeId, id);
+      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+      return new StreamableFile(poster.stream, { type: poster.contentType, length: poster.sizeBytes });
     } catch (err) {
       throw toHttpError(err);
     }

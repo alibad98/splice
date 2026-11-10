@@ -11,6 +11,7 @@ import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from './ports/store-da
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 import { MAILER, type Mailer } from './ports/mailer.js';
 import type { ExternalFetcher } from './ports/external-fetcher.js';
+import type { MediaProcessor } from './ports/media-processor.js';
 import { MALWARE_SCANNER, type MalwareScanner } from './ports/malware-scanner.js';
 import { OBJECT_STORAGE, type ObjectStorage } from './ports/object-storage.js';
 import { STORE_INSTALL_LISTENERS, type StoreInstallListener } from './ports/store-install-listener.js';
@@ -90,6 +91,11 @@ export interface InfraDeps {
    * not bound in the Nest container.
    */
   fetcher?: ExternalFetcher;
+  /**
+   * Video/image processor for renditions and posters (Story 3.8). Worker role only: media processing never runs in the
+   * `http` role.
+   */
+  processor?: MediaProcessor;
   media: MediaConfig;
   /** Modules that hold tenant data, registered for uninstall, reinstall and purge (the integration module adds its own, last). */
   lifecycles: readonly StoreDataLifecycle[];

@@ -293,9 +293,11 @@ describe('content slide contracts (Story 3.6)', () => {
 
   it('carries the slides with asset kind and status on a ContentItem', () => {
     const slide = { id: a2, media_asset_id: a1, kind: 'image', alt_text: 'Red', status: 'failed', failure_reason: 'type_mismatch' };
-    expect(ContentItem.parse({ ...item, slides: [slide] }).slides).toEqual([{ ...slide, source_url: null }]);
-    const imported = { ...slide, status: 'importing', failure_reason: null, source_url: 'https://cdn.example.com/a.jpg' };
+    expect(ContentItem.parse({ ...item, slides: [slide] }).slides).toEqual([{ ...slide, source_url: null, poster_url: null }]);
+    const imported = { ...slide, status: 'importing', failure_reason: null, source_url: 'https://cdn.example.com/a.jpg', poster_url: null };
     expect(ContentItem.parse({ ...item, slides: [imported] }).slides).toEqual([imported]);
+    const processed = { ...slide, status: 'processed', failure_reason: null, source_url: null, poster_url: `/v1/media/${a1}/poster` };
+    expect(ContentItem.parse({ ...item, slides: [processed] }).slides).toEqual([processed]);
     expect(ContentItem.safeParse({ ...item, slides: [{ ...slide, status: 'ready' }] }).success).toBe(false);
     const withoutSlides: Record<string, unknown> = { ...item };
     delete withoutSlides.slides;

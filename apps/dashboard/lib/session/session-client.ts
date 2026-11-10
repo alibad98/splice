@@ -59,6 +59,14 @@ export class SessionClient {
 
   isFramed = (): boolean => this.options.host.isFramed();
 
+  get apiBase(): string {
+    return this.options.apiBase;
+  }
+
+  get hasBearer(): boolean {
+    return Boolean(this.bearer);
+  }
+
   getState = (): SessionState => this.state;
 
   subscribe = (listener: () => void): (() => void) => {

@@ -99,6 +99,7 @@ export {
   MEDIA_KINDS,
   MEDIA_LIMITS,
   MEDIA_NOT_ATTACHABLE,
+  MEDIA_PROCESS_QUEUE,
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
   MEDIA_UPLOAD_EXPIRED,
@@ -115,9 +116,13 @@ export {
   MediaImportRequest,
   MediaInspectJob,
   MediaKind,
+  MediaProcessJob,
   MediaUploadGrant,
   MediaUploadRequest,
+  RENDITION_PROFILES,
+  RenditionProfile,
   Sha256Hex,
+  VIDEO_RENDITION_TIERS,
   isAllowedMediaType,
 } from './v1/index.js';
 export type {
@@ -138,5 +143,6 @@ export type {
   ProductSort,
   ReactivateStatus,
   SessionProblemCode,
+  VideoRenditionTier,
 } from './v1/index.js';
 

@@ -8,6 +8,7 @@ import {
   MEDIA_INSPECT_QUEUE,
   MEDIA_LIMITS,
   MEDIA_NOT_ATTACHABLE,
+  MEDIA_PROCESS_QUEUE,
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
   MEDIA_UPLOAD_EXPIRED,
@@ -19,8 +20,11 @@ import {
   MediaImportJob,
   MediaImportRequest,
   MediaInspectJob,
+  MediaProcessJob,
   MediaUploadGrant,
   MediaUploadRequest,
+  RENDITION_PROFILES,
+  VIDEO_RENDITION_TIERS,
   isAllowedMediaType,
 } from './media.js';
 
@@ -129,5 +133,33 @@ describe('media imports (Story 3.7)', () => {
     expect(event.owner).toBe('media');
     expect(event.schema.safeParse({ v: 1, store_id: id, asset_id: id, kind: 'video' }).success).toBe(true);
     expect(event.schema.safeParse({ v: 1, store_id: id, asset_id: id, kind: 'video', url: 'https://x' }).success).toBe(false);
+  });
+});
+
+describe('media processing (Story 3.8)', () => {
+  it('defines rendition profiles, video tiers, processing_failed reason, poster_url, process job and processed event', () => {
+    expect(RENDITION_PROFILES).toEqual(['480p', '720p', '1080p', 'poster', 'web']);
+    expect(VIDEO_RENDITION_TIERS).toEqual([480, 720, 1080]);
+    expect(MEDIA_FAILURE_REASONS).toContain('processing_failed');
+    expect(MEDIA_PROCESS_QUEUE).toBe('media.asset.process');
+    expect(MediaProcessJob.safeParse({ v: 1, trace_id: 't', store_id: id, asset_id: id }).success).toBe(true);
+    expect(MediaProcessJob.safeParse({ v: 1, trace_id: 't', asset_id: id }).success).toBe(false);
+    const parsed = MediaAsset.parse({
+      v: 1,
+      id,
+      kind: 'video',
+      content_type: 'video/mp4',
+      size_bytes: 100,
+      status: 'processed',
+      failure_reason: null,
+      poster_url: `/v1/media/${id}/poster`,
+      created_at: '2026-11-10T10:00:00.000Z',
+      updated_at: '2026-11-10T10:00:00.000Z',
+    });
+    expect(parsed.poster_url).toBe(`/v1/media/${id}/poster`);
+    const event = EVENT_CATALOG['media.asset.processed'];
+    expect(event.owner).toBe('media');
+    expect(event.schema.safeParse({ v: 1, store_id: id, asset_id: id, kind: 'video' }).success).toBe(true);
+    expect(event.schema.safeParse({ v: 1, store_id: id, asset_id: id, kind: 'audio' }).success).toBe(false);
   });
 });

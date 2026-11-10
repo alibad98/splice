@@ -34,6 +34,7 @@ import { createHttpApp } from '../http.js';
 import type { SessionConfig } from '../infra.module.js';
 import { ContentLifecycle, InvalidTransitionError } from '../modules/content/content-lifecycle.js';
 import { contentStoreData } from '../modules/content/content.lifecycle.js';
+import { MediaService } from '../modules/media/media.service.js';
 import { SessionService } from '../modules/session/session.service.js';
 import { registerContentEventHandlers } from '../worker/content-jobs.js';
 
@@ -914,7 +915,7 @@ describe('merchant content API & I/O matrix', () => {
     expect(reloaded.slides[0]).toMatchObject({ status: 'failed', failure_reason: 'fetch_failed', source_url: link });
   });
 
-  it('Slides (Story 3.6): POST with slides saves them in order; GET and the list return them with kind and current asset status; no status change', async () => {
+  it('Slides (Stories 3.6, 3.8): POST with in-flight slides saves them in order and moves item to processing; GET and list return them with kind, status and poster_url', async () => {
     const { storeId, token } = await installedStore();
     const img1 = await seedAsset(storeId, 'image');
     const img2 = await seedAsset(storeId, 'image', 'scanned');
@@ -927,11 +928,11 @@ describe('merchant content API & I/O matrix', () => {
     const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, slides });
     expect(created.res.status).toBe(201);
     const item = ContentItem.parse(created.body);
-    expect(item.status).toBe('draft');
-    expect(item.slides.map((s) => [s.media_asset_id, s.kind, s.alt_text, s.status, s.failure_reason])).toEqual([
-      [img1, 'image', 'Red abaya', 'uploaded', null],
-      [img2, 'image', 'Black abaya', 'scanned', null],
-      [vid, 'video', null, 'processed', null],
+    expect(item.status).toBe('processing');
+    expect(item.slides.map((s) => [s.media_asset_id, s.kind, s.alt_text, s.status, s.failure_reason, s.poster_url])).toEqual([
+      [img1, 'image', 'Red abaya', 'uploaded', null, null],
+      [img2, 'image', 'Black abaya', 'scanned', null, null],
+      [vid, 'video', null, 'processed', null, `/v1/media/${vid}/poster`],
     ]);
     expect((await slideRows(item.id)).map((r) => r.position)).toEqual([0, 1, 2]);
 
@@ -948,7 +949,138 @@ describe('merchant content API & I/O matrix', () => {
     const reordered = await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [slides[2], slides[0], slides[1]] });
     expect(reordered.res.status).toBe(200);
     expect(ContentItem.parse(reordered.body).slides.map((s) => s.media_asset_id)).toEqual([vid, img1, img2]);
-    expect((await eventsForContent(storeId, item.id)).at(-1)).toMatchObject({ name: 'content.item.edited', payload: { status: 'draft', changed: ['slides'] } });
+    expect((await eventsForContent(storeId, item.id)).at(-1)).toMatchObject({ name: 'content.item.edited', payload: { status: 'processing', changed: ['slides'] } });
+  });
+
+  it('Story 3.8 processing cycle: draft -> processing when in-flight slides are attached, and processing -> draft when all live slides reach processed (or are edited to processed); deleted items are ignored', async () => {
+    const { storeId, token } = await installedStore();
+    const s1 = await seedAsset(storeId, 'video', 'scanned');
+    const s2 = await seedAsset(storeId, 'image', 'scanned');
+    const ready = await seedAsset(storeId, 'image', 'processed');
+
+    // Creating with already-processed slides stays draft.
+    const readyDraft = ContentItem.parse(
+      (await request(token, 'POST', '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: ready, alt_text: 'Ready' }] })).body,
+    );
+    expect(readyDraft.status).toBe('draft');
+    expect(readyDraft.slides[0]?.poster_url).toBe(`/v1/media/${ready}/poster`);
+
+    // Editing the draft to attach in-flight slides moves it draft -> processing (start_processing).
+    const patched = ContentItem.parse(
+      (
+        await request(token, 'PATCH', `/v1/content/${readyDraft.id}`, {
+          slides: [
+            { media_asset_id: s1, alt_text: null },
+            { media_asset_id: s2, alt_text: 'Second' },
+          ],
+        })
+      ).body,
+    );
+    expect(patched.status).toBe('processing');
+    expect((await eventsForContent(storeId, readyDraft.id)).at(-1)).toMatchObject({
+      name: 'content.item.processing_started',
+      payload: { from: 'draft', to: 'processing' },
+    });
+
+    // Wire worker content event handlers with MediaService.
+    const registry = new EventHandlerRegistry();
+    registerContentEventHandlers(registry, telemetry, lifecycle, nest.get(MediaService));
+    const dispatch = eventDispatcher(app, registry);
+
+    // First slide finishes processing; second is still scanned -> item stays processing.
+    await admin.query(`update media_assets set status = 'processed' where id = $1`, [s1]);
+    const ev1: EventEnvelope = {
+      v: 1,
+      trace_id: 't1',
+      store_id: storeId,
+      event_id: uuidv7(),
+      name: 'media.asset.processed',
+      occurred_at: new Date().toISOString(),
+      payload: { v: 1, store_id: storeId, asset_id: s1, kind: 'video' },
+    };
+    await dispatch(ev1, { id: ev1.event_id, data: ev1 });
+    expect((await rowById(readyDraft.id))!.status).toBe('processing');
+
+    // Second slide finishes processing -> all live slides are processed -> item moves processing -> draft (finish_processing).
+    await admin.query(`update media_assets set status = 'processed' where id = $1`, [s2]);
+    const ev2: EventEnvelope = {
+      v: 1,
+      trace_id: 't2',
+      store_id: storeId,
+      event_id: uuidv7(),
+      name: 'media.asset.processed',
+      occurred_at: new Date().toISOString(),
+      payload: { v: 1, store_id: storeId, asset_id: s2, kind: 'image' },
+    };
+    await dispatch(ev2, { id: ev2.event_id, data: ev2 });
+    expect((await rowById(readyDraft.id))!.status).toBe('draft');
+    expect((await eventsForContent(storeId, readyDraft.id)).at(-1)).toMatchObject({
+      name: 'content.item.processed',
+      payload: { from: 'processing', to: 'draft' },
+    });
+
+    // Deleting an item while processing and then receiving media.asset.processed does not fail.
+    const s3 = await seedAsset(storeId, 'video', 'scanned');
+    const doomed = ContentItem.parse(
+      (await request(token, 'POST', '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: s3, alt_text: null }] })).body,
+    );
+    expect(doomed.status).toBe('processing');
+    expect((await request(token, 'DELETE', `/v1/content/${doomed.id}`)).res.status).toBe(204);
+    await admin.query(`update media_assets set status = 'processed' where id = $1`, [s3]);
+    const ev3: EventEnvelope = {
+      v: 1,
+      trace_id: 't3',
+      store_id: storeId,
+      event_id: uuidv7(),
+      name: 'media.asset.processed',
+      occurred_at: new Date().toISOString(),
+      payload: { v: 1, store_id: storeId, asset_id: s3, kind: 'video' },
+    };
+    await expect(dispatch(ev3, { id: ev3.event_id, data: ev3 })).resolves.not.toThrow();
+
+    // Editing a processing item so all remaining live slides are processed transitions it processing -> draft (finish_processing).
+    const s4 = await seedAsset(storeId, 'video', 'scanned');
+    const editingToReady = ContentItem.parse(
+      (await request(token, 'POST', '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: s4, alt_text: null }] })).body,
+    );
+    expect(editingToReady.status).toBe('processing');
+    const editedReady = ContentItem.parse(
+      (await request(token, 'PATCH', `/v1/content/${editingToReady.id}`, { slides: [{ media_asset_id: ready, alt_text: 'Ready' }] })).body,
+    );
+    expect(editedReady.status).toBe('draft');
+    expect((await eventsForContent(storeId, editingToReady.id)).at(-1)).toMatchObject({
+      name: 'content.item.processed',
+      payload: { from: 'processing', to: 'draft' },
+    });
+
+    // Receiving media.asset.scanned on a draft item with a scanned slide transitions it draft -> processing (start_processing).
+    const s5 = await seedAsset(storeId, 'video', 'scanned');
+    const restoredDraft = await seedItemInStatus(storeId, 'draft');
+    await admin.query(
+      `insert into slides (id, store_id, content_id, media_asset_id, kind, position, alt_text) values ($1, $2, $3, $4, 'video', 0, null)`,
+      [uuidv7(), storeId, restoredDraft.id, s5],
+    );
+    const scannedEv: EventEnvelope = {
+      v: 1,
+      trace_id: 't4',
+      store_id: storeId,
+      event_id: uuidv7(),
+      name: 'media.asset.scanned',
+      occurred_at: new Date().toISOString(),
+      payload: {
+        v: 1,
+        store_id: storeId,
+        asset_id: s5,
+        kind: 'video',
+        size_bytes: 1024,
+      },
+    };
+    await dispatch(scannedEv, { id: scannedEv.event_id, data: scannedEv });
+    expect((await rowById(restoredDraft.id))!.status).toBe('processing');
+    expect((await eventsForContent(storeId, restoredDraft.id)).at(-1)).toMatchObject({
+      name: 'content.item.processing_started',
+      payload: { from: 'draft', to: 'processing' },
+    });
   });
 
   it('Slides: move later, remove and re-add revive the soft-deleted slide; a no-op writes nothing; a published item stays published', async () => {

@@ -137,6 +137,17 @@ export class ContentRepository extends StoreScoped {
       .orderBy(contentItems.id);
   }
 
+  /** Live (non-deleted) items that have a live (non-deleted) slide referencing `mediaAssetId`, with their status (Story 3.8). */
+  async liveItemsWithSlideAsset(mediaAssetId: string): Promise<Array<{ id: string; status: ContentStatus }>> {
+    if (!UUID_RE.test(mediaAssetId)) return [];
+    return this.db
+      .select({ id: contentItems.id, status: contentItems.status })
+      .from(slides)
+      .innerJoin(contentItems, and(eq(contentItems.storeId, slides.storeId), eq(contentItems.id, slides.contentId)))
+      .where(and(eq(slides.storeId, this.storeId), eq(slides.mediaAssetId, mediaAssetId), isNull(slides.deletedAt), isNull(contentItems.deletedAt)))
+      .orderBy(contentItems.id);
+  }
+
   /** product id -> number of live (non-deleted) items linked to it, in one grouped query; products without links are absent. */
   async linkCountsByProductIds(productIds: readonly string[]): Promise<Map<string, number>> {
     const wanted = [...new Set(productIds)].filter((id) => UUID_RE.test(id));

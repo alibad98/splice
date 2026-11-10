@@ -12,6 +12,7 @@ import {
   SLIDE_ALT_MAX,
   type ContentItem,
   type ContentProductSummary,
+  type MediaAsset,
 } from '@slips/contracts';
 import { Alert, Button, ErrorSummary, Icon, cn, toast } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
@@ -70,11 +71,14 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
 
   // A refetch brought a different version (changed elsewhere, or after a 409): show it.
   useEffect(() => {
-    if (!item || persisting.current || item.updated_at === savedRef.current?.updated_at) return;
+    const prev = savedRef.current;
+    if (!item || persisting.current || item.updated_at === prev?.updated_at) return;
     savedRef.current = item;
     setSaved(item);
-    // Keep rows of uploads that the item does not have yet (still uploading, or uploaded but not saved), after its slides.
     const next = fromItem(item);
+    // When only non-form fields changed (e.g. background status `processing -> draft` or `poster_url`), preserve any unsaved edits.
+    if (prev && item.status !== 'archived' && saveKey(next) === saveKey(fromItem(prev))) return;
+    // Keep rows of uploads that the item does not have yet (still uploading, or uploaded but not saved), after its slides.
     const savedAssets = new Set(item.slides.map((s) => s.media_asset_id));
     const pending = getValues('slides').filter((s) => uploads.uploads.has(s.key) && !(s.media_asset_id && savedAssets.has(s.media_asset_id)));
     reset({ ...next, slides: [...next.slides, ...pending] });
@@ -98,7 +102,31 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
 
   const status = saved?.status ?? 'draft';
   const readOnly = status === 'archived';
-  const autosaves = status === 'draft';
+  const autosaves = status === 'draft' || status === 'processing';
+
+  const onAssetProcessed = useCallback(
+    (asset: MediaAsset) => {
+      const current = savedRef.current;
+      if (!current) return;
+      const slides = current.slides.map((s) =>
+        s.media_asset_id === asset.id
+          ? { ...s, status: asset.status, failure_reason: asset.failure_reason, poster_url: asset.poster_url }
+          : s,
+      );
+      const allProcessed = slides.length > 0 && slides.every((s) => s.status === 'processed');
+      const nextStatus = current.status === 'processing' && allProcessed ? 'draft' : current.status;
+      if (
+        nextStatus !== current.status ||
+        slides.some((s, i) => s.status !== current.slides[i]?.status || s.poster_url !== current.slides[i]?.poster_url)
+      ) {
+        const updated = { ...current, status: nextStatus, slides };
+        savedRef.current = updated;
+        setSaved(updated);
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.content.item(current.id) });
+    },
+    [queryClient],
+  );
 
   const onSaveError = useCallback(
     (err: unknown) => {
@@ -236,7 +264,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
           <form id="content-editor-form" noValidate onSubmit={(e) => void onSubmit(e)} className={cn('flex-col gap-6', previewOpen ? 'hidden lg:flex' : 'flex')}>
             <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-6">
               <FormatTitleCard autoFocusTitle={!item} />
-              <SlidesCard uploads={uploads} savedSlides={saved?.slides ?? []} readOnly={readOnly} />
+              <SlidesCard uploads={uploads} savedSlides={saved?.slides ?? []} readOnly={readOnly} onAssetProcessed={onAssetProcessed} />
               <ProductCard product={product} onPicked={setPicked} />
               <CtaCard domains={domains} />
             </fieldset>

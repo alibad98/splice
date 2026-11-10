@@ -9,6 +9,7 @@ import {
   slideAltTextOk,
   type ContentAction,
   type ContentStatus,
+  type MediaAssetStatus,
   type MediaKind,
   type SlideInput,
 } from '@slips/contracts';
@@ -63,8 +64,15 @@ export class SlideAltTextRequiredError extends Error {
   }
 }
 
-/** media asset id -> kind, as the caller read it from `MediaService` (Story 3.6). */
-export type SlideAssetKinds = ReadonlyMap<string, MediaKind>;
+/** media asset id -> kind (and optionally current status for Story 3.8 processing transitions), as the caller read it from `MediaService`. */
+export type SlideAssetInfo = MediaKind | { readonly kind: MediaKind; readonly status?: MediaAssetStatus };
+export type SlideAssetKinds = ReadonlyMap<string, SlideAssetInfo>;
+
+const kindOf = (info: SlideAssetInfo | undefined): MediaKind | undefined => (typeof info === 'string' ? info : info?.kind);
+const statusOf = (info: SlideAssetInfo | undefined): MediaAssetStatus | undefined => (typeof info === 'string' ? undefined : info?.status);
+
+/** Asset statuses that mean a slide is still being imported, inspected or processed (Story 3.8). */
+const IN_FLIGHT_ASSET_STATUSES: readonly MediaAssetStatus[] = ['importing', 'uploaded', 'scanned'];
 
 /** Statuses whose fields cannot be edited (Story 3.3: archived items open read-only). */
 const READ_ONLY_STATUSES: readonly ContentStatus[] = ['archived'];
@@ -143,6 +151,9 @@ export class ContentLifecycle {
       from: null,
       to: 'draft',
     });
+    if (this.hasInFlightSlides(slideList, assetKinds)) {
+      return this.apply(tx, storeId, id, 'start_processing', now);
+    }
     return row!;
   }
 
@@ -212,6 +223,14 @@ export class ContentLifecycle {
       status: row.status,
       changed,
     });
+    if (changed.includes('slides')) {
+      if (row.status === 'draft' && this.hasInFlightSlides(next.slides, assetKinds)) {
+        return this.apply(tx, storeId, contentId, 'start_processing', now);
+      }
+      if (row.status === 'processing' && this.allSlidesProcessed(next.slides, assetKinds)) {
+        return this.apply(tx, storeId, contentId, 'finish_processing', now);
+      }
+    }
     return updated!;
   }
 
@@ -236,13 +255,70 @@ export class ContentLifecycle {
   }
 
   /**
+   * Synchronize the processing status of live items that reference `mediaAssetId` when a media event
+   * (`media.asset.scanned` or `media.asset.processed`) fires (Story 3.8):
+   * - If an item is `draft` and any of its live slides is in flight (`importing | uploaded | scanned`), apply `start_processing`.
+   * - If an item is `processing` and all of its live slides are `processed`, apply `finish_processing`.
+   * Concurrently deleted or already-transitioned items are ignored.
+   */
+  async syncSlideProcessing(
+    tx: TxQueryable,
+    storeId: string,
+    mediaAssetId: string,
+    resolveStatuses: (assetIds: readonly string[]) => Promise<ReadonlyMap<string, MediaAssetStatus>>,
+    now: Date = new Date(),
+  ): Promise<string[]> {
+    const candidates = await this.repo.liveItemsWithSlideAsset(mediaAssetId);
+    if (candidates.length === 0) return [];
+
+    const transitioned: string[] = [];
+    for (const candidate of candidates) {
+      const locked = await this.repo.lockById(candidate.id);
+      if (!locked || locked.deletedAt !== null) continue;
+      const itemSlides = await this.repo.liveSlides([locked.id]);
+      if (itemSlides.length === 0) continue;
+      const statuses = await resolveStatuses([...new Set(itemSlides.map((s) => s.mediaAssetId))]);
+      const anyInFlight = itemSlides.some((s) => {
+        const st = statuses.get(s.mediaAssetId);
+        return st !== undefined && IN_FLIGHT_ASSET_STATUSES.includes(st);
+      });
+      const allProcessed = itemSlides.every((s) => statuses.get(s.mediaAssetId) === 'processed');
+      try {
+        if (locked.status === 'draft' && anyInFlight) {
+          await this.apply(tx, storeId, locked.id, 'start_processing', now);
+          transitioned.push(locked.id);
+        } else if (locked.status === 'processing' && allProcessed) {
+          await this.apply(tx, storeId, locked.id, 'finish_processing', now);
+          transitioned.push(locked.id);
+        }
+      } catch (err) {
+        if (err instanceof ContentNotFoundError || err instanceof InvalidTransitionError) continue;
+        throw err;
+      }
+    }
+    return transitioned;
+  }
+
+  private hasInFlightSlides(list: readonly SlideInput[], assetKinds: SlideAssetKinds): boolean {
+    return list.some((s) => {
+      const st = statusOf(assetKinds.get(s.media_asset_id));
+      return st !== undefined && IN_FLIGHT_ASSET_STATUSES.includes(st);
+    });
+  }
+
+  private allSlidesProcessed(list: readonly SlideInput[], assetKinds: SlideAssetKinds): boolean {
+    if (list.length === 0) return true;
+    return list.every((s) => statusOf(assetKinds.get(s.media_asset_id)) === 'processed');
+  }
+
+  /**
    * Every slide's asset kind must be known (given by the caller, or the stored kind of a live slide), and image slides
    * need alt text. Throws before anything is written.
    */
   private checkSlides(list: readonly SlideInput[], assetKinds: SlideAssetKinds, liveSlides: readonly SlideRow[]): void {
     const stored = new Map(liveSlides.map((s) => [s.mediaAssetId, s.kind] as const));
     for (const s of list) {
-      const kind = assetKinds.get(s.media_asset_id) ?? stored.get(s.media_asset_id);
+      const kind = kindOf(assetKinds.get(s.media_asset_id)) ?? stored.get(s.media_asset_id);
       if (!kind) throw new SlideAssetUnknownError(s.media_asset_id);
       if (!slideAltTextOk(kind, s.alt_text)) throw new SlideAltTextRequiredError(s.media_asset_id);
     }
@@ -282,7 +358,7 @@ export class ContentLifecycle {
         continue;
       }
       const revived = removed.get(s.media_asset_id);
-      const kind = assetKinds.get(s.media_asset_id) ?? revived?.kind;
+      const kind = kindOf(assetKinds.get(s.media_asset_id)) ?? revived?.kind;
       if (!kind) throw new SlideAssetUnknownError(s.media_asset_id);
       if (revived) {
         await db

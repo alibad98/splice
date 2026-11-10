@@ -153,3 +153,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-5-upload-media-directly-to-storage.md`
   summary: Stream media inspection (hash, sniff, scan) instead of buffering whole files, and do storage I/O outside the asset-row transaction.
   evidence: Story 3.5 buffers up to 200 MB per job (media concurrency 2) and holds a DB transaction across storage calls; revisit with 3.8 video processing.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-8-process-videos-into-renditions-and-posters.md`
+  summary: Replace `DevMediaProcessor` video transcoding with a real FFmpeg/cloud `MediaProcessor` adapter once hosting is chosen (Q-05), and refuse to boot in production without one.
+  evidence: Story 3.8 uses `sharp` for real WebP image optimization and poster generation, and a deterministic in-process MP4 generator for video renditions until Q-05 is resolved.

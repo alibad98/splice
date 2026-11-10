@@ -30,8 +30,10 @@ export const Metric = {
   QueueOldestAgeSeconds: 'slips_queue_oldest_age_seconds',
   /** Counter: upload-URL requests refused by the per-store media upload throttle (abuse signal, Story 3.5). */
   MediaUploadThrottled: 'slips_media_upload_throttled_total',
-  /** Counter: bytes of media stored, added when an asset is scanned (per-store metering is `MediaService.storedBytes`). */
+  /** Counter: bytes of media stored, added when an asset is scanned or renditions are stored (per-store metering is `MediaService.storedBytes`). */
   MediaStoredBytes: 'slips_media_stored_bytes_total',
+  /** Histogram: duration in seconds of `media.asset.process` jobs, label `kind` (`image` | `video`) (Story 3.8). */
+  MediaProcessingDuration: 'slips_media_processing_duration_seconds',
   /** Gauge: 1 while the worker's last DB check succeeded (worker liveness). */
   WorkerUp: 'slips_worker_up',
 } as const;

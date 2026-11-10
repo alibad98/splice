@@ -6,7 +6,7 @@ import { MEDIA_IMPORT_URL_MAX, MEDIA_KINDS, MEDIA_LIMITS, SLIDES_MAX, SLIDE_ALT_
 import { Alert, Button, Card, CardTitle, DropZone, Field, Icon, Input, Progress, StatusChip, cn, type StatusTone } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
 import type { Messages } from '../../../i18n/messages';
-import { MEDIA_IMPORT_POLL_MAX_MS, isPendingAssetStatus, useMediaAssetStatus } from '../../../lib/api/media';
+import { MEDIA_IMPORT_POLL_MAX_MS, isPendingAssetStatus, useMediaAssetStatus, usePosterSrc } from '../../../lib/api/media';
 import { fill } from '../../products/format';
 import { fieldId, slideAltId, type EditorErrorKey, type EditorValues, type SlideValue } from './form';
 import { checkLink, inferLinkKind } from './media-link';
@@ -80,7 +80,17 @@ const CHIP: Record<View['state'], { tone: StatusTone; pulse?: boolean }> = {
  * ordered slide list with thumbs, per-file upload or import state, alt text, Move earlier/later, drag (desktop) and Remove. Order changes are announced ("Slide 2 of 3")
  * and focus stays on the moved slide. The list is the form's `slides`; uploads live in `uploads`.
  */
-export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Uploads; savedSlides: readonly ContentSlide[]; readOnly: boolean }) {
+export function SlidesCard({
+  uploads,
+  savedSlides,
+  readOnly,
+  onAssetProcessed,
+}: {
+  uploads: Uploads;
+  savedSlides: readonly ContentSlide[];
+  readOnly: boolean;
+  onAssetProcessed?: (asset: MediaAsset) => void;
+}) {
   const { messages } = useI18n();
   const m = messages.content.editor;
   const s = m.slides;
@@ -226,6 +236,15 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
     [getValues, savedSlides, setValue, uploads],
   );
 
+  /** When a polled asset finishes processing, update the held upload asset and notify the editor so item status refreshes (Story 3.8). */
+  const onProcessed = useCallback(
+    (key: string, asset: MediaAsset) => {
+      uploads.setAsset(key, asset);
+      onAssetProcessed?.(asset);
+    },
+    [onAssetProcessed, uploads],
+  );
+
   // The held file or link again. After a reload only an imported slide can retry: a new import of its link swaps the asset.
   const retry = (row: SlideValue) => {
     if (uploads.retry(row.key) || !row.source_url) return;
@@ -288,6 +307,7 @@ export function SlidesCard({ uploads, savedSlides, readOnly }: { uploads: Upload
               onRemove={() => remove(index)}
               onRetry={() => retry(row)}
               onAssetFailed={onAssetFailed}
+              onAssetProcessed={onProcessed}
               onDragStart={(e) => onDragStart(e, row.key)}
               onDragOver={onDragOver}
               onDrop={(e) => onDrop(e, index)}
@@ -422,13 +442,14 @@ interface SlideItemProps {
   onRemove: () => void;
   onRetry: () => void;
   onAssetFailed: (key: string, asset: MediaAsset) => void;
+  onAssetProcessed: (key: string, asset: MediaAsset) => void;
   onDragStart: (e: DragEvent<HTMLLIElement>) => void;
   onDragOver: (e: DragEvent<HTMLLIElement>) => void;
   onDrop: (e: DragEvent<HTMLLIElement>) => void;
   onDragEnd: () => void;
 }
 
-function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy, errorText, onMove, onRemove, onRetry, onAssetFailed, ...drag }: SlideItemProps) {
+function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy, errorText, onMove, onRemove, onRetry, onAssetFailed, onAssetProcessed, ...drag }: SlideItemProps) {
   const { control } = useFormContext<EditorValues>();
   const n = index + 1;
   const [mountedAt] = useState(() => Date.now());
@@ -441,11 +462,17 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
     since: upload?.completedAt ?? mountedAt,
     ...(sourceUrl ? { maxMs: MEDIA_IMPORT_POLL_MAX_MS } : {}),
   });
-  const asset = polled.data && polled.data.id === row.media_asset_id ? polled.data : (known as Pick<MediaAsset, 'status' | 'failure_reason'> | null);
+  const asset = polled.data && polled.data.id === row.media_asset_id ? polled.data : (known as Pick<MediaAsset, 'status' | 'failure_reason' | 'poster_url'> | null);
   const failedId = polled.data?.status === 'failed' ? polled.data.id : null;
   useEffect(() => {
     if (failedId && polled.data) onAssetFailed(row.key, polled.data);
   }, [failedId]);
+  const processedId = polled.data?.status === 'processed' ? polled.data.id : null;
+  useEffect(() => {
+    if (processedId && polled.data && saved?.status !== 'processed') onAssetProcessed(row.key, polled.data);
+  }, [processedId, saved?.status]);
+
+  const resolvedPosterUrl = usePosterSrc(asset?.poster_url ?? saved?.poster_url ?? null);
 
   const view = viewOf(copy, upload, row.media_asset_id || upload ? asset : null, sourceUrl);
   const chip = CHIP[view.state];
@@ -470,7 +497,7 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
       <span className="hidden shrink-0 cursor-grab self-center text-muted-foreground md:inline-flex" title={fill(copy.drag, { n })} aria-hidden="true">
         <Icon name="grip" className="size-4" />
       </span>
-      <SlideThumb kind={row.kind} n={n} previewUrl={upload?.previewUrl ?? null} />
+      <SlideThumb kind={row.kind} n={n} previewUrl={upload?.previewUrl ?? null} posterUrl={resolvedPosterUrl} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-small font-semibold">{fill(copy.slideLabel, { n })}</span>
@@ -522,14 +549,16 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
   );
 }
 
-/** 9:16 thumb: the local file during the upload session, else the kind icon with the slide number (posters come in 3.8). */
-function SlideThumb({ kind, n, previewUrl }: { kind: SlideValue['kind']; n: number; previewUrl: string | null }) {
+/** 9:16 thumb: the local file during the upload session, else the processed poster/web image (Story 3.8), else the kind icon with the slide number. */
+function SlideThumb({ kind, n, previewUrl, posterUrl }: { kind: SlideValue['kind']; n: number; previewUrl: string | null; posterUrl?: string | null }) {
   return (
-    <span className="relative flex aspect-[9/16] w-12 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted text-muted-foreground">
+    <span data-slide-thumb className="relative flex aspect-[9/16] w-12 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted text-muted-foreground">
       {previewUrl && kind === 'image' ? (
         <img src={previewUrl} alt="" className="size-full object-cover" />
       ) : previewUrl ? (
         <video src={previewUrl} muted playsInline preload="metadata" className="size-full object-cover" aria-hidden="true" />
+      ) : posterUrl ? (
+        <img src={posterUrl} alt="" className="size-full object-cover" />
       ) : (
         <span className="flex flex-col items-center gap-0.5" aria-hidden="true">
           <Icon name={kind} className="size-4" />

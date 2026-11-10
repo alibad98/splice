@@ -1,12 +1,14 @@
-import type { MediaAssetStatus, MediaFailureReason } from '@slips/contracts';
+import type { MediaAssetStatus, MediaFailureReason, RenditionProfile } from '@slips/contracts';
 import { schema, StoreScoped, and, eq, inArray, sql } from '@slips/db';
 
-const { mediaAssets, mediaUploadGrants } = schema;
+const { mediaAssets, mediaUploadGrants, renditions } = schema;
 
 export type MediaAssetRow = typeof mediaAssets.$inferSelect;
 export type MediaUploadGrantRow = typeof mediaUploadGrants.$inferSelect;
+export type RenditionRow = typeof renditions.$inferSelect;
 export type NewMediaAssetRow = typeof mediaAssets.$inferInsert;
 export type NewMediaUploadGrantRow = typeof mediaUploadGrants.$inferInsert;
+export type NewRenditionRow = typeof renditions.$inferInsert;
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -155,12 +157,60 @@ export class MediaRepository extends StoreScoped {
     return rows.map((r) => r.id);
   }
 
-  /** Sum of `size_bytes` of the store's assets that are not `failed`. */
-  async storedBytes(): Promise<number> {
+  /**
+   * Processing outcome (worker only, Story 3.8): `processed` once renditions and poster are stored, or `failed` with
+   * `processing_failed`.
+   */
+  async finishProcessing(
+    id: string,
+    outcome: { status: Extract<MediaAssetStatus, 'processed'> } | { status: 'failed'; reason: MediaFailureReason },
+    now: Date,
+  ): Promise<MediaAssetRow> {
+    const set =
+      outcome.status === 'processed'
+        ? { status: outcome.status, failureReason: null, updatedAt: now }
+        : { status: outcome.status, failureReason: outcome.reason, updatedAt: now };
     const [row] = await this.db
-      .select({ total: sql<string>`coalesce(sum(${mediaAssets.sizeBytes}), 0)::text` })
-      .from(mediaAssets)
-      .where(and(eq(mediaAssets.storeId, this.storeId), sql`${mediaAssets.status} <> 'failed'`));
-    return Number(row?.total ?? 0);
+      .update(mediaAssets)
+      .set(set)
+      .where(and(eq(mediaAssets.storeId, this.storeId), eq(mediaAssets.id, id)))
+      .returning();
+    return row!;
+  }
+
+  /** Insert rendition rows for an asset (idempotent on `(store_id, asset_id, profile)`). */
+  async insertRenditions(rows: readonly NewRenditionRow[]): Promise<RenditionRow[]> {
+    if (rows.length === 0) return [];
+    return this.db
+      .insert(renditions)
+      .values([...rows])
+      .onConflictDoNothing({ target: [renditions.storeId, renditions.assetId, renditions.profile] })
+      .returning();
+  }
+
+  /** One stored rendition of `assetId` by profile (`poster`, `web`, `480p`, `720p`, `1080p`). */
+  async findRendition(assetId: string, profile: RenditionProfile): Promise<RenditionRow | undefined> {
+    if (!UUID_RE.test(assetId)) return undefined;
+    const rows = await this.db
+      .select()
+      .from(renditions)
+      .where(and(eq(renditions.storeId, this.storeId), eq(renditions.assetId, assetId), eq(renditions.profile, profile)))
+      .limit(1);
+    return rows[0];
+  }
+
+  /** Sum of `size_bytes` of the store's assets that are not `failed`, plus their stored `renditions` (Story 3.8). */
+  async storedBytes(): Promise<number> {
+    const result = await this.db.execute<{ total: string }>(sql`
+      select (
+        coalesce((select sum(size_bytes) from media_assets where store_id = ${this.storeId} and status <> 'failed'), 0) +
+        coalesce((
+          select sum(r.size_bytes) from renditions r
+          join media_assets a on a.id = r.asset_id and a.store_id = r.store_id
+          where r.store_id = ${this.storeId} and a.status <> 'failed'
+        ), 0)
+      )::text as total
+    `);
+    return Number(result.rows[0]?.total ?? 0);
   }
 }

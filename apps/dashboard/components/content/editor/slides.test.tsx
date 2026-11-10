@@ -55,6 +55,7 @@ const savedSlide = (n: number, over: Partial<ContentSlide> = {}): ContentSlide =
   status: 'processed',
   failure_reason: null,
   source_url: null,
+  poster_url: null,
   ...over,
 });
 
@@ -65,7 +66,7 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
 let assets: Map<string, MediaAsset>;
 let assetStatusOnGet: MediaAsset['status'] = 'uploaded';
 /** Per-asset answers of GET /v1/media/:id that win over `assetStatusOnGet` (imports, Story 3.7). */
-let assetOnGet: Map<string, Pick<MediaAsset, 'status' | 'failure_reason'>>;
+let assetOnGet: Map<string, Partial<Pick<MediaAsset, 'status' | 'failure_reason' | 'poster_url'>>>;
 let importStatus: number;
 let grantStatus: number;
 let grants = 0;
@@ -88,6 +89,7 @@ function api(start: ContentItem): Handler {
         size_bytes: b.size_bytes,
         status: 'uploaded',
         failure_reason: null,
+        poster_url: null,
         created_at: '2026-11-05T10:00:00.000Z',
         updated_at: '2026-11-05T10:00:00.000Z',
       });
@@ -105,6 +107,7 @@ function api(start: ContentItem): Handler {
         size_bytes: null,
         status: 'importing',
         failure_reason: null,
+        poster_url: null,
         created_at: '2026-11-06T10:00:00.000Z',
         updated_at: '2026-11-06T10:00:00.000Z',
       };
@@ -115,16 +118,49 @@ function api(start: ContentItem): Handler {
     if (method === 'POST' && complete) return json(assets.get(assetId(Number(complete[1])))!);
     const get = /^\/v1\/media\/([^/]+)$/.exec(path);
     if (method === 'GET' && get) {
-      const a = assets.get(get[1]!)!;
+      const id = get[1]!;
+      const a: MediaAsset = assets.get(id) ?? {
+        v: 1,
+        id,
+        kind: 'image',
+        content_type: 'image/jpeg',
+        size_bytes: 1000,
+        status: 'uploaded',
+        failure_reason: null,
+        poster_url: null,
+        created_at: '2026-11-05T10:00:00.000Z',
+        updated_at: '2026-11-05T10:00:00.000Z',
+      };
       const override = assetOnGet.get(a.id);
-      if (override) return json({ ...a, ...override });
+      if (override) {
+        const status = override.status ?? a.status;
+        return json({
+          ...a,
+          ...override,
+          poster_url: override.poster_url !== undefined ? override.poster_url : status === 'processed' ? `/v1/media/${a.id}/poster` : null,
+        });
+      }
       const status = assetStatusOnGet;
-      return json({ ...a, status, failure_reason: status === 'failed' ? 'type_mismatch' : null });
+      return json({
+        ...a,
+        status,
+        failure_reason: status === 'failed' ? 'type_mismatch' : null,
+        poster_url: status === 'processed' ? `/v1/media/${a.id}/poster` : null,
+      });
     }
     if (method === 'PATCH' || method === 'POST') {
       const b = body as Record<string, unknown> & { slides?: Array<{ media_asset_id: string; alt_text: string | null }> };
       const slides = b.slides
-        ? b.slides.map((s, i) => ({ id: slideId(50 + i), media_asset_id: s.media_asset_id, kind: assets.get(s.media_asset_id)?.kind ?? 'image', alt_text: s.alt_text, status: 'uploaded' as const, failure_reason: null }))
+        ? b.slides.map((s, i) => ({
+            id: slideId(50 + i),
+            media_asset_id: s.media_asset_id,
+            kind: assets.get(s.media_asset_id)?.kind ?? 'image',
+            alt_text: s.alt_text,
+            status: 'uploaded' as const,
+            failure_reason: null,
+            source_url: null,
+            poster_url: null,
+          }))
         : current.slides;
       current = { ...current, ...b, slides, updated_at: `2026-11-05T10:01:0${++n}.000Z` } as ContentItem;
       return json(current, method === 'POST' ? 201 : 200);
@@ -236,7 +272,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
   calls = [];
   assets = new Map();
   assetStatusOnGet = 'uploaded';
@@ -572,5 +608,81 @@ describe('Slides card (Story 3.7): add from a link', () => {
     setup(item({ slides: Array.from({ length: 10 }, (_, i) => savedSlide(i + 1)) }));
     expect(linkInput().disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Add link' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('Slides card (Story 3.8): processing, poster thumbs and failure', () => {
+  it('polls a scanned slide until processed, then shows Ready and renders the poster thumbnail', async () => {
+    assetOnGet.set(assetId(1), { status: 'scanned', failure_reason: null });
+    setup(
+      item({
+        slides: [
+          savedSlide(1, { status: 'scanned', poster_url: null }),
+          savedSlide(2, { kind: 'video', alt_text: null, status: 'processed', poster_url: `/v1/media/${assetId(2)}/poster` }),
+        ],
+      }),
+    );
+    expect(stateOf(0)).toBe('Processing');
+    expect(stateOf(1)).toBe('Ready');
+    expect(rows()[0]!.querySelector('[data-slide-thumb] img')).toBeNull();
+    expect(rows()[1]!.querySelector('[data-slide-thumb] img')?.getAttribute('src')).toBe(`/v1/media/${assetId(2)}/poster`);
+
+    assetOnGet.set(assetId(1), { status: 'processed', failure_reason: null, poster_url: `/v1/media/${assetId(1)}/poster` });
+    await until(() => expect(stateOf(0)).toBe('Ready'), 200);
+    expect(rows()[0]!.querySelector('[data-slide-thumb] img')?.getAttribute('src')).toBe(`/v1/media/${assetId(1)}/poster`);
+  });
+
+  it('shows the processing_failed reason when processing fails', async () => {
+    assetOnGet.set(assetId(1), { status: 'failed', failure_reason: 'processing_failed' });
+    const { unmount } = setup(item());
+    await drop([file('c.mp4', 'video/mp4')]);
+    await until(() => expect(open()).toHaveLength(1));
+    await act(async () => FakeXhr.all[0]!.finish());
+    await until(() => expect(stateOf(0)).toBe('Failed'));
+    expect(rows()[0]!.textContent).toContain("We couldn't process this file. Retry.");
+    unmount();
+
+    setup(item({ slides: [savedSlide(1, { kind: 'video', alt_text: null, status: 'failed', failure_reason: 'processing_failed' })] }));
+    expect(stateOf(0)).toBe('Failed');
+    expect(rows()[0]!.textContent).toContain("We couldn't process this file. Retry. Add the file again to retry.");
+  });
+
+  it('fetches the poster via apiFetch as a blob URL in embedded bearer mode and prefixes apiBase in direct mode', async () => {
+    const start = item({ slides: [savedSlide(1, { status: 'processed', poster_url: `/v1/media/${assetId(1)}/poster` })] });
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:embedded-poster');
+    handler = ({ method, path }) => {
+      if (method === 'GET' && path === `/v1/media/${assetId(1)}/poster`) {
+        return new Response('webp', { status: 200, headers: { 'content-type': 'image/webp' } });
+      }
+      return json(start);
+    };
+    client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    session = {
+      client: {
+        apiBase: 'https://api.slips.sa',
+        hasBearer: true,
+        apiFetch: async (path: string, init: RequestInit = {}) => {
+          const call = { method: init.method ?? 'GET', path, body: init.body ? JSON.parse(String(init.body)) : undefined };
+          calls.push(call);
+          return handler(call);
+        },
+      } as unknown as NonNullable<typeof session>['client'],
+      state: { status: 'signed-in', mode: 'embedded', storeName: 'Demo', storeDomains: ['demo.salla.sa'], connection: { state: 'connected', storeName: 'Demo' } },
+    };
+    const { unmount } = render(tree(start));
+    await until(() => expect(rows()[0]!.querySelector('[data-slide-thumb] img')?.getAttribute('src')).toBe('blob:embedded-poster'));
+    expect(calls.some((c) => c.method === 'GET' && c.path === `/v1/media/${assetId(1)}/poster`)).toBe(true);
+    unmount();
+
+    session = {
+      client: {
+        apiBase: 'https://api.slips.sa/',
+        hasBearer: false,
+        apiFetch: async (path: string) => json({ path }),
+      } as unknown as NonNullable<typeof session>['client'],
+      state: { status: 'signed-in', mode: 'direct', storeName: 'Demo', storeDomains: ['demo.salla.sa'], connection: { state: 'connected', storeName: 'Demo' } },
+    };
+    render(tree(start));
+    expect(rows()[0]!.querySelector('[data-slide-thumb] img')?.getAttribute('src')).toBe(`https://api.slips.sa/v1/media/${assetId(1)}/poster`);
   });
 });

@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { Readable } from 'node:stream';
 import {
   MEDIA_LIMITS,
   MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS,
@@ -13,7 +14,7 @@ import {
   type MediaUploadGrant,
   type MediaUploadRequest,
 } from '@slips/contracts';
-import { requireStoreContext, withStoreContext } from '@slips/db';
+import { currentStoreContext, requireStoreContext, withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
 import { checkFetchUrl } from '../../ports/fetch-url-policy.js';
@@ -78,6 +79,10 @@ export const uploadKey = (storeId: string, sha256: string): string => `stores/${
 /** Every object of a store lives under this prefix (purged on uninstall). */
 export const storePrefix = (storeId: string): string => `stores/${storeId}/`;
 
+/** API-relative poster URL for a `processed` asset; `null` while in flight or `failed` (Story 3.8). */
+export const posterUrlFor = (id: string, status: MediaAssetStatus): string | null =>
+  status === 'processed' ? `/v1/media/${id}/poster` : null;
+
 export const toMediaAsset = (row: MediaAssetRow): MediaAsset => ({
   v: 1,
   id: row.id,
@@ -86,6 +91,7 @@ export const toMediaAsset = (row: MediaAssetRow): MediaAsset => ({
   size_bytes: row.sizeBytes,
   status: row.status,
   failure_reason: (row.failureReason as MediaAsset['failure_reason']) ?? null,
+  poster_url: posterUrlFor(row.id, row.status),
   created_at: row.createdAt.toISOString(),
   updated_at: row.updatedAt.toISOString(),
 });
@@ -250,14 +256,45 @@ export class MediaService {
   }
 
   /**
+   * Streams the poster (`poster` rendition for videos, `web` rendition for images) of a `processed` asset of the store
+   * (Story 3.8). Throws `MediaAssetNotFoundError` (404) when the asset is unknown, belongs to another store, or is not
+   * `processed`.
+   */
+  async getPoster(storeId: string, id: string): Promise<{ stream: Readable; contentType: string; sizeBytes: number }> {
+    const rendition = await withStoreContext(this.pool, storeId, async () => {
+      const asset = await this.repo.findAsset(id);
+      if (!asset || asset.status !== 'processed') throw new MediaAssetNotFoundError();
+      const profile = asset.kind === 'video' ? 'poster' : 'web';
+      const found = await this.repo.findRendition(asset.id, profile);
+      if (!found) throw new MediaAssetNotFoundError();
+      return found;
+    });
+    const stream = await this.storage.getStream(rendition.storageKey);
+    if (!stream) throw new MediaAssetNotFoundError();
+    return { stream, contentType: rendition.contentType, sizeBytes: rendition.sizeBytes };
+  }
+
+  /**
    * Kind, status and failure reason of the asked assets in one read (Story 3.6: slides). Unknown and other-store ids are
    * absent from the map.
    */
   async getAssetsByIds(storeId: string, ids: readonly string[]): Promise<Map<string, MediaAssetSummary>> {
     if (ids.length === 0) return new Map();
-    const rows = await withStoreContext(this.pool, storeId, () => this.repo.summariesByIds(ids));
+    const rows =
+      currentStoreContext()?.storeId === storeId
+        ? await this.repo.summariesByIds(ids)
+        : await withStoreContext(this.pool, storeId, () => this.repo.summariesByIds(ids));
     return new Map(
-      rows.map((r) => [r.id, { kind: r.kind, status: r.status, failure_reason: (r.failureReason as MediaFailureReason | null) ?? null, source_url: r.sourceUrl }]),
+      rows.map((r) => [
+        r.id,
+        {
+          kind: r.kind,
+          status: r.status,
+          failure_reason: (r.failureReason as MediaFailureReason | null) ?? null,
+          source_url: r.sourceUrl,
+          poster_url: posterUrlFor(r.id, r.status),
+        },
+      ]),
     );
   }
 
@@ -280,6 +317,8 @@ export interface MediaAssetSummary {
   failure_reason: MediaFailureReason | null;
   /** The link an imported asset came from (Story 3.7); null for uploads. */
   source_url: string | null;
+  /** `/v1/media/:id/poster` when `status === 'processed'`, otherwise `null` (Story 3.8). */
+  poster_url: string | null;
 }
 
 export class MediaAssetNotFoundError extends Error {

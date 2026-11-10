@@ -41,10 +41,19 @@ export const MEDIA_ASSET_STATUSES = ['importing', 'uploaded', 'scanned', 'proces
 export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
 export const MediaAssetStatus = z.enum(MEDIA_ASSET_STATUSES);
 
+/** Rendition profiles produced by `media.asset.process` (Story 3.8). */
+export const RENDITION_PROFILES = ['480p', '720p', '1080p', 'poster', 'web'] as const;
+export type RenditionProfile = (typeof RENDITION_PROFILES)[number];
+export const RenditionProfile = z.enum(RENDITION_PROFILES);
+
+/** Progressive MP4 target short-side tiers in pixels; never upscaled above the source video's shorter side (Story 3.8). */
+export const VIDEO_RENDITION_TIERS = [480, 720, 1080] as const;
+export type VideoRenditionTier = (typeof VIDEO_RENDITION_TIERS)[number];
+
 /**
  * Why an asset `failed` (the dashboard maps each to friendly copy). The `fetch_*` reasons are imports (Story 3.7): the
  * address is not allowed (private, loopback, metadata...), the file is over the kind's limit, or the source answered an
- * error or could not be reached.
+ * error or could not be reached. `processing_failed` is set when `media.asset.process` exhausts its attempts (Story 3.8).
  */
 export const MEDIA_FAILURE_REASONS = [
   'checksum_mismatch',
@@ -57,6 +66,7 @@ export const MEDIA_FAILURE_REASONS = [
   'fetch_blocked',
   'fetch_too_large',
   'fetch_failed',
+  'processing_failed',
 ] as const;
 export type MediaFailureReason = (typeof MEDIA_FAILURE_REASONS)[number];
 export const MediaFailureReason = z.enum(MEDIA_FAILURE_REASONS);
@@ -120,6 +130,7 @@ export type MediaImportRequest = z.infer<typeof MediaImportRequest>;
 /**
  * One media asset of the store. `failure_reason` is set only when `status` is `failed`. `content_type` and `size_bytes`
  * are null while an import is `importing`, and stay null when an import failed before its file was stored (Story 3.7).
+ * `poster_url` is `/v1/media/:id/poster` when `status === 'processed'`, otherwise `null` (Story 3.8).
  */
 export const MediaAsset = z.object({
   v: z.literal(1).default(1),
@@ -129,6 +140,7 @@ export const MediaAsset = z.object({
   size_bytes: z.number().int().positive().nullable(),
   status: MediaAssetStatus,
   failure_reason: MediaFailureReason.nullable(),
+  poster_url: z.string().nullable().default(null),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 });
@@ -147,3 +159,10 @@ export const MEDIA_IMPORT_QUEUE = 'media.asset.import';
 /** Payload of a `media.asset.import` job: the envelope (store required) plus the `importing` asset. */
 export const MediaImportJob = JobMeta.extend({ store_id: z.uuid(), asset_id: z.uuid() });
 export type MediaImportJob = z.infer<typeof MediaImportJob>;
+
+/** Worker queue (media group) that produces video renditions + poster or web-optimized image rendition (Story 3.8). */
+export const MEDIA_PROCESS_QUEUE = 'media.asset.process';
+
+/** Payload of a `media.asset.process` job: the envelope (store required) plus the `scanned` asset. */
+export const MediaProcessJob = JobMeta.extend({ store_id: z.uuid(), asset_id: z.uuid() });
+export type MediaProcessJob = z.infer<typeof MediaProcessJob>;

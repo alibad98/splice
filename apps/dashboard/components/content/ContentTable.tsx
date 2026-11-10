@@ -8,6 +8,7 @@ import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem,
 import { useI18n } from '../../i18n/provider';
 import { directionOf } from '../../i18n/config';
 import type { Messages } from '../../i18n/messages';
+import { usePosterSrc } from '../../lib/api/media';
 import { fill } from '../products/format';
 import { ContentStatusChip } from './ContentStatusChip';
 import { columnToSort, sortToColumn } from './url-state';
@@ -18,11 +19,16 @@ export const contentHref = (id: string) => `/content/${encodeURIComponent(id)}`;
 
 const FORMAT_ICON = { story: 'content', reel: 'play' } as const satisfies Record<ContentFormat, string>;
 
-/** 9:16 muted box with the format icon until slides and posters exist (Stories 3.6/3.8). */
-function Thumb({ format }: { format: ContentFormat }) {
+/** 9:16 muted box: renders the first slide's poster when processed (Story 3.8), else the format icon. */
+function Thumb({ format, posterUrl }: { format: ContentFormat; posterUrl?: string | null }) {
+  const src = usePosterSrc(posterUrl);
   return (
-    <span aria-hidden="true" data-testid="content-thumb" className="inline-flex aspect-9/16 h-10 shrink-0 items-center justify-center rounded-sm bg-muted text-muted-foreground">
-      <Icon name={FORMAT_ICON[format]} className="size-3.5" />
+    <span aria-hidden="true" data-testid="content-thumb" className="inline-flex aspect-9/16 h-10 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted text-muted-foreground">
+      {src ? (
+        <img src={src} alt="" className="size-full object-cover" />
+      ) : (
+        <Icon name={FORMAT_ICON[format]} className="size-3.5" />
+      )}
     </span>
   );
 }
@@ -82,7 +88,7 @@ interface Actions {
 
 function contentColumns(m: M, actions: Actions): DataTableColumn<ContentItem>[] {
   return [
-    { id: 'thumb', header: <span className="sr-only">{m.columns.thumb}</span>, className: 'w-12', cell: (row) => <Thumb format={row.format} /> },
+    { id: 'thumb', header: <span className="sr-only">{m.columns.thumb}</span>, className: 'w-12', cell: (row) => <Thumb format={row.format} posterUrl={row.slides[0]?.poster_url} /> },
     {
       id: 'title',
       header: m.columns.title,
@@ -102,7 +108,7 @@ function contentColumns(m: M, actions: Actions): DataTableColumn<ContentItem>[] 
 function ContentCard({ row, m, actions }: { row: ContentItem; m: M; actions: Actions }) {
   return (
     <div className="flex items-start gap-3">
-      <Thumb format={row.format} />
+      <Thumb format={row.format} posterUrl={row.slides[0]?.poster_url} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <TitleCell row={row} m={m} />
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted-foreground">

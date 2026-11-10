@@ -12,6 +12,7 @@ import {
   EVENT_QUEUE,
   MEDIA_IMPORT_QUEUE,
   MEDIA_INSPECT_QUEUE,
+  MEDIA_PROCESS_QUEUE,
   MEDIA_TOO_LARGE,
   MEDIA_TYPE_NOT_ALLOWED,
   MEDIA_UPLOAD_COMPLETE_GRACE_SECONDS,
@@ -25,6 +26,7 @@ import {
   type MediaKind,
 } from '@slips/contracts';
 import { ensureTestAppRole, runMigrations, withStoreContext } from '@slips/db';
+import { DevMediaProcessor, buildMp4Buffer } from '../adapters/media/dev-media-processor.js';
 import { EicarMalwareScanner, EICAR_TEST_STRING } from '../adapters/scanner/eicar-scanner.js';
 import { MemoryObjectStorage } from '../adapters/storage/memory-storage.js';
 import { PinoTelemetry } from '../adapters/telemetry/pino-telemetry.js';
@@ -35,10 +37,12 @@ import { createHttpApp } from '../http.js';
 import type { SessionConfig } from '../infra.module.js';
 import { MediaImporter } from '../modules/media/media-import.js';
 import { MediaInspector } from '../modules/media/media-inspect.js';
+import { MediaProcessorRunner } from '../modules/media/media-process.js';
 import { mediaStoreData } from '../modules/media/media.lifecycle.js';
 import { MediaService } from '../modules/media/media.service.js';
 import { SessionService } from '../modules/session/session.service.js';
 import { ExternalFetchTransientError, type ExternalFetchResult, type ExternalFetcher } from '../ports/external-fetcher.js';
+import type { MediaProcessor } from '../ports/media-processor.js';
 import { Metric } from '../ports/telemetry.js';
 import { mediaJobHandlers, registerMediaEventHandlers } from '../worker/media-jobs.js';
 
@@ -59,6 +63,7 @@ let nest: INestApplication;
 let base: string;
 let inspector: MediaInspector;
 let importer: MediaImporter;
+let processorRunner: MediaProcessorRunner;
 
 /** A fake fetcher (the real one is tested on its own): each link answers what the test registered; others are refused. */
 class FakeFetcher implements ExternalFetcher {
@@ -99,8 +104,10 @@ beforeAll(async () => {
   await boss.createQueue(MEDIA_INSPECT_QUEUE);
   await grantEventPublishing(admin, telemetry, EVENT_QUEUE, SCHEMA, 'slips_app');
   await boss.createQueue(MEDIA_IMPORT_QUEUE);
+  await boss.createQueue(MEDIA_PROCESS_QUEUE);
   inspector = new MediaInspector(storage, scanner, boss, telemetry);
   importer = new MediaImporter(fetcher, storage, boss, telemetry);
+  processorRunner = new MediaProcessorRunner(storage, new DevMediaProcessor(), boss, telemetry, app);
   nest = await createHttpApp(
     { CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' },
     { pool: new pg.Pool({ connectionString: APP_URL, max: 4 }), events: boss, telemetry, session: sessionConfig, storage, scanner, media: { uploadRateLimit: 60 } },
@@ -717,17 +724,29 @@ describe('MediaService reads and the media purge', () => {
     const failed = await insert(storeId, 'failed', 400);
     const processed = await insert(storeId, 'processed', 800);
     const foreign = await insert(other, 'processed', 1600);
+    await admin.query(
+      `insert into renditions (store_id, asset_id, profile, content_type, width, height, size_bytes, sha256, storage_key)
+       values ($1, $2, 'web', 'image/webp', 800, 1200, 350, $3, 'k1'),
+              ($1, $4, 'web', 'image/webp', 800, 1200, 999, $3, 'k2')`,
+      [storeId, processed, 'b'.repeat(64), failed],
+    );
     const service = nest.get(MediaService);
     expect(await service.publishableAssetIds(storeId, [uploaded, scanned, failed, processed, foreign, 'nope'])).toEqual([processed]);
     expect(await service.publishableAssetIds(storeId, [])).toEqual([]);
-    expect(await service.storedBytes(storeId)).toBe(100 + 200 + 800);
+    expect(await service.storedBytes(storeId)).toBe(100 + 200 + 800 + 350);
     expect(await service.storedBytes(randomUUID())).toBe(0);
   });
 
-  it("mediaStoreData exports both tables and purges the store's objects, then its rows, in batches", async () => {
+  it("mediaStoreData exports all three tables and purges the store's objects, then its rows, in batches", async () => {
     const { storeId, token } = await installedStore();
-    for (let i = 0; i < 2; i++) await uploadAndComplete(token, 'image', 'image/png', Buffer.from(`file ${i}`));
+    const first = await uploadAndComplete(token, 'image', 'image/png', Buffer.from('file 0'));
+    await uploadAndComplete(token, 'image', 'image/png', Buffer.from('file 1'));
     await issue(token, 'image', 'image/png', Buffer.from('never uploaded'));
+    await admin.query(
+      `insert into renditions (store_id, asset_id, profile, content_type, width, height, size_bytes, sha256, storage_key)
+       values ($1, $2, 'web', 'image/webp', 64, 64, 128, $3, $4)`,
+      [storeId, first.id, 'c'.repeat(64), `stores/${storeId}/assets/${first.id}/${'c'.repeat(64)}/renditions/web.webp`],
+    );
     await storage.put(`stores/${storeId}/assets/x/y/original.png`, Buffer.from('clean'), 'image/png');
     const otherStore = randomUUID();
     await storage.put(`stores/${otherStore}/uploads/keep`, Buffer.from('keep'), 'image/png');
@@ -737,7 +756,9 @@ describe('MediaService reads and the media purge', () => {
     const exported = (await withStoreContext(app, storeId, (tx) => lifecycle.export!({ storeId, installEpoch: 1, tx }))) as Record<string, Array<Record<string, unknown>>>;
     expect(exported.media_assets).toHaveLength(2);
     expect(exported.media_upload_grants).toHaveLength(3);
+    expect(exported.renditions).toHaveLength(1);
     expect(exported.media_assets![0]).not.toHaveProperty('store_id');
+    expect(exported.renditions![0]).not.toHaveProperty('store_id');
 
     const purge = () => withStoreContext(app, storeId, (tx) => lifecycle.purge({ storeId, installEpoch: 1, tx, batchLimit: 2 }));
     let calls = 0;
@@ -745,7 +766,160 @@ describe('MediaService reads and the media purge', () => {
     expect(calls).toBeGreaterThan(1);
     expect([...storage.objects.keys()].some((k) => k.startsWith(`stores/${storeId}/`))).toBe(false);
     expect(storage.objects.has(`stores/${otherStore}/uploads/keep`)).toBe(true);
+    expect((await admin.query('select 1 from renditions where store_id = $1', [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from media_assets where store_id = $1', [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from media_upload_grants where store_id = $1', [storeId])).rowCount).toBe(0);
+  });
+});
+
+describe('Story 3.8: media.asset.process and GET /v1/media/:id/poster', () => {
+  const renditionRows = async (assetId: string) =>
+    (
+      await admin.query<{
+        profile: string;
+        content_type: string;
+        width: number;
+        height: number;
+        size_bytes: string;
+        sha256: string;
+        storage_key: string;
+      }>('select profile, content_type, width, height, size_bytes::text, sha256, storage_key from renditions where asset_id = $1 order by profile', [assetId])
+    ).rows;
+
+  it('1080p video: produces 480p, 720p, 1080p MP4s + 720x1280 WebP poster at immutable keys, marks processed, emits media.asset.processed, records metrics and serves poster', async () => {
+    const { storeId, token } = await installedStore();
+    const mp4 = buildMp4Buffer(1080, 1920);
+    const asset = await uploadAndComplete(token, 'video', 'video/mp4', mp4);
+    expect(asset.poster_url).toBeNull();
+    await inspect(storeId, asset.id);
+    expect((await request(token, 'GET', `/v1/media/${asset.id}/poster`)).res.status).toBe(404);
+
+    const storedMetricBefore = telemetry.registry.value(Metric.MediaStoredBytes);
+    await processorRunner.process(storeId, asset.id);
+
+    const row = await assetRow(asset.id);
+    expect(row.status).toBe('processed');
+    const rows = await renditionRows(asset.id);
+    expect(rows.map((r) => ({ profile: r.profile, content_type: r.content_type, width: r.width, height: r.height }))).toEqual([
+      { profile: '1080p', content_type: 'video/mp4', width: 1080, height: 1920 },
+      { profile: '480p', content_type: 'video/mp4', width: 480, height: 854 },
+      { profile: '720p', content_type: 'video/mp4', width: 720, height: 1280 },
+      { profile: 'poster', content_type: 'image/webp', width: 720, height: 1280 },
+    ]);
+    let renditionsBytes = 0;
+    for (const r of rows) {
+      const ext = r.content_type === 'video/mp4' ? 'mp4' : 'webp';
+      expect(r.storage_key).toBe(`stores/${storeId}/assets/${asset.id}/${r.sha256}/renditions/${r.profile}.${ext}`);
+      const storedObj = storage.objects.get(r.storage_key);
+      expect(storedObj).toBeDefined();
+      expect(sha(storedObj!.body)).toBe(r.sha256);
+      renditionsBytes += Number(r.size_bytes);
+    }
+    expect(telemetry.registry.value(Metric.MediaStoredBytes) - storedMetricBefore).toBe(renditionsBytes);
+    expect(telemetry.registry.render()).toContain(`${Metric.MediaProcessingDuration}_count{kind="video"}`);
+
+    const events = await mediaEvents(storeId, asset.id);
+    expect(events.map((e) => e.name)).toEqual(['media.asset.uploaded', 'media.asset.scanned', 'media.asset.processed']);
+    expect(events.at(-1)?.payload).toEqual({ v: 1, store_id: storeId, asset_id: asset.id, kind: 'video' });
+
+    const fetched = MediaAsset.parse((await request(token, 'GET', `/v1/media/${asset.id}`)).body);
+    expect(fetched.status).toBe('processed');
+    expect(fetched.poster_url).toBe(`/v1/media/${asset.id}/poster`);
+
+    const posterRes = await fetch(`${base}/v1/media/${asset.id}/poster`, { headers: { authorization: `Bearer ${token}` } });
+    expect(posterRes.status).toBe(200);
+    expect(posterRes.headers.get('content-type')).toContain('image/webp');
+    expect(posterRes.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    const posterBytes = Buffer.from(await posterRes.arrayBuffer());
+    const posterMeta = await sharp(posterBytes).metadata();
+    expect({ format: posterMeta.format, width: posterMeta.width, height: posterMeta.height }).toEqual({
+      format: 'webp',
+      width: 720,
+      height: 1280,
+    });
+
+    // Idempotent when called again on an already-processed asset.
+    await processorRunner.process(storeId, asset.id);
+    expect(await renditionRows(asset.id)).toHaveLength(4);
+  });
+
+  it('720p video: produces only 480p, 720p and poster — never upscales to 1080p', async () => {
+    const { storeId, token } = await installedStore();
+    const mp4 = buildMp4Buffer(720, 1280);
+    const asset = await uploadAndComplete(token, 'video', 'video/mp4', mp4);
+    await inspect(storeId, asset.id);
+    await processorRunner.process(storeId, asset.id);
+
+    const rows = await renditionRows(asset.id);
+    expect(rows.map((r) => r.profile)).toEqual(['480p', '720p', 'poster']);
+  });
+
+  it('Image asset: produces web rendition (image/webp, capped at 1920px without upscaling) and streams it at /poster', async () => {
+    const { storeId, token } = await installedStore();
+    const largeJpeg = await sharp({ create: { width: 2160, height: 3840, channels: 3, background: '#246' } }).jpeg().toBuffer();
+    const asset = await uploadAndComplete(token, 'image', 'image/jpeg', largeJpeg);
+    await inspect(storeId, asset.id);
+    await processorRunner.process(storeId, asset.id);
+
+    const rows = await renditionRows(asset.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ profile: 'web', content_type: 'image/webp', width: 1080, height: 1920 });
+    expect(telemetry.registry.render()).toContain(`${Metric.MediaProcessingDuration}_count{kind="image"}`);
+
+    const posterRes = await fetch(`${base}/v1/media/${asset.id}/poster`, { headers: { authorization: `Bearer ${token}` } });
+    expect(posterRes.status).toBe(200);
+    expect(posterRes.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    const meta = await sharp(Buffer.from(await posterRes.arrayBuffer())).metadata();
+    expect({ format: meta.format, width: meta.width, height: meta.height }).toEqual({ format: 'webp', width: 1080, height: 1920 });
+
+    // Other store gets 404 on /poster.
+    const other = await installedStore();
+    expect((await fetch(`${base}/v1/media/${asset.id}/poster`, { headers: { authorization: `Bearer ${other.token}` } })).status).toBe(404);
+    expect((await fetch(`${base}/v1/media/${randomUUID()}/poster`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(404);
+  });
+
+  it('media.asset.scanned queues exactly one media.asset.process job per asset; transient processor error retries then records processing_failed on final attempt', async () => {
+    const { storeId, token } = await installedStore();
+    const registry = new EventHandlerRegistry();
+    registerMediaEventHandlers(registry, boss, telemetry, inspector);
+    const dispatch = eventDispatcher(app, registry);
+
+    const asset = await uploadAndComplete(token, 'video', 'video/mp4', buildMp4Buffer(1080, 1920));
+    await inspect(storeId, asset.id);
+
+    const scannedEvent = (await mediaEvents(storeId, asset.id)).find((e) => e.name === 'media.asset.scanned')!;
+    await dispatch(scannedEvent, { id: scannedEvent.event_id, data: scannedEvent });
+    await dispatch(scannedEvent, { id: scannedEvent.event_id, data: scannedEvent });
+    const jobs = (
+      await admin.query<{ id: string; data: { store_id: string; asset_id: string } }>(
+        `select id::text, data from ${SCHEMA}.job where name = $1 and data->>'asset_id' = $2`,
+        [MEDIA_PROCESS_QUEUE, asset.id],
+      )
+    ).rows;
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({ id: asset.id, data: { store_id: storeId, asset_id: asset.id } });
+
+    // Failing processor: attempts 1 and 2 throw; final attempt records processing_failed and emits media.asset.failed.
+    const brokenProcessor: MediaProcessor = {
+      processVideo: async () => {
+        throw new Error('transcoder crashed');
+      },
+      processImage: async () => {
+        throw new Error('transcoder crashed');
+      },
+    };
+    const failingRunner = new MediaProcessorRunner(storage, brokenProcessor, boss, telemetry, app);
+    const handler = mediaJobHandlers(app, inspector, importer, failingRunner)[MEDIA_PROCESS_QUEUE]!;
+    const data = { v: 1, trace_id: 't', store_id: storeId, asset_id: asset.id };
+    await expect(handler(data, { id: asset.id, data, retryCount: 0, retryLimit: 2 })).rejects.toThrow('transcoder crashed');
+    await expect(handler(data, { id: asset.id, data, retryCount: 1, retryLimit: 2 })).rejects.toThrow('transcoder crashed');
+    expect((await assetRow(asset.id)).status).toBe('scanned');
+    await handler(data, { id: asset.id, data, retryCount: 2, retryLimit: 2 });
+    expect(await assetRow(asset.id)).toMatchObject({ status: 'failed', failure_reason: 'processing_failed' });
+    expect(await renditionRows(asset.id)).toEqual([]);
+    expect((await mediaEvents(storeId, asset.id)).at(-1)).toMatchObject({
+      name: 'media.asset.failed',
+      payload: { store_id: storeId, asset_id: asset.id, reason: 'processing_failed' },
+    });
   });
 });

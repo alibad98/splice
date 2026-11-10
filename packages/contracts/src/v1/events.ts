@@ -148,6 +148,11 @@ export const EVENT_CATALOG = {
     'media',
     z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), kind: z.enum(MEDIA_KINDS), size_bytes: z.number().int().positive() }),
   ),
+  /** Processing finished: renditions and poster are stored and the asset is `processed` (Story 3.8). */
+  'media.asset.processed': defineEvent(
+    'media',
+    z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), kind: z.enum(MEDIA_KINDS) }),
+  ),
   /** The asset `failed`; `reason` says why. */
   'media.asset.failed': defineEvent('media', z.strictObject({ v: z.literal(1), store_id: z.uuid(), asset_id: z.uuid(), reason: z.enum(MEDIA_FAILURE_REASONS) })),
 } as const;

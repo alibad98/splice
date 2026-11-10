@@ -245,6 +245,8 @@ export const ContentSlide = z.object({
   failure_reason: MediaFailureReason.nullable(),
   /** The link the asset was imported from (Story 3.7), so Retry works after a reload; null for uploads. */
   source_url: z.string().nullable().default(null),
+  /** `/v1/media/:id/poster` when `status === 'processed'`, otherwise `null` (Story 3.8). */
+  poster_url: z.string().nullable().default(null),
 });
 export type ContentSlide = z.infer<typeof ContentSlide>;
 

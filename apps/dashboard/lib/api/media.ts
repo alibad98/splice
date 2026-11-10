@@ -1,10 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MediaAsset, MediaUploadGrant, type MediaKind } from '@slips/contracts';
 import { useSession } from '../../components/session/SessionProvider';
 import type { SessionClient } from '../session/session-client';
-import { ApiError, getJson, postJson, sendJson } from './fetch';
+import { ApiError, apiUrl, getJson, postJson, sendJson } from './fetch';
 import { queryKeys } from './query-keys';
 
 /** How often an `importing` or `uploaded` asset is asked for again while it waits for its import or inspection (Stories 3.6, 3.7). */
@@ -78,8 +79,46 @@ export function importMedia(client: SessionClient, url: string, kind: MediaKind)
   return sendJson(client, 'POST', '/v1/media/imports', { kind, url }, MediaAsset);
 }
 
-/** Statuses that are still on their way (polled). */
-const PENDING_STATUSES: ReadonlySet<MediaAsset['status']> = new Set(['importing', 'uploaded']);
+/** Resolve a `poster_url` from a media asset or content slide to a browser-usable URL, or `null` when absent (Story 3.8). */
+export const posterUrl = (url: string | null | undefined, apiBase?: string): string | null => (url ? apiUrl(url, apiBase) : null);
+
+/**
+ * Resolve a `poster_url` for an `<img>` tag (Story 3.8): in embedded mode with an in-memory Bearer token (`hasBearer`),
+ * fetches via `session.client.apiFetch` and creates a blob URL so the `Authorization` header is sent; in direct cookie
+ * mode (or when no bearer is held), returns `posterUrl(url, session?.client?.apiBase)`.
+ */
+export function usePosterSrc(url: string | null | undefined): string | null {
+  const session = useSession();
+  const client = session?.client as (SessionClient & { apiBase?: string; hasBearer?: boolean }) | undefined;
+  const useBearerFetch = Boolean(url && session?.state.status === 'signed-in' && session.state.mode === 'embedded' && client?.hasBearer);
+  const [blobState, setBlobState] = useState<{ url: string; objectUrl: string } | null>(null);
+
+  useEffect(() => {
+    if (!url || !useBearerFetch || !client) return;
+    let cancelled = false;
+    let created: string | null = null;
+    void client
+      .apiFetch(url)
+      .then((res) => (res.ok ? res.blob() : null))
+      .then((blob) => {
+        if (!blob || cancelled) return;
+        created = URL.createObjectURL(blob);
+        setBlobState({ url, objectUrl: created });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [client, url, useBearerFetch]);
+
+  if (!url) return null;
+  if (useBearerFetch) return blobState?.url === url ? blobState.objectUrl : null;
+  return posterUrl(url, client?.apiBase);
+}
+
+/** Statuses that are still on their way (polled until `processed` or `failed`, Story 3.8). */
+const PENDING_STATUSES: ReadonlySet<MediaAsset['status']> = new Set(['importing', 'uploaded', 'scanned']);
 export const isPendingAssetStatus = (status: MediaAsset['status'] | undefined): boolean => status !== undefined && PENDING_STATUSES.has(status);
 
 /**

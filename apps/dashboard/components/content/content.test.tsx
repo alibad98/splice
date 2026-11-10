@@ -115,6 +115,49 @@ describe('Videos & Stories page', () => {
     expect(screen.getByRole('tab', { name: /All/ }).getAttribute('aria-selected')).toBe('true');
   });
 
+  it('renders the first slide poster_url in the 9:16 thumb when ready and falls back to the format icon otherwise (Story 3.8)', () => {
+    const assetId = '019a473a-0000-7000-8000-000000000101';
+    const withPoster = item({
+      title: 'With poster',
+      format: 'reel',
+      slides: [
+        {
+          id: '019a473a-0000-7000-8000-000000000201',
+          media_asset_id: assetId,
+          kind: 'video',
+          alt_text: null,
+          status: 'processed',
+          failure_reason: null,
+          source_url: null,
+          poster_url: `/v1/media/${assetId}/poster`,
+        },
+      ],
+    });
+    const withoutPoster = item({
+      title: 'Without poster',
+      format: 'story',
+      slides: [
+        {
+          id: '019a473a-0000-7000-8000-000000000202',
+          media_asset_id: '019a473a-0000-7000-8000-000000000102',
+          kind: 'image',
+          alt_text: 'Photo',
+          status: 'scanned',
+          failure_reason: null,
+          source_url: null,
+          poster_url: null,
+        },
+      ],
+    });
+    setup({ lists: [[DEFAULT, page([withPoster, withoutPoster])]] });
+    const table = screen.getByRole('table');
+    const thumbWith = table.querySelector(`tr[data-row-id="${withPoster.id}"] [data-testid="content-thumb"]`)!;
+    expect(thumbWith.querySelector('img')?.getAttribute('src')).toBe(`/v1/media/${assetId}/poster`);
+    const thumbWithout = table.querySelector(`tr[data-row-id="${withoutPoster.id}"] [data-testid="content-thumb"]`)!;
+    expect(thumbWithout.querySelector('img')).toBeNull();
+    expect(thumbWithout.querySelector('svg')).not.toBeNull();
+  });
+
   it('a deleted linked product shows the warning chip "Linked product deleted" under the title, in Arabic too (Story 3.4)', () => {
     const product = { id: crypto.randomUUID(), name: 'Oud oil', image_url: null, price_minor: 100, sale_price_minor: null, currency: 'SAR', availability: 'available' as const, has_required_options: false };
     const gone = item({ title: 'Gone product', product: { ...product, deleted: true } });

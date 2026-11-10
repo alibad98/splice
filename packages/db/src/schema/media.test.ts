@@ -11,7 +11,7 @@ import * as schema from './index.js';
 
 const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
 const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_media:it_media_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['media_assets', 'media_upload_grants'];
+const TENANT_TABLES = ['media_assets', 'media_upload_grants', 'renditions'];
 const SHA = 'a'.repeat(64);
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
@@ -60,6 +60,19 @@ describe('media tables', () => {
           )
         ).rows[0]!.id,
     });
+    registerTenantTable({
+      table: 'renditions',
+      seed: async (c: pg.PoolClient, s: string) => {
+        const assetId = randomUUID();
+        return (
+          await c.query<{ id: string }>(
+            `insert into renditions (store_id, asset_id, profile, content_type, width, height, size_bytes, sha256, storage_key)
+             values ($1, $2, '720p', 'video/mp4', 720, 1280, 4096, $3, $4) returning id::text as id`,
+            [s, assetId, SHA, `stores/${s}/assets/${assetId}/${SHA}/renditions/720p.mp4`],
+          )
+        ).rows[0]!.id;
+      },
+    });
     expect(findUnregisteredTenantTables(TENANT_TABLES)).toEqual([]);
   });
 
@@ -106,5 +119,26 @@ describe('media tables', () => {
     await expect(ins('importing', null, null, false)).rejects.toMatchObject({ code: '23514' });
     await expect(ins('importing', null, null, true)).rejects.toMatchObject({ code: '23514' });
     await expect(ins('importing', null, 'x'.repeat(2049), false)).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('renditions (0021): enforces profile, content_type, width, height, size, sha256 and unique (store_id, asset_id, profile)', async () => {
+    const s = randomUUID();
+    const a = randomUUID();
+    const ins = (profile: string, ct: string, w: number, h: number, size: number, sha: string) =>
+      admin.query(
+        `insert into renditions (store_id, asset_id, profile, content_type, width, height, size_bytes, sha256, storage_key)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, 'k')`,
+        [s, a, profile, ct, w, h, size, sha],
+      );
+    await expect(ins('4k', 'video/mp4', 720, 1280, 100, SHA)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('720p', 'application/vnd.apple.mpegurl', 720, 1280, 100, SHA)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('720p', 'video/mp4', 0, 1280, 100, SHA)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('720p', 'video/mp4', 720, 0, 100, SHA)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('720p', 'video/mp4', 720, 1280, 0, SHA)).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('720p', 'video/mp4', 720, 1280, 100, 'BAD')).rejects.toMatchObject({ code: '23514' });
+    await expect(ins('720p', 'video/mp4', 720, 1280, 100, SHA)).resolves.toBeDefined();
+    await expect(ins('720p', 'video/mp4', 720, 1280, 100, SHA)).rejects.toMatchObject({ code: '23505' });
+    await expect(ins('poster', 'image/webp', 720, 1280, 100, SHA)).resolves.toBeDefined();
+    expect(schema.RENDITION_PROFILES).toEqual(['480p', '720p', '1080p', 'poster', 'web']);
   });
 });

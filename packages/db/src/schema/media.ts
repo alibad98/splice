@@ -1,6 +1,6 @@
 // Tables owned by the `media` module (AD-2). Tenant tables with forced RLS (migration 0018).
 import { sql } from 'drizzle-orm';
-import { bigint, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const MEDIA_KINDS = ['image', 'video'] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
@@ -11,6 +11,14 @@ export type MediaKind = (typeof MEDIA_KINDS)[number];
  */
 export const MEDIA_ASSET_STATUSES = ['importing', 'uploaded', 'scanned', 'processed', 'failed'] as const;
 export type MediaAssetStatus = (typeof MEDIA_ASSET_STATUSES)[number];
+
+/** Rendition profiles produced by `media.asset.process` (Story 3.8). */
+export const RENDITION_PROFILES = ['480p', '720p', '1080p', 'poster', 'web'] as const;
+export type RenditionProfile = (typeof RENDITION_PROFILES)[number];
+
+/** Content types allowed for stored renditions (Story 3.8). */
+export const RENDITION_CONTENT_TYPES = ['video/mp4', 'image/webp', 'image/jpeg'] as const;
+export type RenditionContentType = (typeof RENDITION_CONTENT_TYPES)[number];
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -56,4 +64,23 @@ export const mediaAssets = pgTable('media_assets', {
   failureReason: text('failure_reason'),
   createdAt: ts('created_at').notNull().default(sql`now()`),
   updatedAt: ts('updated_at').notNull().default(sql`now()`),
+});
+
+/**
+ * Processed renditions of a media asset (Story 3.8, migration 0021). Videos produce progressive MP4 renditions
+ * (`480p`, `720p`, `1080p` up to source resolution) plus a `poster` (`image/webp`, `720x1280`); images produce a
+ * web-optimized `web` rendition (`image/webp`). Stored at `stores/{store_id}/assets/{asset_id}/{sha256}/renditions/{profile}.{ext}`.
+ */
+export const renditions = pgTable('renditions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').notNull(),
+  assetId: uuid('asset_id').notNull(),
+  profile: text('profile').$type<RenditionProfile>().notNull(),
+  contentType: text('content_type').$type<RenditionContentType>().notNull(),
+  width: integer('width').notNull(),
+  height: integer('height').notNull(),
+  sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+  sha256: text('sha256').notNull(),
+  storageKey: text('storage_key').notNull(),
+  createdAt: ts('created_at').notNull().default(sql`now()`),
 });

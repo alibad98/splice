@@ -133,7 +133,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
   calls = [];
   handler = echo();
   window.history.replaceState(null, '', '/content/new');
@@ -294,6 +294,76 @@ describe('Content editor: draft autosave', () => {
     expect(h1.getAttribute('dir')).toBe('auto');
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByTestId('preview-frame').textContent).toContain(xss);
+  });
+
+  it('a processing item still autosaves edits and updates its status chip to Draft when its slide finishes processing (Story 3.8)', async () => {
+    const assetId = '019a473a-0000-7000-8000-000000000101';
+    const slideId = '019a473a-0000-7000-8000-000000000201';
+    let assetProcessed = false;
+    let current = item({
+      status: 'processing',
+      slides: [
+        {
+          id: slideId,
+          media_asset_id: assetId,
+          kind: 'video',
+          alt_text: null,
+          status: 'scanned',
+          failure_reason: null,
+          source_url: null,
+          poster_url: null,
+        },
+      ],
+    });
+    handler = ({ method, path, body }) => {
+      if (method === 'GET' && path === `/v1/media/${assetId}`) {
+        return json({
+          v: 1,
+          id: assetId,
+          kind: 'video',
+          content_type: 'video/mp4',
+          size_bytes: 1000,
+          status: assetProcessed ? 'processed' : 'scanned',
+          failure_reason: null,
+          poster_url: assetProcessed ? `/v1/media/${assetId}/poster` : null,
+          created_at: '2026-11-05T10:00:00.000Z',
+          updated_at: '2026-11-05T10:00:00.000Z',
+        });
+      }
+      if (method === 'PATCH') {
+        current = { ...current, ...(body as object), updated_at: '2026-11-05T10:01:00.000Z' };
+        return json(current);
+      }
+      return json(current);
+    };
+
+    setup({ element: <ContentEditorPage id={ID} /> });
+    client.setQueryData(queryKeys.content.item(ID), current);
+    await until(() => expect(title().value).toBe('Autumn perfumes'));
+    expect(document.querySelector('[data-status="processing"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeTruthy();
+
+    type(title(), 'Processing edit');
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Processing edit' } });
+
+    // Advance close to the 3s media poll before typing an unsaved edit, so the background refetch lands while the edit is still unsaved.
+    await advance(1800);
+    const ctaLabel = screen.getByRole('textbox', { name: 'Button text' }) as HTMLInputElement;
+    type(ctaLabel, 'Shop now');
+    current = {
+      ...current,
+      status: 'draft',
+      slides: [{ ...current.slides[0]!, status: 'processed', poster_url: `/v1/media/${assetId}/poster` }],
+      updated_at: '2026-11-05T10:02:00.000Z',
+    };
+    const itemGetsBefore = calls.filter((c) => c.method === 'GET' && c.path === `/v1/content/${ID}`).length;
+    assetProcessed = true;
+    await until(() => expect(calls.filter((c) => c.method === 'GET' && c.path === `/v1/content/${ID}`).length).toBeGreaterThan(itemGetsBefore), 100);
+    expect(document.querySelector('[data-status="draft"]')).not.toBeNull();
+    expect(ctaLabel.value).toBe('Shop now');
+    await until(() => expect(writes()).toHaveLength(2), 100);
+    expect(writes()[1]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { cta_label: 'Shop now' } });
   });
 });
 

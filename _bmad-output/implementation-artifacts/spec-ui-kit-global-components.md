@@ -23,7 +23,7 @@ context:
 **Always:**
 - Visuals come only from `packages/ui/src/styles/globals.css` tokens (colour, radius, shadow, focus ring, type). Light and dark themes; no hard-coded colours.
 - RTL and LTR: logical CSS properties only; directional icons mirror, media icons never do; text and numbers bidi-safe.
-- Accessibility: WCAG 2.1 AA (text 4.5:1, UI 3:1), visible two-tone focus ring, correct roles and live regions, keyboard operable, 24px minimum targets.
+- Accessibility: WCAG 2.1 AA (text 4.5:1, UI 3:1), visible 2px teal focus outline with a 2px surface gap (system Highlight in forced colors), correct roles and live regions, keyboard operable, 24px minimum targets. Focus must remain visible on controls with component shadows. Selected controls use shared interaction/tint tokens in both themes; coral remains the primary-action color and destructive borders/messages remain reserved for errors.
 - Motion: CSS transitions/keyframes first; every animation stops or becomes instant under `prefers-reduced-motion`. A JS animation library is allowed only where CSS cannot do the job, loaded lazily so it never lands in the first load of pages that do not use it.
 - Performance: components are server-renderable where possible (`'use client'` only on interactive parts), tree-shakeable named exports, no runtime CSS-in-JS, no layout shift on mount. Report each wave's added first-load JS for `/products` from `next build`.
 - Copy inside components comes from props (callers pass `ar`/`en` strings); components never hold user-facing text except accessible defaults passed in by the app.
@@ -165,6 +165,9 @@ Rejected:
 ## Implementation Notes
 
 ## Spec Change Log
+
+- 2026-11-11 — User-requested interaction polish with Impeccable: muted teal focus/selection tokens for both themes, 2px focus outline with a surface gap, interaction borders/caret/native selection, teal checked controls, tinted active navigation/tabs/options and CTA-style choices. Preserve coral primary actions and destructive errors. Explicit light mode also sets the browser color scheme. Updated DESIGN.md and foundation acceptance criteria.
+- Verification for this amendment: UI 101 tests pass; dashboard 351 tests pass across the full-suite run plus the previously missing player-dependent suite after building that dependency. UI/dashboard lint and typecheck, player build and dashboard production build pass. Impeccable detector: no findings. Chromium inspection at 1440px English and 390px Arabic in both themes verifies input focus, checked controls, select highlighting, focused tabs with shadows, disabled controls and no horizontal overflow. Captures are under ignored `apps/dashboard/test-results/interaction-review/`.
 
 - 2026-11-01 — UI rework 4: Arabic font -> Tajawal (digits come from Figtree, so still tabular); auth layout responsive to height: illustration and headline scale with dvh, stats hide under 760px tall and the reels under 600px, form spacing tightens; checked 1024x640 to 1920x1080 with no page scroll and no panel clipping.
 

@@ -22,7 +22,7 @@ deferred: []
 
 ## Boundaries & Constraints
 
-**Always:** ink text on coral; coral never body text (links use `info-text`); `input-border` on controls, `border` decorative; two-tone focus ring; no purple; gradients only in `--story-ring-gradient`.
+**Always:** ink text on coral; coral never body text (links use `info-text`); `input-border` on controls, `border` decorative; teal focus outline with a surface gap; no purple; gradients only in `--story-ring-gradient`. Interaction tokens drive checked/selected controls independently of coral primary actions and destructive error states.
 
 **Never:** no component library or restyle of pages; no web fonts in the player.
 
@@ -43,7 +43,7 @@ deferred: []
 
 **Acceptance Criteria:**
 - Given the token file, when parsed, then every DESIGN.md token exists for light and dark, no purple, one gradient token.
-- Given a focusable element, then the two-tone ring renders (ink/white inner, coral outer).
+- Given a focusable dashboard element, then a 2px teal outline renders with a 2px surface gap, including on components with their own shadows; forced colors uses the system Highlight color. Interaction text on selected tints meets 4.5:1 and the focus outline meets 3:1 on surrounding surfaces in both themes.
 - Given token pairs, then 4.5:1 text and 3:1 UI hold in light and dark.
 - Given Arabic, then `:lang(ar)` orders Plex first, letter-spacing 0, body line-height 1.6, display weight 700.
 

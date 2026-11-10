@@ -34,7 +34,7 @@ export function DropdownMenuItem({
       data-tone={tone}
       className={cn(
         'relative flex cursor-pointer items-center gap-2 min-h-9 rounded-sm px-2.5 py-2 text-body outline-none select-none focus-visible:shadow-none data-[highlighted]:bg-muted data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
-        tone === 'danger' ? 'text-destructive-text data-[highlighted]:bg-destructive-tint' : 'text-foreground',
+        tone === 'danger' ? 'text-destructive-text data-[highlighted]:bg-destructive-tint' : 'text-foreground data-[highlighted]:bg-interaction-tint data-[highlighted]:text-interaction',
         className,
       )}
       {...props}

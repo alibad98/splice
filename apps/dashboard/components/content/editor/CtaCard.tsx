@@ -112,7 +112,7 @@ export function CtaCard({ domains }: { domains: readonly string[] }) {
                       onBlur={field.onBlur}
                       className="peer sr-only"
                     />
-                    <span className="flex flex-col items-center gap-1.5 rounded-md border border-border bg-muted p-2 transition-colors peer-checked:border-foreground peer-focus-visible:shadow-[0_0_0_2px_var(--focus-ring-inner),0_0_0_4px_var(--ring)]">
+                    <span className="flex flex-col items-center gap-1.5 rounded-md border border-border bg-muted p-2 transition-colors peer-checked:border-interaction peer-checked:bg-interaction-tint peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring">
                       <span aria-hidden="true" className={cn('inline-flex h-6 w-16 items-center justify-center rounded-pill border-2', CTA_STYLE_CLASSES[style])} />
                       <span className="text-small font-medium">{m.cta.styles[style]}</span>
                     </span>

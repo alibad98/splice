@@ -214,7 +214,7 @@ export function Combobox<T>({
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseMove={() => setActive(index)}
                   onClick={() => pick(index)}
-                  className="flex min-h-11 cursor-pointer items-center gap-3 rounded-sm px-2 py-1.5 text-body transition-colors duration-120 data-active:bg-muted"
+                  className="flex min-h-11 cursor-pointer items-center gap-3 rounded-sm px-2 py-1.5 text-body transition-colors duration-120 data-active:bg-interaction-tint"
                 >
                   {renderOption(option)}
                 </div>

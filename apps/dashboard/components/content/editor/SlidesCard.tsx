@@ -431,7 +431,7 @@ function LinkForm({ copy, disabled, onAdd }: { copy: SlidesCopy; disabled: boole
                     setChoice(kind);
                     if (error === 'kind') setError(null);
                   }}
-                  className="size-4 accent-foreground"
+                  className="size-4 accent-interaction"
                 />
                 {copy.kinds[kind]}
               </label>

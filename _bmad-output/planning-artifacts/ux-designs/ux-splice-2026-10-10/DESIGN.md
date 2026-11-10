@@ -1,7 +1,7 @@
 ---
 name: Slips
 status: final
-updated: 2026-10-10
+updated: 2026-11-11
 description: Visual identity for Slips (سليبس), a Salla app for shoppable Stories/Reels — merchant dashboard (shadcn/ui + Tailwind 4) and neutral storefront player. Direction "Studio · Coral".
 colors:
   background: '#FFFFFF'
@@ -24,8 +24,10 @@ colors:
   primary-tint: '#FF4A3D14'
   destructive-tint: '#C0123C14'
   warning-tint: '#FFB54726'
-  focus-ring-inner: '#15110F'
-  ring: '#FF4A3D'
+  ring: '#157A70'
+  interaction: '#157A70'
+  interaction-foreground: '#FFFFFF'
+  interaction-tint: '#E5F4F0'
   destructive: '#C0123C'
   destructive-foreground: '#FFFFFF'
   destructive-text: '#9C0E31'
@@ -66,8 +68,10 @@ colors:
   primary-tint-dark: '#FF6A5C26'
   destructive-tint-dark: '#FF5C8026'
   warning-tint-dark: '#FFC46B26'
-  focus-ring-inner-dark: '#FFFFFF'
-  ring-dark: '#FF8A7E'
+  ring-dark: '#70D6C6'
+  interaction-dark: '#70D6C6'
+  interaction-foreground-dark: '#082822'
+  interaction-tint-dark: '#163730'
   destructive-dark: '#FF5C80'
   destructive-foreground-dark: '#1A0306'
   destructive-text-dark: '#FFA3B5'
@@ -122,7 +126,7 @@ components:
   kpi-tile: { background: '{colors.card}', foreground: '{colors.foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}', label: '{colors.muted-foreground}', deltaUp: '{colors.delta-up}', deltaDown: '{colors.delta-down}' }
   kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '{colors.primary-foreground}', delta: '{colors.primary-foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
   input: { background: '{colors.background}', border: '{colors.input-border}', rounded: '{rounded.md}', height: 36px, focusRing: '{components.focus-ring}' }
-  focus-ring: { inner: '{colors.focus-ring-inner}', outer: '{colors.ring}', width: 2px, offset: 0, opacity: 1, note: 'two-tone: 2px ink ring + 2px coral halo (dark: white inner + ring-dark); visible on coral fills' }
+  focus-ring: { color: '{colors.ring}', width: 2px, offset: 2px, opacity: 1, note: 'teal outline with a surface gap; no black/white inner ring or glow; forced-colors uses Highlight' }
   status-published: { background: '{colors.success-tint}', foreground: '{colors.success-text}', dot: '{colors.success}' }
   status-scheduled: { background: '{colors.primary-tint}', foreground: '{colors.info-text}', dot: '{colors.primary}' }
   status-draft: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: '{colors.muted-foreground}' }
@@ -162,7 +166,9 @@ Energetic and social, built with precision. Slips sells creator-tool energy (Sto
 
 | Role | Light | Dark | Use |
 |---|---|---|---|
-| primary | #FF4A3D | #FF6A5C | Primary buttons (ink text), active nav, chart-1, celebration tile; links use `{colors.info-text}` |
+| primary | #FF4A3D | #FF6A5C | Primary buttons (ink text), chart-1, celebration tile; links use `{colors.info-text}` |
+| interaction / ring | #157A70 | #70D6C6 | Focus outline, active control borders, checked controls and selected text |
+| interaction-tint | #E5F4F0 | #163730 | Selected nav, tabs, highlighted options and text selection; use interaction text on selected controls |
 | accent | #FFC23D | #FFC23D | Highlights, player CTA text, ring end. Fill only — never text on light surfaces |
 | success | #1BAA5A (text #0E6E39) | #3FD27F (text #8AF0B5) | Published, positive state |
 | warning | #FFB547 (text #8A5300) | #FFC46B (text #FFD699) | Deactivated, plan limits |
@@ -172,7 +178,7 @@ Energetic and social, built with precision. Slips sells creator-tool energy (Sto
 Charts: series in order chart-1..5; never encode meaning by color alone (legend + label).
 
 **WCAG AA (verified):**
-- **Button text rule: ink on coral, always.** #15110F on #FF4A3D = 5.63:1; #15110F on #FF6A5C (dark primary) = 6.67:1 — pass. White on #FF4A3D = 3.33:1 — forbidden for text (applies to buttons, active nav pills, celebration tile, avatars).
+- **Button text rule: ink on coral, always.** #15110F on #FF4A3D = 5.63:1; #15110F on #FF6A5C (dark primary) = 6.67:1 — pass. White on #FF4A3D = 3.33:1 — forbidden for text (applies to buttons, celebration tile and avatars).
 - Coral as a graphic on white = 3.33:1 (passes 3:1 non-text); never body text on white — use `{colors.info-text}` (6.23:1) for links and coral-toned text; `{colors.info-text-dark}` on card-dark = 10.5:1.
 - Control boundaries (inputs, outline buttons, checkboxes) use `{colors.input-border}` (3.56:1 on white) / `{colors.input-border-dark}` (3.77:1 on card-dark). `{colors.border}` is for decorative dividers only.
 - KPI delta: up `{colors.delta-up}` 6.35:1, down `{colors.delta-down}` 6.19:1; dark 9.18 / 7.24. Celebration tile label is solid ink (5.63:1).
@@ -199,7 +205,7 @@ Charts: series in order chart-1..5; never encode meaning by color alone (legend 
 
 ## Elevation & Depth
 
-Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.card.shadow}` / `shadowDark`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows, no glows except the focus ring `{components.focus-ring}`: full opacity, two-tone (2px `{colors.focus-ring-inner}` ink ring inside a 2px `{colors.ring}` halo; dark: white inner + `{colors.ring-dark}`), so it stays visible on coral fills (primary button, active nav, celebration tile). The player uses the same two-tone ring (white inner, ink outer) on entry points. The player uses a black scrim (60–80%) and white surfaces only.
+Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.card.shadow}` / `shadowDark`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows or focus glows. Dashboard focus uses a 2px teal outline with a 2px surface gap, independent of component shadows. Text controls use the interaction border on hover/focus; invalid controls retain destructive borders and messages. Native selection and caret use interaction tokens. Selected navigation, tabs and options use the interaction tint with teal text; checked checkboxes and switches use a solid interaction fill. Keep shape/weight/check indicators as well as color, honor reduced motion, and use the system Highlight outline in forced colors. The player keeps its existing two-tone ring (white inner, ink outer) on entry points and uses a black scrim (60–80%) and white surfaces only.
 
 ## Shapes
 
@@ -218,7 +224,7 @@ Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.
 - **Player CTA (`{components.player-cta}`):** near-black pill (#15110F) with amber text, 48px, full width — reads on any video frame and any merchant theme.
 - **Player progress (`{components.player-progress-bar}`):** segmented white bars on `player-progress-track`, always over a top scrim so they hold 3:1 on bright frames.
 - **Viewer controls:** mute / pause / close / next / previous are 44px round buttons, white icon on 40% `player-scrim` disc; arrows visible on desktop, tap zones are named buttons.
-- **App shell:** side nav (start side) on `{colors.card}`, active item = coral pill with ink text; top bar in-flow, `{colors.border}` bottom divider; connection chip uses `status-published` / `status-failed` styling.
+- **App shell:** side nav (start side) on `{colors.card}`, active item = interaction-tint pill with interaction text and semibold weight; top bar in-flow, `{colors.border}` bottom divider; connection chip uses `status-published` / `status-failed` styling.
 - **Attribution caption:** `{typography.small}` `{colors.muted-foreground}` + "How we count" link in `{colors.info-text}`.
 - **Onboarding checklist:** Card; steps with 20px check circle (`{colors.success}` done, `{colors.input-border}` outline pending).
 - **Content table:** shadcn Table in Card; 56px rows with 9:16 thumb; compact 40px; status chip column; row hover `{colors.muted}`.

@@ -14,7 +14,7 @@ const dark = { ...light, ...block('.dark') };
 const REQUIRED = [
   'background', 'page', 'foreground', 'card', 'primary', 'primary-foreground', 'accent', 'accent-foreground', 'muted',
   'muted-foreground', 'border', 'input-border', 'info-text', 'delta-up', 'delta-down', 'story-ring-seen', 'success-tint',
-  'primary-tint', 'destructive-tint', 'warning-tint', 'focus-ring-inner', 'ring', 'destructive', 'destructive-foreground',
+  'primary-tint', 'destructive-tint', 'warning-tint', 'ring', 'interaction', 'interaction-foreground', 'interaction-tint', 'destructive', 'destructive-foreground',
   'destructive-text', 'success', 'success-text', 'warning', 'warning-foreground', 'warning-text',
   'chart-1', 'chart-2', 'chart-3', 'chart-4', 'chart-5', 'player-scrim', 'player-surface', 'player-surface-foreground',
   'player-cta', 'player-cta-foreground', 'player-progress', 'player-progress-track',
@@ -82,16 +82,15 @@ describe('design tokens', () => {
     ['player-cta-foreground', 'player-cta', 4.5], ['player-surface-foreground', 'player-surface', 4.5],
     ['sidebar-primary-foreground', 'sidebar-primary', 4.5],
     // UI components / graphics (3:1)
-    ['input-border', 'card', 3], ['input-border', 'background', 3], ['ring', 'card', 3], ['focus-ring-inner', 'card', 3],
-    ['focus-ring-inner', 'primary', 3], ['ring', 'focus-ring-inner', 1],
+    ['input-border', 'card', 3], ['input-border', 'background', 3], ['ring', 'card', 3], ['ring', 'background', 3],
+    ['ring', 'page', 3], ['ring', 'muted', 3], ['ring', 'interaction-tint', 3],
+    ['interaction', 'card', 4.5], ['interaction', 'interaction-tint', 4.5], ['interaction-foreground', 'interaction', 4.5],
     ['chart-1', 'card', 3], ['chart-2', 'card', 3], ['chart-3', 'card', 3], ['chart-4', 'card', 3], ['chart-5', 'card', 3],
   ];
   it.each([['light', light], ['dark', dark]] as const)('%s pairs meet WCAG AA', (name, theme) => {
     for (const [fg, bg, min] of PAIRS) {
       // Documented exceptions: light-mode chart-4 amber and success/warning fills are graphics-only on card.
       if (name === 'light' && fg === 'chart-4') continue;
-      // Dark white inner ring on a coral fill is 2.81:1; the ring-dark halo outside it holds 3:1 against the surface, so the pair is exempt.
-      if (name === 'dark' && fg === 'focus-ring-inner' && bg === 'primary') continue;
       expect(ratio(theme[`--${fg}`]!, theme[`--${bg}`]!), `${name} ${fg} on ${bg}`).toBeGreaterThanOrEqual(min);
     }
   });
@@ -118,10 +117,11 @@ describe('design tokens', () => {
     expect(css).toContain('color-scheme: light dark');
   });
 
-  it('form controls use input-border and focus ring is two-tone', () => {
+  it('form controls use input-border and a separated focus outline that survives component shadows and forced colors', () => {
     expect(css).toMatch(/input, textarea, select[^{]*\{\s*border-color: var\(--input-border\)/);
-    expect(css).toMatch(/:focus-visible \{[^}]*0 0 0 2px var\(--focus-ring-inner\), 0 0 0 4px var\(--ring\)/);
-    expect(dark['--focus-ring-inner']).toBe('#FFFFFF');
+    expect(css).toMatch(/:focus-visible \{[^}]*outline: 2px solid var\(--ring\); outline-offset: 2px/);
+    expect(css).toContain('@media (forced-colors: active)');
+    expect(css).toContain('outline-color: Highlight');
   });
 
   it('defines type scale, Arabic rules, spacing and radius tokens', () => {

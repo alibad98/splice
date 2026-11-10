@@ -10,7 +10,7 @@ export function AuthHeading({ title, children }: { title: ReactNode; children?: 
   );
 }
 
-/** Inline text link on auth pages: AA coral text, underline on hover, global two-tone focus ring. */
+/** Inline text link on auth pages: AA coral text, underline on hover, global focus outline. */
 export const authLinkClass = 'rounded-sm font-semibold text-info-text underline-offset-4 transition-colors hover:underline';
 
 /** Simple shape check; the server stays the authority. */

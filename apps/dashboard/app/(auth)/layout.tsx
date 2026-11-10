@@ -19,7 +19,7 @@ export default async function AuthLayout({ children }: { children: ReactNode }) 
   const a = m.auth;
 
   return (
-    <div className="flex min-h-dvh flex-col bg-page text-foreground selection:bg-primary selection:text-primary-foreground lg:grid lg:grid-cols-2">
+    <div className="flex min-h-dvh flex-col bg-page text-foreground lg:grid lg:grid-cols-2">
       <aside className="dark sticky top-0 hidden h-dvh flex-col items-center overflow-hidden border-e border-border bg-background px-12 py-[clamp(16px,3.5dvh,32px)] text-center text-foreground select-none lg:flex xl:px-20">
         <DotField />
 

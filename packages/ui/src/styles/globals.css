@@ -224,11 +224,14 @@
     border-color: color-mix(in srgb, var(--ring) 65%, transparent);
   }
   @media (hover: hover) and (pointer: fine) {
-    .ui-control:not(:disabled):not([aria-disabled="true"]):not([aria-invalid="true"]):hover:not(:focus-visible),
-    .ui-drop-zone:not([data-disabled]):not([data-dragging="true"]):hover:not(:has(:focus-visible)) {
+    .ui-control:not(:disabled):not([aria-disabled="true"]):not([aria-invalid="true"]):hover:not(:focus-visible) {
       border-color: color-mix(in srgb, var(--ring) 40%, transparent);
       outline: 1px solid color-mix(in srgb, var(--ring) 25%, transparent);
       outline-offset: 0;
+      box-shadow: 0 1px 4px color-mix(in srgb, var(--ring) 6%, transparent);
+    }
+    .ui-drop-zone:not([data-disabled]):not([data-dragging="true"]):hover:not(:has(:focus-visible)) {
+      border-color: color-mix(in srgb, var(--ring) 40%, transparent);
       box-shadow: 0 1px 4px color-mix(in srgb, var(--ring) 6%, transparent);
     }
   }

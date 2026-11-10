@@ -175,3 +175,13 @@ Rejected:
 
 **Manual checks:**
 - Gallery at `http://localhost:3003/ui` in AR/EN, light/dark, and with reduced motion on (OS setting or DevTools emulation).
+
+### Player preview (Story 3.11)
+
+Owner: `packages/player`, entry `@slips/player/preview`, shared viewer `@slips/player/viewer`. This is a Preact Shadow DOM component with system fonts and no React/Tailwind/UI-kit runtime imports. It renders the first StoreManifest v1 item and its ordered slides in a 9:16 stage. Locale controls host direction and merchant text uses `dir="auto"`.
+
+Visual tokens: ink #15110f, amber #ffc23d CTA text, white product surface, muted #615954, coral #ff4a3d focus; 4px spacing and 12–16px corners. The player README registers the full `--slips-*` property/default table. Native video controls stay unobstructed; title/product names wrap within bounded areas, navigation and the localized safety note stay visible.
+
+States: complete image/video, processing poster/inspected-source fallback, empty item/slides, missing/failed media, missing/deleted product, limited/out-of-stock, required options, disabled CTA, keyboard focus and localized simulated feedback. Text is never interpreted as HTML. Preview actions exclusively use MockStorefrontPlatform; no real cart, navigation or analytics.
+
+Integration boundary: explicit API base and parent origin, exact-source/origin versioned handshake, validated updates without iframe reload, parent-owned authenticated fetching and blob lifetime. Dashboard phone frame, editor layout and loading/retry composition belong to Story 3.12. Existing DESIGN.md is preserved.

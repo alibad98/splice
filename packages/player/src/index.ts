@@ -7,3 +7,8 @@ export type PlayerHealth = HealthResponse['status'];
 export const PLAYER_VERSION = '0.0.0';
 
 export { boot } from './loader.js';
+
+// Declaration-only exports keep preview/viewer runtime code outside the loader closure.
+export type { PreviewOptions } from './preview/index.js';
+export type { PreviewLocale, PreviewReady, PreviewUpdate } from './preview/protocol.js';
+export type { Viewer, ViewerOptions } from './viewer/index.js';

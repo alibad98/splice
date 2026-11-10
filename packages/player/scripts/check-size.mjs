@@ -1,11 +1,12 @@
 // Gzip budget gate for the player build (NFR8). Fails (exit 1) on a failing budget, warns otherwise.
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { evaluate } from './size-budget.mjs';
 
-const dist = new URL('../dist/', import.meta.url).pathname;
-const stubFile = new URL('../stub/stub.js', import.meta.url).pathname;
+const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+const stubFile = fileURLToPath(new URL('../stub/stub.js', import.meta.url));
 
 const gz = (file) => gzipSync(readFileSync(file), { level: 9 }).length;
 
@@ -23,7 +24,7 @@ function closure(entry, seen = new Set()) {
 
 const total = (files) => [...files].reduce((n, f) => n + gz(f), 0);
 const loaderFiles = closure(join(dist, 'loader.js'));
-if (![...loaderFiles].some((f) => /\/preact[^/]*\.js$/.test(f))) {
+if (![...loaderFiles].some((f) => /[\\/]preact[^\\/]*\.js$/.test(f))) {
   console.error('FAIL chunk discovery: the core loader closure does not include the preact chunk; the size gate would undercount');
   process.exit(1);
 }

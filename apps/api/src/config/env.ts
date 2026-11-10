@@ -83,6 +83,8 @@ export const EnvSchema = z
   S3_FORCE_PATH_STYLE: z.preprocess(emptyToUndefined, z.stringbool().default(true)),
   /** Upload URLs one store may be issued per 10 minutes before 429 `media-upload-rate-limited` (Story 3.5). */
   MEDIA_UPLOAD_RATE_LIMIT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(100_000).default(60)),
+  /** Worker executable for playable video renditions; defaults to ffmpeg on PATH. */
+  FFMPEG_PATH: z.preprocess(emptyToUndefined, z.string().min(1).default('ffmpeg')),
 })
   .refine((e) => e.PORT !== e.WORKER_HEALTH_PORT, { path: ['WORKER_HEALTH_PORT'], message: 'must differ from PORT' })
   .superRefine((e, ctx) => {

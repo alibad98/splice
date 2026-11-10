@@ -1,4 +1,4 @@
-// Framing policy (AD-12): merchant pages may be framed only by the Salla Merchant Dashboard; /admin never.
+// Framing policy (AD-12): merchant pages allow Salla; the player also allows its own dashboard parent.
 
 /** Origin of the Salla Merchant Dashboard, overridable per environment. */
 export function embedOrigin(env: Record<string, string | undefined> = process.env): string {
@@ -18,6 +18,8 @@ export const isAuthPath = (pathname: string): boolean => AUTH_PATHS.has(pathname
 
 /** The `frame-ancestors` directive for a request path. */
 export function frameAncestors(pathname: string, origin: string = embedOrigin()): string {
+  // Browsers check every ancestor: embedded previews have both the dashboard and Salla above them.
+  if (pathname === '/player-preview/index.html') return `frame-ancestors 'self' ${origin}`;
   return isAdminPath(pathname) || isAuthPath(pathname) ? "frame-ancestors 'none'" : `frame-ancestors ${origin}`;
 }
 

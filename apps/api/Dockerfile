@@ -13,6 +13,7 @@ RUN pnpm turbo run build --filter=@slips/api...
 RUN pnpm deploy --filter=@slips/api --prod --legacy /out
 
 FROM node:24-alpine AS runtime
+RUN apk add --no-cache ffmpeg
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./

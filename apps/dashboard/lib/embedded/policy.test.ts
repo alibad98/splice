@@ -11,6 +11,13 @@ describe('framing policy', () => {
     expect(isAdminPath('/administrator')).toBe(false);
     expect(frameAncestors('/administrator')).toBe('frame-ancestors https://s.salla.sa');
   });
+  it('the player preview allows the dashboard and all configured Salla ancestors', () => {
+    expect(frameAncestors('/player-preview/index.html')).toBe("frame-ancestors 'self' https://s.salla.sa");
+    expect(frameAncestors('/player-preview/index.html', 'https://merchant.example')).toBe("frame-ancestors 'self' https://merchant.example");
+    for (const path of ['/player-preview-other/index.html', '/content', '/player-preview/index.html/other']) {
+      expect(frameAncestors(path)).toBe('frame-ancestors https://s.salla.sa');
+    }
+  });
   it('the origin comes from env but must be an https origin (or localhost) and never a wildcard', () => {
     expect(embedOrigin({ EMBED_ALLOWED_ORIGIN: 'https://s.example.com/path?x' })).toBe('https://s.example.com');
     expect(embedOrigin({ EMBED_ALLOWED_ORIGIN: 'http://localhost:4000' })).toBe('http://localhost:4000');

@@ -17,7 +17,7 @@ import { mediaStoreData } from './modules/media/media.lifecycle.js';
 import { S3ObjectStorage } from './adapters/storage/s3-storage.js';
 import { EicarMalwareScanner } from './adapters/scanner/eicar-scanner.js';
 import { SsrfSafeFetcher } from './adapters/fetch/ssrf-safe-fetcher.js';
-import { DevMediaProcessor } from './adapters/media/dev-media-processor.js';
+import { FfmpegMediaProcessor } from './adapters/media/ffmpeg-media-processor.js';
 import { unconfiguredStorage, type ObjectStorage } from './ports/object-storage.js';
 import type { Telemetry } from './ports/telemetry.js';
 import { ConsoleMailer } from './adapters/mailer/console-mailer.js';
@@ -61,6 +61,7 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'S3_SECRET_KEY'
       | 'S3_FORCE_PATH_STYLE'
       | 'MEDIA_UPLOAD_RATE_LIMIT'
+      | 'FFMPEG_PATH'
     >
   >;
 
@@ -167,7 +168,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     scanner: overrides.scanner ?? new EicarMalwareScanner(),
     media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60 },
     // External media links are fetched by the worker only (Story 3.7).
-    ...(role === 'worker' ? { fetcher: overrides.fetcher ?? new SsrfSafeFetcher(), processor: overrides.processor ?? new DevMediaProcessor() } : {}),
+    ...(role === 'worker' ? { fetcher: overrides.fetcher ?? new SsrfSafeFetcher(), processor: overrides.processor ?? new FfmpegMediaProcessor(env.FFMPEG_PATH) } : {}),
     lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage)],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),

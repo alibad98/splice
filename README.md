@@ -19,6 +19,11 @@ docs/runbooks/  operational runbooks (see staging.md)
 
 Requires Node 24 (>= 24.15, see `.nvmrc`), pnpm 12.11.2 (`corepack enable` picks it up from `packageManager`) and Docker.
 
+Local video uploads also require FFmpeg with H.264, AAC and WebP encoders. Install it on your PATH,
+or set `FFMPEG_PATH` in `.env` to its executable. The API worker uses real FFmpeg renditions and
+video-frame posters; synthetic MP4 generation is reserved for test fixtures. The API Docker image
+includes FFmpeg. Restart the worker after changing `.env`.
+
 ```sh
 pnpm install
 cp .env.example .env

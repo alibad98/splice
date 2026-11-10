@@ -71,3 +71,11 @@ mode. Product/CDN URLs never receive those credentials. Parent-owned blob URLs
 remain alive until replacement or teardown; superseded results release their own
 resources. Manifest and locale updates use the existing ready/update protocol
 without navigating the iframe. Retry independently repeats retrieval/startup.
+
+The Next.js proxy must allow `frame-ancestors 'self' <configured Salla origin>`
+on `/player-preview/index.html`: the iframe has a same-origin dashboard parent,
+and embedded mode also has Salla as an ancestor. Other route framing policies
+remain unchanged. Dashboard browser tests start both the editor harness and a
+production Next.js server to exercise these headers and real player startup.
+Run `pnpm turbo run build --filter=@slips/dashboard...` before the dashboard
+`test:e2e` command, as CI does.

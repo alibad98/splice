@@ -25,6 +25,7 @@ context:
 - Render saved server state. Refresh immediately after a successful create/update, product/slide-order save, or observed processing change; deliver the refreshed manifest within 2 seconds under normal API/media response times. Unsaved edits and failed saves must not replace saved preview content. Before first save, show a localized save-first state without a manifest request.
 - Fetch `GET /v1/preview/content/{id}` through the merchant SessionClient and validate StoreManifest v1. Use the existing real player entry and MockStorefrontPlatform; updates must not reload the iframe. Locale changes update the player too.
 - Register the parent listener before loading the iframe; validate exact origin, iframe window, message type and version. Configure the child from trusted same-origin application configuration. Never transmit session credentials. Constrain the child with a CSP allowing required scripts/styles/media and no commerce or analytics connections.
+- Decision (2026-11-10, framing fix): Next.js must serve `/player-preview/index.html` with `frame-ancestors 'self' <configured Salla origin>` so the full dashboard/Salla ancestor chain is permitted. Keep the existing framing policies for merchant, auth and admin routes. Verify actual browser initialization through Next.js as well as the editor harness.
 - Resolve public media against the configured API base. For bearer-protected API media, authenticate only known API media paths, create blob URLs, and retain them until replacement/destroy. Never forward credentials to product/CDN URLs. Cancel or ignore superseded work, clean up stale blobs/listeners, and prevent older responses replacing newer saves.
 - Show a skeleton phone frame after 150 ms of loading. Fetch, media preparation, asset/iframe startup failure or handshake timeout shows “Preview didn't load. Try again.” and Retry. Refresh errors may retain the last valid view with an error notice; Retry must recover without resaving content.
 - Arabic/English copy, accessible iframe title, polite loading announcements, logical CSS and reduced-motion support. Preserve native player controls and existing editor save semantics.
@@ -55,6 +56,7 @@ context:
 - `apps/dashboard/scripts/{prepare-preview,dev}.mjs`, dashboard `package.json`, root `package.json`, `pnpm-lock.yaml`, `turbo.json`, `.gitignore`, dashboard `Dockerfile` — workspace player build dependency; copy player JS chunks and iframe assets to ignored `public/player-preview` before build/dev, include generated output in Turbo cache and production image. Root dev currently excludes the player build.
 - `apps/dashboard/i18n/messages/{ar,en}.ts` — replace soon copy with preview states; preserve key parity.
 - Existing `editor.test.tsx`, `slides.test.tsx` and UI kit living spec — update placeholder assumptions and register the integrated component.
+- `apps/dashboard/lib/embedded/policy.ts`, policy/proxy tests, `playwright.config.ts`, `e2e/next-preview.spec.ts` — allow same-origin framing only for the preview document and verify its real production Next.js headers, handshake and player rendering.
 
 ## Tasks & Acceptance
 
@@ -66,6 +68,7 @@ context:
 - [x] `apps/dashboard/e2e/preview.spec.ts` plus browser harness/config — verify the real built player, updates without reload, simulated CTA, responsive Arabic/English layouts and failure recovery; inspect captures.
 - [x] Player README and UI kit registry — document embedding, resource ownership and deployment assets.
 - [x] `.claude/skills/impeccable/` guidance — read craft-floor before UI edits, inspect desktop/mobile captures together, fix in one batch, confirm at most once, and run the required detector once on finished UI.
+- [x] Framing regression — reproduce the original proxy-policy failure, permit dashboard/Salla ancestors for the preview document, and add a browser regression through the actual Next.js server.
 
 **Acceptance Criteria:**
 - Given a saved item, when the editor opens, then the real iframe player and always-visible safety note appear in the responsive phone panel.
@@ -81,6 +84,7 @@ context:
 
 ## Spec Change Log
 
+- 2026-11-10 — User reported persistent broken preview/loading. The actual Next.js proxy supplied `frame-ancestors https://s.salla.sa`, blocking the dashboard's same-origin iframe. Vite-only browser coverage had bypassed this policy. User authorized the fix and spec update: document the required ancestor chain and add real Next.js browser coverage. Preserve exact-origin messaging, existing merchant/auth/admin framing restrictions, and the child document's no-connections CSP.
 ## Review Triage Log
 
 | ID | Verdict | Evidence / disposition |
@@ -118,3 +122,9 @@ context:
 - Dashboard lint, typecheck, unit suite and build; player build/budget and existing browser regressions.
 - New dashboard browser integration and visual captures at desktop/mobile sizes in both locales.
 - `git diff --check`.
+
+### Framing fix verification (2026-11-10)
+
+- Before the fix, new policy/proxy regressions failed with the original Salla-only header. After the fix, all 13 policy/proxy tests pass, including no-cookie iframe navigation, custom Salla origin, lookalike-path isolation and existing merchant/auth/admin restrictions.
+- Live development server at port 3003 returns HTTP 200 and `frame-ancestors 'self' https://s.salla.sa` for the preview document.
+- Node 24.15.0: production build (including TypeScript), focused ESLint, and all 8 dashboard browser tests pass. The new case uses an actual production Next.js server, asserts its CSP header, and proves browser framing, ready handshake and content rendering. Logs: system temp `splice-3-12-final/framing-{build,browser}.log`.

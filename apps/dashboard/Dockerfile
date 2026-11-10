@@ -15,6 +15,7 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 WORKDIR /app
 COPY --from=build --chown=node:node /repo/apps/dashboard/.next/standalone ./
 COPY --from=build --chown=node:node /repo/apps/dashboard/.next/static ./apps/dashboard/.next/static
+COPY --from=build --chown=node:node /repo/apps/dashboard/public ./apps/dashboard/public
 USER node
 EXPOSE 3000
 CMD ["node", "apps/dashboard/server.js"]

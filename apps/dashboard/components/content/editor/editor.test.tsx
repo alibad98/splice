@@ -12,6 +12,8 @@ import { ContentEditor } from './ContentEditor';
 import { ContentEditorPage } from './ContentEditorPage';
 import { AUTOSAVE_DELAY_MS } from './use-autosave';
 
+vi.mock('./LivePreviewPanel', () => ({ LivePreviewPanel: () => <div data-testid="preview-frame"><iframe title="Saved content preview" src="/player-preview/index.html" /><p>Preview: no real cart or analytics</p></div> }));
+
 const push = vi.fn();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn() }),
@@ -294,7 +296,7 @@ describe('Content editor: draft autosave', () => {
     expect(h1.textContent).toBe(xss);
     expect(h1.getAttribute('dir')).toBe('auto');
     expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByTestId('preview-frame').textContent).toContain(xss);
+    expect(screen.getByTitle('Saved content preview')).toBeTruthy();
   });
 
   it('a processing item still autosaves edits and updates its status chip to Draft when its slide finishes processing (Story 3.8)', async () => {
@@ -438,7 +440,7 @@ describe('Content editor: explicit saves, read-only, errors and leaving', () => 
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(aside.className).not.toMatch(/(^|\s)hidden(\s|$)/);
     expect(document.getElementById('content-editor-form')!.className).toMatch(/(^|\s)hidden(\s|$)/);
-    expect(screen.getByText('Live preview arrives soon')).toBeTruthy();
+    expect(screen.getByText('Preview: no real cart or analytics')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Back to editing' }));
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
@@ -609,14 +611,11 @@ describe('Content editor: product picker (Story 3.4)', () => {
     expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { product_id: null } });
   });
 
-  it('a product with required options makes the add-to-cart preview read "View options" with a note', async () => {
+  it('a saved product uses the real preview iframe', () => {
     const linked = item({ product: summary(CATALOG[2]!) });
     handler = catalogServer(linked);
     setup({ element: <ContentEditor item={linked} /> });
-    expect(screen.getByTestId('preview-cta').textContent).toBe('View options');
-    expect(screen.getByText(/options shoppers must choose/)).toBeTruthy();
-    await chooseAction('Open product');
-    await until(() => expect(screen.getByTestId('preview-cta').textContent).toBe('Add to cart'));
+    expect(screen.getByTitle('Saved content preview').getAttribute('src')).toBe('/player-preview/index.html');
   });
 
   it('a deleted linked product shows the warning with "Pick another product", which opens the picker', async () => {

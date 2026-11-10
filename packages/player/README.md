@@ -48,3 +48,26 @@ The 9:16 stage is independent of React/Tailwind/UI-kit imports. Set the host's i
 Respect contrast when overriding properties. System fonts are binding. The product/action dock uses 4px spacing increments and 12–16px corners; the CTA remains a pill. No decorative motion is added, including under reduced motion.
 
 `e2e/fixtures/preview.html` is a real iframe harness using the built entry and clearly labelled synthetic media/product data. Raster provenance is in `e2e/fixtures/MEDIA.md`. Browser captures are written under the repository `.impeccable/review/` for desktop/mobile, Arabic/English and complete/incomplete states. Existing CLS and gzip-budget checks continue to cover the loader.
+# Dashboard embedding
+
+The dashboard serves the built preview entry and its shared chunks at `/player-preview/`.
+Its `prepare-preview.mjs` copies the workspace player build and the trusted iframe
+bootstrap before development or production builds. Turbo tracks these generated
+assets, and the dashboard image copies `public` beside the standalone server.
+Build the player before running the dashboard directly; root development and Turbo
+builds do this through the workspace dependency.
+
+The parent registers its message listener before setting the iframe URL. Only the
+exact same-origin iframe window and v1 `slips.preview.ready` message can start
+updates. The child takes its origin from its own same-origin location and API base
+from generated application configuration, with no message/query configuration or
+session credentials. Its CSP prohibits connection requests, forms and objects;
+the unchanged player uses `MockStorefrontPlatform` for actions.
+
+`LivePreviewPanel` receives the editor's last saved server snapshot. The parent
+fetches and validates StoreManifest v1, resolves media against the merchant API,
+and fetches selected protected byte endpoints through SessionClient in bearer
+mode. Product/CDN URLs never receive those credentials. Parent-owned blob URLs
+remain alive until replacement or teardown; superseded results release their own
+resources. Manifest and locale updates use the existing ready/update protocol
+without navigating the iframe. Retry independently repeats retrieval/startup.

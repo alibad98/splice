@@ -9,3 +9,7 @@ next-env.d.ts
 .env.local
 test-results/
 playwright-report/
+
+/apps/dashboard/public/player-preview/
+/apps/dashboard/test-results/
+/apps/dashboard/playwright-report/

@@ -27,7 +27,7 @@ import { ContentStatusChip } from '../ContentStatusChip';
 import { contentHref } from '../ContentTable';
 import { CtaCard } from './CtaCard';
 import { FormatTitleCard } from './FormatTitleCard';
-import { PreviewPlaceholder } from './PreviewPlaceholder';
+import { LivePreviewPanel } from './LivePreviewPanel';
 import { ProductCard } from './ProductCard';
 import { SlidesCard } from './SlidesCard';
 import { EDITOR_FIELDS, editorSchema, fieldId, fromItem, newItemValues, patchOf, saveKey, slideAltId, toInput, type EditorErrorKey, type EditorValues } from './form';
@@ -42,7 +42,7 @@ const NO_DOMAINS: readonly string[] = [];
 class FieldRejected extends Error {}
 
 /**
- * Create and edit one Story or Reel (Stories 3.3, 3.4, 3.6): format and title, slides, the linked product, CTA, and a preview placeholder. Drafts (and a new
+ * Create and edit one Story or Reel (Stories 3.3, 3.4, 3.6): format and title, slides, the linked product, CTA, and a saved-content preview. Drafts (and a new
  * item, once it has a title) autosave; other statuses save with "Save changes"; archived items are read-only. Files can
  * be dropped before the title: they upload at once and their slides are sent with the first create.
  * Without `item` the first save creates the Draft and the URL becomes `/content/{id}` without a remount.
@@ -288,7 +288,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
           </form>
           <aside id={PREVIEW_ID} aria-label={m.preview.heading} className={cn('flex-col gap-3 lg:sticky lg:top-6', previewOpen ? 'flex' : 'hidden lg:flex')}>
             <h2 className="text-h3">{m.preview.heading}</h2>
-            <PreviewPlaceholder product={product} />
+            <LivePreviewPanel saved={saved} />
           </aside>
         </div>
 

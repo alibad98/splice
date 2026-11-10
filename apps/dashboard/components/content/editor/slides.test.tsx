@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('./LivePreviewPanel', () => ({ LivePreviewPanel: () => <div data-testid="preview-frame"><iframe title="Saved content preview" src="/player-preview/index.html" /><p>Preview: no real cart or analytics</p></div> }));
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ContentItem, ContentSlide, MediaAsset } from '@slips/contracts';

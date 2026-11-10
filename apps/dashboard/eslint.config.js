@@ -1,7 +1,7 @@
 import { createConfig } from '@slips/config/eslint';
 import { noPhysicalDirection } from './eslint-rules/direction.js';
 
-export default createConfig({
+export default [{ ignores: ['public/player-preview/**', 'test-results/**'] }, ...createConfig({
   dir: import.meta.dirname,
   extra: [
     {
@@ -21,4 +21,4 @@ export default createConfig({
       },
     },
   ],
-});
+})];

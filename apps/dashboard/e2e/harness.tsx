@@ -1,0 +1,13 @@
+import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ContentEditor } from '../components/content/editor/ContentEditor';
+import { I18nProvider } from '../i18n/provider';
+import { getMessages } from '../i18n/messages';
+import '@slips/ui/globals.css';
+import { item } from './fixture';
+const locale = new URLSearchParams(location.search).get('lang') === 'ar' ? 'ar' : 'en';
+const mode = new URLSearchParams(location.search).get('mode');
+const initial = mode === 'new' ? undefined : mode === 'published' ? { ...item, status: 'published' as const } : item;
+document.documentElement.dir = locale === 'ar' ? 'rtl' : 'ltr';
+document.documentElement.lang = locale;
+createRoot(document.getElementById('root')!).render(<I18nProvider locale={locale} messages={getMessages(locale)}><QueryClientProvider client={new QueryClient()}><main className="mx-auto max-w-6xl p-6"><ContentEditor item={initial} /></main></QueryClientProvider></I18nProvider>);

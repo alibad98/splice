@@ -322,7 +322,12 @@ export const en = {
       },
       preview: {
         heading: 'Preview',
-        soon: 'Live preview arrives soon',
+        title: "Saved content preview",
+        saveFirst: "Save your content to start the preview.",
+        loading: 'Loading preview…',
+        error: "Preview didn't load. Try again.",
+        retry: "Retry",
+        safety: "Preview: no real cart or analytics",
         show: 'Preview',
         hide: 'Back to editing',
       },

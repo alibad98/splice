@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 const envFile = fileURLToPath(new URL('../../../.env', import.meta.url));
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 
+await import('./prepare-preview.mjs');
+
 const port = process.env.DASHBOARD_PORT || '3000';
 const child = spawn('next', ['dev', '--port', port], { stdio: 'inherit', env: process.env, shell: process.platform === 'win32' });
 const stop = () => {

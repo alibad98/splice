@@ -9,7 +9,11 @@
       "outputs": [
         "dist/**",
         ".next/**",
-        "!.next/cache/**"
+        "!.next/cache/**",
+        "public/player-preview/**"
+      ],
+      "env": [
+        "NEXT_PUBLIC_API_URL"
       ]
     },
     "dev": {

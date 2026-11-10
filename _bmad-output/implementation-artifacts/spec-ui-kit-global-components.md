@@ -61,6 +61,22 @@ context:
 
 ## Component Registry
 
+### LivePreviewPanel (dashboard editor, Story 3.12)
+
+`apps/dashboard/components/content/editor/LivePreviewPanel.tsx` embeds the real
+player in the existing end-side responsive editor column. Uses the established
+rounded-lg 9:16 ink bezel, shared Button for Retry, small warning text for the
+always-visible safety note, and logical layout utilities. No shared tokens changed.
+The small-screen toggle and medium sticky button preserve the existing editor flow.
+
+States: save-first (no request), loading (polite announcement and skeleton after
+150 ms), saved player, startup/fetch/media failure with Retry, and retained valid
+view on refresh error. Skeleton animation obeys reduced motion. Arabic/English
+titles and messages are localized; iframe title names the saved-content preview.
+Only saved server snapshots trigger manifests, and the persistent iframe receives
+locale changes through the v1 update protocol. Parent owns authentication and blob
+cleanup; the child makes no commerce or analytics connections.
+
 | Wave | Component | Covers | Status |
 |------|-----------|--------|--------|
 | 1 | Button (+ Spinner) | primary, secondary, accent, ghost, destructive; sizes 32/36/44; pending; unavailable-with-reason | built (Story 2.3) |

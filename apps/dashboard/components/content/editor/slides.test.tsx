@@ -215,6 +215,7 @@ const META: Record<string, MediaMeta | null> = {
   'c.mp4': { width: 1080, height: 1920, duration: 30 },
   'd.jpg': { width: 1500, height: 2000 },
   'small.jpg': { width: 800, height: 800 },
+  'WGCG6137.MOV': { width: 480, height: 854, duration: 30 },
   'long.mp4': { width: 1080, height: 1920, duration: 95 },
 };
 const file = (name: string, type: string, size = 1000) => {
@@ -285,6 +286,8 @@ beforeEach(() => {
   grants = 0;
   FakeXhr.all = [];
   vi.stubGlobal('XMLHttpRequest', FakeXhr);
+  // Keep upload fixture IDs stable: native hashes can finish out of order.
+  vi.spyOn(crypto.subtle, 'digest').mockResolvedValue(new ArrayBuffer(32));
   vi.spyOn(mediaMetaReader, 'read').mockImplementation(async (f) => META[(f as File).name] ?? null);
   if (!URL.createObjectURL) Object.assign(URL, { createObjectURL: () => '', revokeObjectURL: () => undefined });
   vi.spyOn(URL, 'createObjectURL').mockImplementation((f) => `blob:${(f as File).name}`);
@@ -303,6 +306,28 @@ afterEach(() => {
 });
 
 describe('Slides card (Story 3.6): uploads', () => {
+  it('shows low-resolution video dimensions before upload and opens the picker for a replacement without losing accepted slides', async () => {
+    setup(item());
+    await drop([file('WGCG6137.MOV', 'video/quicktime'), file('c.mp4', 'video/mp4')]);
+    await until(() => expect(open()).toHaveLength(1));
+    expect(rows()).toHaveLength(1);
+    expect(grants).toBe(1);
+    expect(crypto.subtle.digest).toHaveBeenCalledOnce();
+    expect(screen.getByText('WGCG6137.MOV: this video is 480 × 854 px. Both sides must be at least 720 px. Choose a higher-resolution original.')).toBeTruthy();
+    const input = zone().querySelector<HTMLInputElement>('input[type="file"]')!;
+    const picker = vi.spyOn(input, 'click');
+    fireEvent.click(screen.getByRole('button', { name: 'Replace files' }));
+    expect(picker).toHaveBeenCalledOnce();
+    // Opening or cancelling the picker must keep the warning and the valid slide.
+    expect(screen.getByText("Some files weren't added")).toBeTruthy();
+    expect(rows()).toHaveLength(1);
+    await act(async () => fireEvent.change(input, { target: { files: [file('c.mp4', 'video/mp4')] } }));
+    await until(() => expect(open()).toHaveLength(2));
+    expect(rows()).toHaveLength(2);
+    expect(screen.queryByText("Some files weren't added")).toBeNull();
+    expect(grants).toBe(2);
+  });
+
   it('refuses files that break a limit (naming file and limit), uploads at most 3 at once in drop order with progress, and saves the slides in drop order once image alt text is given', async () => {
     setup(item());
     expect(screen.getByRole('button', { name: 'Choose files' })).toBeTruthy();
@@ -318,7 +343,7 @@ describe('Slides card (Story 3.6): uploads', () => {
     await until(() => expect(rows()).toHaveLength(4));
     const alert = screen.getByText("Some files weren't added").closest('[data-slot="alert"]') ?? document.body;
     expect(alert.textContent).toContain('big.png: images can be up to 10 MB');
-    expect(alert.textContent).toContain('small.jpg: the shorter side of an image must be at least 1080 px');
+    expect(alert.textContent).toContain('small.jpg: this image is 800 × 800 px. Both sides must be at least 1080 px. Choose a higher-resolution original.');
     expect(alert.textContent).toContain('long.mp4: videos can be up to 90 seconds');
 
     // Three PUTs at once, in drop order; the fourth waits.

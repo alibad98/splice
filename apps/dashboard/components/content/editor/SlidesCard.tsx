@@ -132,7 +132,9 @@ export function SlidesCard({
     const accepted: NewUpload[] = [];
     for (const { file, result } of checked) {
       if (!result.ok) {
-        messagesOut.push(fill(s.rejected[result.reason], { file: file.name, ...reasonValues(result.reason) }));
+        const dimensions: Record<string, number> = result.reason === 'imageResolution' || result.reason === 'videoResolution'
+          ? { width: result.width, height: result.height } : {};
+        messagesOut.push(fill(s.rejected[result.reason], { file: file.name, ...reasonValues(result.reason), ...dimensions }));
         continue;
       }
       if (room <= 0) {
@@ -288,7 +290,17 @@ export function SlidesCard({
           }
           onDismiss={() => setRejections([])}
           dismissLabel={s.rejected.dismiss}
-        />
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={readOnly || full}
+            onClick={() => (document.getElementById(fieldId('slides')) as HTMLInputElement | null)?.click()}
+          >
+            {s.rejected.replace}
+          </Button>
+        </Alert>
       ) : null}
       {slides.length > 0 ? (
         <ol ref={listRef} aria-label={s.listLabel} className="flex flex-col gap-3">

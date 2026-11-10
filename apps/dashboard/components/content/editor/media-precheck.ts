@@ -8,7 +8,10 @@ import { MEDIA_LIMITS, isAllowedMediaType, type MediaContentType, type MediaKind
 /** Why a file was refused; each maps to copy that names the file and the limit. */
 export type PrecheckReason = 'type' | 'imageSize' | 'videoSize' | 'videoDuration' | 'imageResolution' | 'videoResolution' | 'unreadable';
 
-export type PrecheckResult = { ok: true; kind: MediaKind; contentType: MediaContentType } | { ok: false; reason: PrecheckReason };
+export type PrecheckResult =
+  | { ok: true; kind: MediaKind; contentType: MediaContentType }
+  | { ok: false; reason: Exclude<PrecheckReason, 'imageResolution' | 'videoResolution'> }
+  | { ok: false; reason: 'imageResolution' | 'videoResolution'; width: number; height: number };
 
 /** What the browser could read about the file. `null` for a video it cannot decode (e.g. MOV in Firefox): those checks are skipped. */
 export interface MediaMeta {
@@ -107,5 +110,9 @@ export async function precheckFile(file: File, read: typeof readMediaMeta = (f, 
     meta = null;
   }
   const reason = precheckMeta(basics.kind, meta);
+  if (reason === 'imageResolution' || reason === 'videoResolution') {
+    if (!meta) return { ok: false, reason: 'unreadable' };
+    return { ok: false, reason, width: meta.width, height: meta.height };
+  }
   return reason ? { ok: false, reason } : basics;
 }

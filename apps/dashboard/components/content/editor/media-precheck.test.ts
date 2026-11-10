@@ -50,4 +50,18 @@ describe('media pre-check (Story 3.6)', () => {
     const mov = new File(['x'], 'clip.mov', { type: 'video/quicktime' });
     expect(await precheckFile(mov, () => Promise.resolve(null))).toMatchObject({ ok: true, kind: 'video' });
   });
+
+  it('keeps detected dimensions for resolution errors in either orientation and accepts the exact minimum', async () => {
+    const video = new File(['x'], 'clip.MOV', { type: 'video/quicktime' });
+    for (const [width, height] of [[480, 854], [854, 480]] as const) {
+      expect(await precheckFile(video, async () => meta(width, height, 30))).toEqual({
+        ok: false, reason: 'videoResolution', width, height,
+      });
+    }
+    expect(await precheckFile(video, async () => meta(1280, 720, 90))).toMatchObject({ ok: true });
+    const image = new File(['x'], 'small.jpg', { type: 'image/jpeg' });
+    expect(await precheckFile(image, async () => meta(800, 1200))).toEqual({
+      ok: false, reason: 'imageResolution', width: 800, height: 1200,
+    });
+  });
 });

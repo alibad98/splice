@@ -27,7 +27,7 @@ context:
 - At most `SLIDES_MAX` slides per item. `media_asset_id`s are unique within the list. Each id must be a store asset of the right status, read through a new batch `MediaService.getAssetsByIds`. Otherwise → 422 `media-not-attachable`.
 - Alt text: optional for videos. Image slides need 1–`SLIDE_ALT_MAX` (250) chars, else 422 `slide-alt-text-required`. The editor enforces the same rule.
 - A slides change emits `content.item.edited` with `changed` including `slides`. The item's status never changes (3.8/3.9 drive Processing).
-- Browser pre-check, from shared contract limits: video ≤ 200 MB, ≤ 90 s, shorter side ≥ 720; image ≤ 10 MB, shorter side ≥ 1080; type in the allowed list. A rejection names the file and the limit. Video metadata the browser cannot read (e.g. MOV in Firefox) skips duration and resolution (the server checks in 3.9). An unreadable image is rejected.
+- Browser pre-check, from shared contract limits: video ≤ 200 MB, ≤ 90 s, shorter side ≥ 720; image ≤ 10 MB, shorter side ≥ 1080; type in the allowed list. A rejection names the file and the limit. Resolution rejections also show the detected width × height in pixels, explain that both sides must meet the minimum, and ask for a higher-resolution original. The rejection alert offers “Replace files” to open the existing picker when editing is allowed and slide capacity remains; cancelling keeps the warning and existing slides. New selections go through the same pre-check and append only accepted files. No rejected file is hashed or requests an upload grant. Video metadata the browser cannot read (e.g. MOV in Firefox) skips duration and resolution (the server checks in 3.9). An unreadable image is rejected.
 - Per-file states: Uploading n% → Processing (asset `uploaded`/`scanned`) → Failed with friendly reason. Retry re-uploads from the local file when it is still held. Upload errors (network, 429 with the wait) also show Retry. At most 3 uploads run at once. The leave guard is active while uploads run.
 - Reorder in logical order. The live region announces "Slide 2 of 3". Focus stays on the moved slide's same button, or on the other one at an end. Drag uses native HTML5 drag-and-drop (desktop). Buttons work everywhere.
 - Drafts autosave slides changes. Other statuses save them with "Save changes". Archived items are read-only.
@@ -47,6 +47,8 @@ context:
 |----------|--------------|----------|----------------|
 | Drop 3 valid files | 2 JPG 1200px, 1 MP4 30 s 1080p | 3 slides upload in parallel with progress; saved in drop order | — |
 | Pre-check fails | 12 MB PNG / 95 s video / 800px image | not uploaded; message names the file + limit | others in the batch continue |
+| Low-resolution video | MOV with readable 480 × 854 metadata | warning shows dimensions, 720 px minimum for both sides, and higher-resolution-original guidance; no upload grant | valid files in the batch continue |
+| Replace rejected files | click “Replace files”, then select a valid file | existing picker opens; accepted file is appended through the normal upload queue; warning is refreshed | cancelling preserves warning and valid slides; action disabled for read-only/full items |
 | Image without alt | save | blocked; field error; summary on submit | API 422 `slide-alt-text-required` |
 | Move later | slide 2 of 3 | becomes 3; "Slide 3 of 3" announced; focus kept | Move later disabled on last |
 | Remove + re-add asset | PATCH lists | slide soft-deleted, then revived | — |
@@ -94,14 +96,19 @@ context:
 - **Pre-check seam.** `mediaMetaReader.read` is replaceable (jsdom decodes no media). A video whose metadata does not load within 10 s, or errors, skips the duration/resolution checks. Files with an empty MIME type are classified by extension.
 - **Bucket CORS** is set in `ensureBucket` (development boot) from `CORS_ORIGINS`; a refusal only logs `media bucket CORS not set`. Production buckets are not created at boot, so their CORS must be configured with the bucket (deployment step).
 - **Rejected files** (pre-check or past the cap) are listed in one dismissible warning Alert above the list rather than as rows.
+- **Resolution feedback (2026-11-11).** Reuse browser metadata to show actual dimensions in English and Arabic. “Replace files” opens the drop zone's picker; rejected files never become slide rows, so replacement adds accepted selections without removing existing slides. Keep the existing 720 px video / 1080 px image minimums and worker validation. Cropping does not fix insufficient source resolution; no crop modal, upscaling, browser encoder, extra upload or backend processing is introduced by this feedback change. Framing controls are a separate feature.
 - **Refetch keeps pending uploads** (added in verification). When a newer item version resets the form (changed elsewhere, after a 409), rows whose upload is still held and not in the item are kept after its slides; before, they vanished while their uploads ran on. Tests: "a newer item version from a refetch..." and "a new item: files dropped before the title..." (matrix row "New item").
 - **Not tried by hand:** the real browser PUT to MinIO (CORS, XHR progress); tests mock fetch, XHR and media metadata.
 
 ## Spec Change Log
 
+- 2026-11-11: User authorized clearer resolution feedback, a replacement picker action, and corresponding spec updates. Added detected dimensions, actionable bilingual copy and replacement/cancellation behavior; media limits and processing policy are unchanged.
+
 ## Review Triage Log
 
 ## Verification
+
+2026-11-11 resolution-feedback amendment: dashboard lint and typecheck pass. Targeted `media-precheck.test.ts`, `slides.test.tsx` and `i18n/i18n.test.ts`: 39 tests pass. Covers detected portrait/landscape dimensions, exact minimum acceptance, mixed-batch rejection without hashing/upload grants, replacement picker opening, accepted-slide preservation and warning refresh after valid replacement. Existing browser-unreadable MOV fallback is retained. The upload test fixture now stubs hashing so concurrent native hash completion cannot reorder its assumed asset IDs. No manual browser validation was performed for this amendment.
 
 Ran 2026-11-05: contracts 81, db 59 (on 5436), API 523 (full suite on 5436), ui 101, dashboard 297 (299 after the verification fix) -- all pass. `pnpm turbo run lint typecheck build --continue`: 18/19, only `@slips/player#build` fails (known Windows path bug).
 

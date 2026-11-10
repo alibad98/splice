@@ -11,7 +11,7 @@ export function Switch({ className, ...props }: SwitchProps) {
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        'peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-pill border border-input-border bg-muted p-0.5 transition-colors duration-150 ease-out hover:border-interaction disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-interaction data-[state=checked]:bg-interaction',
+        'peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-pill border border-input-border bg-muted p-0.5 transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary',
         className,
       )}
       {...props}

@@ -235,7 +235,7 @@ export function SidebarMenuButton({ asChild = false, isActive = false, tooltip, 
       className={cn(
         'flex h-11 w-full items-center gap-3 overflow-hidden rounded-pill px-3 text-start text-body font-semibold whitespace-nowrap text-sidebar-foreground transition-[background-color,color,width] duration-150',
         'hover:bg-sidebar-accent',
-        'data-[active=true]:bg-interaction-tint data-[active=true]:text-interaction data-[active=true]:font-semibold',
+        'data-[active=true]:bg-primary data-[active=true]:text-primary-foreground',
         'data-[tone=danger]:text-muted-foreground data-[tone=danger]:hover:bg-destructive-tint data-[tone=danger]:hover:text-destructive-text',
         'group-data-[collapsible=icon]:w-11',
         '[&>span]:transition-opacity [&>span]:duration-200 group-data-[collapsible=icon]:[&>span]:opacity-0',

@@ -101,7 +101,7 @@ export function SelectItem({ value, className, children, ...props }: SelectItemP
       data-slot="select-item"
       value={toInternal(value) ?? EMPTY_SENTINEL}
       className={cn(
-        'relative flex min-h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-sm py-2 ps-3 pe-8 text-body text-foreground outline-none select-none focus-visible:shadow-none data-[highlighted]:bg-interaction-tint data-[highlighted]:text-interaction data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=checked]:font-semibold data-[state=checked]:text-interaction',
+        'relative flex min-h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-sm py-2 ps-3 pe-8 text-body text-foreground outline-none select-none focus-visible:shadow-none data-[highlighted]:bg-muted data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[state=checked]:font-semibold',
         className,
       )}
       {...props}

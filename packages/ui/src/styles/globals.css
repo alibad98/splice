@@ -22,13 +22,12 @@
   --warning: #FFB547; --warning-foreground: #3D2500; --warning-text: #8A5300;
   --info-text: #B8291A;
   --delta-up: #0E6E39; --delta-down: #C0123C;
-  --border: #ECE8E4; --input: #8F8681; --input-border: #8F8681; --ring: #157A70;
-  --interaction: #157A70; --interaction-foreground: #FFFFFF; --interaction-tint: #E5F4F0;
+  --border: #ECE8E4; --input: #8F8681; --input-border: #8F8681; --ring: #9A6500;
   --story-ring-seen: #D3CDC8;
   --success-tint: #1BAA5A1F; --primary-tint: #FF4A3D14; --destructive-tint: #C0123C14; --warning-tint: #FFB54726;
   --chart-1: #FF4A3D; --chart-2: #2B2523; --chart-3: #0F9D8A; --chart-4: #F5A300; --chart-5: #2E8FE0;
   --sidebar: #FFFFFF; --sidebar-foreground: #15110F; --sidebar-primary: #FF4A3D; --sidebar-primary-foreground: #15110F;
-  --sidebar-accent: #F5F3F1; --sidebar-accent-foreground: #15110F; --sidebar-border: #ECE8E4; --sidebar-ring: #157A70;
+  --sidebar-accent: #F5F3F1; --sidebar-accent-foreground: #15110F; --sidebar-border: #ECE8E4; --sidebar-ring: #FF4A3D;
   --card-shadow: 0 8px 24px -14px rgba(40, 24, 16, .16);
   --player-scrim: #000000; --player-surface: #FFFFFF; --player-surface-foreground: #15110F;
   --player-cta: #15110F; --player-cta-foreground: #FFC23D; --player-progress: #FFFFFF; --player-progress-track: #FFFFFF59;
@@ -53,13 +52,12 @@
   --warning: #FFC46B; --warning-foreground: #3D2500; --warning-text: #FFD699;
   --info-text: #FFB3A8;
   --delta-up: #3FD27F; --delta-down: #FF7A95;
-  --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #70D6C6;
-  --interaction: #70D6C6; --interaction-foreground: #082822; --interaction-tint: #163730;
+  --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #FFC23D;
   --story-ring-seen: #4A423E;
   --success-tint: #3FD27F26; --primary-tint: #FF6A5C26; --destructive-tint: #FF5C8026; --warning-tint: #FFC46B26;
   --chart-1: #FF6A5C; --chart-2: #D9D2CD; --chart-3: #2DD4BF; --chart-4: #FFC23D; --chart-5: #60B4FF;
   --sidebar: #1A1615; --sidebar-foreground: #F5F1EE; --sidebar-primary: #FF6A5C; --sidebar-primary-foreground: #15110F;
-  --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #70D6C6;
+  --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #FF8A7E;
   --card-shadow: 0 8px 24px -14px rgba(0, 0, 0, .6);
   --story-ring-gradient: conic-gradient(#FF6A5C, #FFC23D, #FF6A5C);
 }
@@ -78,13 +76,12 @@
     --warning: #FFC46B; --warning-foreground: #3D2500; --warning-text: #FFD699;
     --info-text: #FFB3A8;
     --delta-up: #3FD27F; --delta-down: #FF7A95;
-    --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #70D6C6;
-    --interaction: #70D6C6; --interaction-foreground: #082822; --interaction-tint: #163730;
+    --border: #2E2826; --input: #7A716C; --input-border: #7A716C; --ring: #FFC23D;
     --story-ring-seen: #4A423E;
     --success-tint: #3FD27F26; --primary-tint: #FF6A5C26; --destructive-tint: #FF5C8026; --warning-tint: #FFC46B26;
     --chart-1: #FF6A5C; --chart-2: #D9D2CD; --chart-3: #2DD4BF; --chart-4: #FFC23D; --chart-5: #60B4FF;
     --sidebar: #1A1615; --sidebar-foreground: #F5F1EE; --sidebar-primary: #FF6A5C; --sidebar-primary-foreground: #15110F;
-    --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #70D6C6;
+    --sidebar-accent: #241F1D; --sidebar-accent-foreground: #F5F1EE; --sidebar-border: #2E2826; --sidebar-ring: #FF8A7E;
     --card-shadow: 0 8px 24px -14px rgba(0, 0, 0, .6);
     --story-ring-gradient: conic-gradient(#FF6A5C, #FFC23D, #FF6A5C);
   }
@@ -129,7 +126,6 @@
   --color-info-text: var(--info-text);
   --color-delta-up: var(--delta-up); --color-delta-down: var(--delta-down);
   --color-border: var(--border); --color-input: var(--input); --color-input-border: var(--input-border); --color-ring: var(--ring);
-  --color-interaction: var(--interaction); --color-interaction-foreground: var(--interaction-foreground); --color-interaction-tint: var(--interaction-tint);
   --color-story-ring-seen: var(--story-ring-seen);
   --color-success-tint: var(--success-tint); --color-primary-tint: var(--primary-tint); --color-destructive-tint: var(--destructive-tint); --color-warning-tint: var(--warning-tint);
   --color-chart-1: var(--chart-1); --color-chart-2: var(--chart-2); --color-chart-3: var(--chart-3); --color-chart-4: var(--chart-4); --color-chart-5: var(--chart-5);
@@ -213,13 +209,11 @@
     ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; border: 2px solid transparent; }
     ::-webkit-scrollbar-corner { background: transparent; }
   }
-  /* A crisp focus outline with a surface gap; remains visible when a component has its own shadow. */
-  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  /* A single amber focus outline touches the border and survives component shadows. */
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
   :focus:not(:focus-visible) { outline: none; }
   @media (forced-colors: active) { :focus-visible { outline-color: Highlight; } }
   input, textarea, select, [role="combobox"], [role="checkbox"], [role="switch"] { border-color: var(--input-border); }
-  input, textarea, select { accent-color: var(--interaction); caret-color: var(--interaction); }
-  ::selection { background: var(--interaction-tint); color: var(--foreground); }
   /* No horizontal page scroll from wide children; `clip` keeps position: sticky working. */
   body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; overflow-x: clip; }
   :lang(ar) body, body:lang(ar) { font-family: var(--font-arabic); letter-spacing: 0; line-height: 1.6; }
@@ -232,7 +226,7 @@
   .num, [data-num] { font-variant-numeric: tabular-nums; }
   /* Chrome autofill: keep the field on theme instead of the browser's yellow/blue. */
   input:-webkit-autofill { -webkit-text-fill-color: var(--foreground); box-shadow: 0 0 0 1000px var(--background) inset; caret-color: var(--foreground); }
-  input:-webkit-autofill:focus { box-shadow: 0 0 0 1000px var(--background) inset; caret-color: var(--interaction); }
+  input:-webkit-autofill:focus { box-shadow: 0 0 0 1000px var(--background) inset; }
   input[type="search"]::-webkit-search-cancel-button { appearance: none; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 }

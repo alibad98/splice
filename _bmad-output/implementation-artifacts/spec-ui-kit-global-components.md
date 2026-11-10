@@ -166,6 +166,8 @@ Rejected:
 
 ## Spec Change Log
 
+- 2026-11-11 — Extended the same soft amber hover/focus treatment to DropZone: faint hover outline/shadow, 1px zero-gap focus outline and blurred shadow when its picker has keyboard focus or files are dragged over it. Dashed borders remain dashed during drag; disabled zones get no interaction effect. Shared UI build, 102 tests and lint pass; browser checks cover hover, keyboard focus, drag and disabled states in both themes at desktop/mobile sizes. Impeccable detector reports no findings.
+
 - 2026-11-11 — Follow-up form-control polish: thinner 1px focus outline at 80% opacity, zero gap, a faded `0 2px 8px` amber shadow at 14%, and a faint hover outline/shadow on fine-pointer devices. Shared Input, Textarea, Select trigger and OTP styling use the same treatment. Invalid borders and forced-color focus are preserved. UI tests, softened-outline contrast checks, lint and desktop/mobile browser inspection in both themes pass; Impeccable detector reports no findings.
 
 - 2026-11-11 — Corrected the scope of focus polish after user review: removed teal tokens and restored original component colors (coral sidebar/checkbox/switch, neutral tabs and options). Only focus uses amber, with a darker light-theme shade for contrast; input border and outline meet with zero gap. Upload feedback and language switching are retained.

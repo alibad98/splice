@@ -30,7 +30,7 @@ const hasFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.t
 /**
  * Dashed `input-border` drop target (`rounded-lg`, the base radius). The picker button opens the native file dialog
  * (Enter/Space), a click anywhere on the zone does too, and dropped files are accepted while enabled. While files are
- * dragged over it the zone shows a solid primary border; nothing animates under reduced motion.
+ * dragged over it the dashed border gets the same soft amber treatment as focused inputs; nothing animates under reduced motion.
  */
 export function DropZone({
   onFiles,
@@ -99,10 +99,10 @@ export function DropZone({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={cn(
-        'flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input-border bg-background px-6 py-8 text-center',
-        'transition-[border-color,background-color] duration-150 ease-out motion-reduce:transition-none',
-        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-foreground/45',
-        dragging && 'border-solid border-primary bg-muted',
+        'ui-drop-zone flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed bg-background px-6 py-8 text-center',
+        'transition-[border-color,background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
+        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+        dragging && 'bg-muted',
         className,
       )}
       {...props}

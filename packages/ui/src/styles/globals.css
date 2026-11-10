@@ -212,21 +212,31 @@
   /* A single amber focus outline touches the border and survives component shadows. */
   :focus-visible { outline: 2px solid var(--ring); outline-offset: 0; }
   :focus:not(:focus-visible) { outline: none; }
-  /* Text-like controls get a finer, softer treatment than navigation/button focus. */
-  .ui-control:focus-visible {
+  /* Form controls and upload areas share soft amber feedback; dashed upload borders stay dashed. */
+  .ui-drop-zone { border-color: var(--input-border); }
+  .ui-control:focus-visible,
+  .ui-drop-zone:not([data-disabled]):is(:has(:focus-visible), [data-dragging="true"]) {
     outline: 1px solid color-mix(in srgb, var(--ring) 80%, transparent);
     outline-offset: 0;
     box-shadow: 0 2px 8px color-mix(in srgb, var(--ring) 14%, transparent);
   }
+  .ui-drop-zone:not([data-disabled]):is(:has(:focus-visible), [data-dragging="true"]) {
+    border-color: color-mix(in srgb, var(--ring) 65%, transparent);
+  }
   @media (hover: hover) and (pointer: fine) {
-    .ui-control:not(:disabled):not([aria-disabled="true"]):not([aria-invalid="true"]):hover:not(:focus-visible) {
+    .ui-control:not(:disabled):not([aria-disabled="true"]):not([aria-invalid="true"]):hover:not(:focus-visible),
+    .ui-drop-zone:not([data-disabled]):not([data-dragging="true"]):hover:not(:has(:focus-visible)) {
+      border-color: color-mix(in srgb, var(--ring) 40%, transparent);
       outline: 1px solid color-mix(in srgb, var(--ring) 25%, transparent);
       outline-offset: 0;
       box-shadow: 0 1px 4px color-mix(in srgb, var(--ring) 6%, transparent);
     }
   }
   @media (forced-colors: active) { :focus-visible { outline-color: Highlight; } }
-  @media (forced-colors: active) { .ui-control:focus-visible { outline: 2px solid Highlight; box-shadow: none; } }
+  @media (forced-colors: active) {
+    .ui-control:focus-visible,
+    .ui-drop-zone:not([data-disabled]):is(:has(:focus-visible), [data-dragging="true"]) { outline: 2px solid Highlight; box-shadow: none; }
+  }
   input, textarea, select, [role="combobox"], [role="checkbox"], [role="switch"] { border-color: var(--input-border); }
   /* No horizontal page scroll from wide children; `clip` keeps position: sticky working. */
   body { @apply bg-page text-foreground font-sans antialiased; font-size: 0.875rem; line-height: 1.55; overflow-x: clip; }

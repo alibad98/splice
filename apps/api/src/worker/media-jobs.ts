@@ -36,7 +36,7 @@ export function registerMediaEventHandlers(registry: EventHandlerRegistry, boss:
   registry.on('media.asset.scanned', 'media.process.on.media.asset.scanned', async (event) => {
     const { store_id: storeId, asset_id: assetId } = event.payload;
     const payload: MediaProcessJob = { ...jobMeta(telemetry, storeId), store_id: storeId, asset_id: assetId };
-    const jobId = await boss.send(MEDIA_PROCESS_QUEUE, payload, { id: assetId, singletonKey: assetId });
+    const jobId = await boss.send(MEDIA_PROCESS_QUEUE, payload, { id: event.id, singletonKey: assetId });
     if (!jobId) telemetry.log.info('media process already queued', { event_id: event.id, asset_id: assetId });
   });
   registry.on('media.asset.processed', 'media.log.media.asset.processed', async (event) => {

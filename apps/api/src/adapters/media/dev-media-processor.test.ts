@@ -1,26 +1,55 @@
 import { describe, expect, it } from 'vitest';
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
-import type { MediaProcessor } from '../../ports/media-processor.js';
+import { UnparseableMediaError, type MediaProcessor } from '../../ports/media-processor.js';
 import { DevMediaProcessor, buildMp4Buffer, parseVideoDimensions } from './dev-media-processor.js';
 
-function buildWebmBuffer(width: number, height: number): Buffer {
-  // EBML header (0x1A45DFA3) + PixelWidth (0xB0 0x82 <u16>) + PixelHeight (0xBA 0x82 <u16>)
-  const buf = Buffer.alloc(16);
-  buf.writeUInt32BE(0x1a45dfa3, 0);
-  buf[4] = 0xe0;
-  buf[5] = 0x88;
-  buf[6] = 0xb0;
-  buf[7] = 0x82;
-  buf.writeUInt16BE(width, 8);
-  buf[10] = 0xba;
-  buf[11] = 0x82;
-  buf.writeUInt16BE(height, 12);
-  return buf;
+function buildWebmBuffer(width: number, height: number, scale = 1000000): Buffer {
+  const el = (hex: string, data: Buffer) => Buffer.concat([Buffer.from(hex, 'hex'), Buffer.from([0x80 | data.length]), data]);
+  const w = Buffer.alloc(2); w.writeUInt16BE(width); const h = Buffer.alloc(2); h.writeUInt16BE(height);
+  const duration = Buffer.alloc(8); duration.writeDoubleBE(30000);
+  const timeScale = Buffer.alloc(4); timeScale.writeUInt32BE(scale);
+  const info = el('1549a966', Buffer.concat([el('4489', duration), el('2ad7b1', timeScale)]));
+  const entry = el('ae', Buffer.concat([el('83', Buffer.from([1])), el('e0', Buffer.concat([el('b0', w), el('ba', h)]))]));
+  return Buffer.concat([el('1a45dfa3', Buffer.alloc(0)), el('18538067', Buffer.concat([info, el('1654ae6b', entry)]))]);
 }
+
+import { qualityCheck } from '../../modules/media/media-process.js';
 
 describe('DevMediaProcessor (Story 3.8)', () => {
   const processor: MediaProcessor = new DevMediaProcessor();
+
+  it('reads independently assembled nested version-1 tracks and extended-size movie boxes', async () => {
+    const box = (type: string, data: Buffer, extended = false) => {
+      const header = Buffer.alloc(extended ? 16 : 8); header.writeUInt32BE(extended ? 1 : data.length + 8); header.write(type, 4);
+      if (extended) header.writeBigUInt64BE(BigInt(data.length + 16), 8);
+      return Buffer.concat([header, data]);
+    };
+    const movie = Buffer.alloc(112); movie[0] = 1; movie.writeUInt32BE(1000, 20); movie.writeBigUInt64BE(45000n, 24);
+    const track = Buffer.alloc(96); track[0] = 1; track.writeUInt32BE(1280 * 65536, 88); track.writeUInt32BE(720 * 65536, 92);
+    const handler = Buffer.alloc(24); handler.write('vide', 8);
+    const bytes = box('moov', Buffer.concat([box('mvhd', movie), box('trak', Buffer.concat([box('tkhd', track), box('mdia', box('hdlr', handler))]))]), true);
+    expect(await processor.probe(bytes, 'video/quicktime')).toEqual({ width: 1280, height: 720, durationSeconds: 45, hasVideoTrack: true });
+    expect((await processor.probe(buildWebmBuffer(1280, 720, 2000000), 'video/webm')).durationSeconds).toBe(60);
+  });
+
+  it('rejects zero movie duration even when a fragmented movie has a video track', async () => {
+    const fragment = Buffer.from([0, 0, 0, 8, 0x6d, 0x6f, 0x6f, 0x66]);
+    await expect(processor.probe(Buffer.concat([buildMp4Buffer(1080, 1920, undefined, { durationSeconds: 0 }), fragment]), 'video/mp4')).rejects.toBeInstanceOf(UnparseableMediaError);
+  });
+
+  it('probes duration, video tracks and image dimensions and rejects unparseable containers', async () => {
+    const video = await processor.probe(buildMp4Buffer(720, 1280, undefined, { durationSeconds: 90 }), 'video/mp4');
+    expect(video).toEqual({ width: 720, height: 1280, durationSeconds: 90, hasVideoTrack: true });
+    expect(qualityCheck('video', video)).toBeNull();
+    expect(qualityCheck('video', await processor.probe(buildMp4Buffer(540, 960), 'video/mp4'))).toBe('below_min_resolution');
+    expect(qualityCheck('video', await processor.probe(buildMp4Buffer(1080, 1920, undefined, { durationSeconds: 95 }), 'video/quicktime'))).toBe('over_duration');
+    expect(qualityCheck('video', await processor.probe(buildMp4Buffer(1080, 1920, undefined, { noVideoTrack: true }), 'video/mp4'))).toBe('no_video_track');
+    expect(await processor.probe(buildWebmBuffer(1280, 720), 'video/webm')).toEqual({ width: 1280, height: 720, durationSeconds: 30, hasVideoTrack: true });
+    const image = await sharp({ create: { width: 800, height: 1200, channels: 3, background: 'red' } }).jpeg().toBuffer();
+    expect(qualityCheck('image', await processor.probe(image, 'image/jpeg'))).toBe('below_min_resolution');
+    await expect(processor.probe(Buffer.from('garbage video container'), 'video/mp4')).rejects.toBeInstanceOf(UnparseableMediaError);
+  });
 
   it('produces 480p, 720p, 1080p progressive MP4 renditions and a 720x1280 WebP poster for a 1080x1920 video', async () => {
     const src = buildMp4Buffer(1080, 1920);

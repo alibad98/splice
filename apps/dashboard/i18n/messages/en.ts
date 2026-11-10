@@ -153,6 +153,12 @@ export const en = {
       clicks: 'Clicks',
       actions: 'Actions',
     },
+    actions: { retry: 'Retry' },
+    statusReasons: {
+      no_placement: 'Add a placement to publish',
+      image: 'This image did not finish processing:',
+      video: 'This video did not finish processing:',
+    },
     statuses: {
       draft: 'Draft',
       processing: 'Processing',
@@ -203,6 +209,8 @@ export const en = {
     flags: { productDeleted: 'Linked product deleted' },
     create: 'New story',
     editor: {
+      autoPublish: { label: 'Publish automatically after processing', hint: 'Add a placement to publish this content.' },
+      replaceMedia: 'Replace the failed media to continue.',
       untitled: { story: 'New story', reel: 'New reel' },
       back: 'Back to Videos & Stories',
       saving: 'Saving…',
@@ -291,6 +299,9 @@ export const en = {
           full: '{file}: an item can have up to {max} slides',
         },
         failures: {
+          below_min_resolution: 'Resolution is below the minimum: 720p for video, 1080 px for images.',
+          over_duration: 'The video is longer than 90 seconds.',
+          no_video_track: 'The file has no video track.',
           network: "The upload didn't finish. Check your connection and retry.",
           throttled: 'Too many uploads right now. Try again in {minutes} min.',
           rejected: "This file can't be uploaded.",

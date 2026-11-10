@@ -30,7 +30,7 @@ export function registerContentEventHandlers(
     if (notified.length > 0) telemetry.log.info('linked product deleted', { event_id: event.id, product_id: productId, items: notified.length });
   });
   if (media) {
-    for (const name of ['media.asset.scanned', 'media.asset.processed'] as const) {
+    for (const name of ['media.asset.scanned', 'media.asset.processed', 'media.asset.failed'] as const) {
       registry.on(name, `content.sync-slide-processing.on.${name}`, async (event, tx) => {
         const { store_id: storeId, asset_id: assetId } = event.payload;
         await lifecycle.syncSlideProcessing(tx, storeId, assetId, async (assetIds) => {

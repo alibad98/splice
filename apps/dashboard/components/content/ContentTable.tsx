@@ -4,12 +4,14 @@ import { useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ARCHIVABLE_STATUSES, type ContentFormat, type ContentItem, type ContentSort } from '@slips/contracts';
-import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, StatusChip, type DataTableColumn } from '@slips/ui';
+import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, StatusChip, toast, type DataTableColumn } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
 import { directionOf } from '../../i18n/config';
 import type { Messages } from '../../i18n/messages';
 import { usePosterSrc } from '../../lib/api/media';
 import { fill } from '../products/format';
+import { useRetryContent } from '../../lib/api/content';
+import { ContentStatusReason, hasRetryableSlides } from './ContentStatusReason';
 import { ContentStatusChip } from './ContentStatusChip';
 import { columnToSort, sortToColumn } from './url-state';
 
@@ -42,6 +44,7 @@ function TitleCell({ row, m }: { row: ContentItem; m: M }) {
       <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
         {row.title}
       </Link>
+      <ContentStatusReason item={row} />
       {row.product?.deleted ? (
         <StatusChip tone="warning" icon={<Icon name="warning" className="size-3" />}>
           {m.flags.productDeleted}
@@ -55,6 +58,7 @@ const canArchive = (item: ContentItem) => (ARCHIVABLE_STATUSES as readonly strin
 
 function RowMenu({ item, m, onArchive, onDelete }: { item: ContentItem; m: M; onArchive: (item: ContentItem) => void; onDelete: (item: ContentItem) => void }) {
   const { locale } = useI18n();
+  const retry = useRetryContent();
   return (
     <DropdownMenu dir={directionOf(locale)}>
       <DropdownMenuTrigger asChild>
@@ -67,6 +71,7 @@ function RowMenu({ item, m, onArchive, onDelete }: { item: ContentItem; m: M; on
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {hasRetryableSlides(item) ? <DropdownMenuItem disabled={retry.isPending} onSelect={() => retry.mutate(item.id, { onError: () => toast({ title: m.editor.changesFailed, tone: 'danger' }) })}>{m.actions.retry}</DropdownMenuItem> : null}
         {canArchive(item) ? (
           <DropdownMenuItem onSelect={() => onArchive(item)}>
             <Icon name="archive" className="size-4" />

@@ -178,6 +178,12 @@ export class MediaRepository extends StoreScoped {
     return row!;
   }
 
+  async requeueProcessing(id: string, now: Date): Promise<MediaAssetRow | undefined> {
+    const [row] = await this.db.update(mediaAssets).set({ status: 'scanned', failureReason: null, updatedAt: now })
+      .where(and(eq(mediaAssets.storeId, this.storeId), eq(mediaAssets.id, id), eq(mediaAssets.status, 'failed'), eq(mediaAssets.failureReason, 'processing_failed'))).returning();
+    return row;
+  }
+
   /** Insert rendition rows for an asset (idempotent on `(store_id, asset_id, profile)`). */
   async insertRenditions(rows: readonly NewRenditionRow[]): Promise<RenditionRow[]> {
     if (rows.length === 0) return [];

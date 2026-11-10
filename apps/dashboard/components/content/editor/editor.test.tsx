@@ -38,6 +38,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   status: 'draft',
   archived_from: null,
   reactivate_to: null,
+  status_reason: null,
   auto_publish: false,
   first_published_at: null,
   product: null,
@@ -167,7 +168,7 @@ describe('Content editor: new item', () => {
     expect(writes()[0]).toEqual({
       method: 'POST',
       path: '/v1/content',
-      body: { title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [] },
+      body: { auto_publish: false, title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [] },
     });
     await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
     expect(window.location.pathname).toBe(`/content/${ID}`);
@@ -645,4 +646,58 @@ describe('Content editor: product picker (Story 3.4)', () => {
     await until(() => expect(writes()).toHaveLength(1));
     expect(writes()[0]!.body).toEqual({ product_id: P3 });
   });
+});
+
+
+describe('Story 3.9 processing controls', () => {
+  it('saves the auto-publish switch and displays the placement reason', async () => {
+    const current = item({ auto_publish: true, status_reason: { code: 'no_placement' } });
+    handler = echo(current);
+    setup({ element: <ContentEditor item={current} /> });
+    expect(screen.getByText('Add a placement to publish')).toBeTruthy();
+    const toggle = screen.getByRole('switch', { name: 'Publish automatically after processing' });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]?.body).toEqual({ auto_publish: false });
+  });
+
+  it.each(['processing_failed', 'below_min_resolution'] as const)('enables processing Retry only for processing_failed: %s', async (reason) => {
+    const current = item({ status: 'failed', status_reason: { code: reason, kind: 'video' }, slides: [{ id: ID, media_asset_id: ID, kind: 'video', alt_text: null, status: 'failed', failure_reason: reason, source_url: null, poster_url: null }] });
+    handler = ({ path, method }) => path.endsWith('/retry') && method === 'POST' ? json({ ...current, status: 'processing', status_reason: null, updated_at: '2026-11-06T00:00:00.000Z' }) : json(current);
+    setup({ element: <ContentEditor item={current} /> });
+    const retry = screen.getAllByRole('button', { name: 'Retry' }).find(b => b.closest('[role="alert"]'))!;
+    expect((retry as HTMLButtonElement).disabled).toBe(reason !== 'processing_failed');
+    if (reason === 'processing_failed') {
+      fireEvent.click(retry);
+      await until(() => expect(writes().some(c => c.path === '/v1/content/' + ID + '/retry')).toBe(true));
+    } else expect(screen.getByText('Replace the failed media to continue.')).toBeTruthy();
+  });
+});
+
+
+it('a newly created editor observes failures, retries to completion, and keeps unsaved edits', async () => {
+  let current = item({ status: 'processing' });
+  const assetId = ID;
+  handler = ({ method, path, body }) => {
+    if (path.endsWith('/retry')) { current = { ...current, status: 'processing', status_reason: null, slides: current.slides.map(s => ({ ...s, status: 'scanned', failure_reason: null })), updated_at: '2026-11-07T00:00:00.000Z' }; return json(current); }
+    if (method === 'POST') { current = { ...current, ...(body as object), slides: [{ id: ID, media_asset_id: assetId, kind: 'video', status: 'scanned', failure_reason: null, alt_text: null, source_url: null, poster_url: null }] }; return json(current, 201); }
+    if (path.startsWith('/v1/media/')) return json({ v: 1, id: assetId, kind: 'video', content_type: 'video/mp4', size_bytes: 1000, status: current.slides[0]?.status ?? 'scanned', failure_reason: current.slides[0]?.failure_reason ?? null, poster_url: null, created_at: current.created_at, updated_at: current.updated_at });
+    return json(current);
+  };
+  setup({ element: <ContentEditor /> });
+  type(title(), 'Created item');
+  await until(() => expect(writes()).toHaveLength(1));
+  current = { ...current, status: 'failed', status_reason: { code: 'processing_failed', kind: 'video' }, slides: current.slides.map(s => ({ ...s, status: 'failed', failure_reason: 'processing_failed' })), updated_at: '2026-11-06T00:00:00.000Z' };
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.content.item(ID) }); });
+  await until(() => expect(screen.getByRole('alert').textContent).toContain("We couldn't process this file"));
+  type(title(), 'Unsaved title');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await until(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(title().value).toBe('Unsaved title');
+  expect(client.getQueryData<ContentItem>(queryKeys.content.item(ID))?.status).toBe('processing');
+  current = { ...current, status: 'draft', slides: current.slides.map(s => ({ ...s, status: 'processed' })), updated_at: '2026-11-08T00:00:00.000Z' };
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.content.item(ID) }); });
+  await until(() => expect(screen.getByText('Draft')).toBeTruthy());
+  expect(title().value).toBe('Unsaved title');
 });

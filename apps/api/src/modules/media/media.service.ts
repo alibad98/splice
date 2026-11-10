@@ -16,7 +16,7 @@ import {
 } from '@slips/contracts';
 import { currentStoreContext, requireStoreContext, withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
-import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
+import { publishEvent, uuidv7, type EventSender, type TxQueryable } from '../../events/outbox.js';
 import { checkFetchUrl } from '../../ports/fetch-url-policy.js';
 import { DB_POOL, EVENT_SENDER, MEDIA_CONFIG, type MediaConfig } from '../../infra.module.js';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../ports/object-storage.js';
@@ -104,6 +104,17 @@ export const toMediaAsset = (row: MediaAssetRow): MediaAsset => ({
 @Injectable()
 export class MediaService {
   private readonly repo = new MediaRepository();
+
+  async requeueProcessing(tx: TxQueryable, storeId: string, assetIds: readonly string[]): Promise<string[]> {
+    const requeued: string[] = [];
+    for (const id of [...new Set(assetIds)].sort()) {
+      const row = await this.repo.requeueProcessing(id, new Date());
+      if (!row) continue;
+      await publishEvent(tx, this.events, this.telemetry, 'media.asset.scanned', { v: 1, store_id: storeId, asset_id: id, kind: row.kind, size_bytes: row.sizeBytes! });
+      requeued.push(id);
+    }
+    return requeued;
+  }
 
   constructor(
     @Inject(DB_POOL) private readonly pool: Pool,

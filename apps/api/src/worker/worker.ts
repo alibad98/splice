@@ -124,7 +124,7 @@ export async function startWorker(
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
   const mediaService = new MediaService(pool, infra.storage, boss, telemetry, infra.media);
-  registerContentEventHandlers(events, telemetry, new ContentLifecycle(boss, telemetry), mediaService);
+  registerContentEventHandlers(events, telemetry, new ContentLifecycle(boss, telemetry, mediaService), mediaService);
   const inspector = new MediaInspector(infra.storage, infra.scanner, boss, telemetry);
   registerMediaEventHandlers(events, boss, telemetry, inspector);
   // External links are fetched and renditions are processed here only, never in the API (Stories 3.7, 3.8).

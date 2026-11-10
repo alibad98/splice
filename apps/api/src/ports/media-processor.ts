@@ -11,7 +11,16 @@ export interface ProcessedRendition {
   readonly bytes: Buffer;
 }
 
+export interface MediaProbe {
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds: number | null;
+  readonly hasVideoTrack: boolean;
+}
+export class UnparseableMediaError extends Error {}
+
 export interface MediaProcessor {
+  probe(bytes: Buffer, contentType: string): Promise<MediaProbe>;
   /** Produce progressive MP4 renditions (up to source short-side resolution) and a `720x1280` WebP `poster`. */
   processVideo(bytes: Buffer, contentType: string): Promise<ProcessedRendition[]>;
   /** Produce a web-optimized `web` rendition (`image/webp`, quality 82, longer side capped at 1920 px, metadata stripped). */

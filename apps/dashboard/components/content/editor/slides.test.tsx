@@ -6,6 +6,7 @@ import type { ContentItem, ContentSlide, MediaAsset } from '@slips/contracts';
 import { DialogHost, dialog, toast, Toaster } from '@slips/ui';
 import { I18nProvider } from '../../../i18n/provider';
 import { getMessages } from '../../../i18n/messages';
+import { queryKeys } from '../../../lib/api/query-keys';
 import { ContentEditor } from './ContentEditor';
 import { mediaMetaReader, type MediaMeta } from './media-precheck';
 import { AUTOSAVE_DELAY_MS } from './use-autosave';
@@ -39,6 +40,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   status: 'draft',
   archived_from: null,
   reactivate_to: null,
+  status_reason: null,
   auto_publish: false,
   first_published_at: null,
   product: null,
@@ -373,7 +375,7 @@ describe('Slides card (Story 3.6): uploads', () => {
     await until(() => expect(stateOf(0)).toBe('Processing'));
   });
 
-  it('an unsaved asset that fails inspection stays a local Failed row with Retry and is never saved', async () => {
+  it('an unsaved asset with a permanent type failure stays a local Failed row without Retry and is never saved', async () => {
     assetStatusOnGet = 'failed';
     setup(item());
     await drop([file('c.mp4', 'video/mp4')]);
@@ -381,7 +383,7 @@ describe('Slides card (Story 3.6): uploads', () => {
     await act(async () => FakeXhr.all[0]!.finish());
     await until(() => expect(stateOf(0)).toBe('Failed'));
     expect(rows()[0]!.textContent).toContain("The file isn't the type its name says.");
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     await advance(AUTOSAVE_DELAY_MS * 3);
     expect(writes()).toEqual([]);
   });
@@ -496,7 +498,7 @@ describe('Slides card (Story 3.6): order, alt text and states', () => {
     );
     expect(stateOf(0)).toBe('Processing');
     expect(stateOf(1)).toBe('Failed');
-    expect(rows()[1]!.textContent).toContain("The file isn't the type its name says. Add the file again to retry.");
+    expect(rows()[1]!.textContent).toContain("The file isn't the type its name says.");
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     expect(rows()[0]!.querySelector('[data-icon="image"]')).not.toBeNull();
     expect(rows()[1]!.querySelector('[data-icon="video"]')).not.toBeNull();
@@ -644,7 +646,9 @@ describe('Slides card (Story 3.8): processing, poster thumbs and failure', () =>
 
     setup(item({ slides: [savedSlide(1, { kind: 'video', alt_text: null, status: 'failed', failure_reason: 'processing_failed' })] }));
     expect(stateOf(0)).toBe('Failed');
-    expect(rows()[0]!.textContent).toContain("We couldn't process this file. Retry. Add the file again to retry.");
+    expect(rows()[0]!.textContent).toContain("We couldn't process this file. Retry.");
+    expect(rows()[0]!.textContent).not.toContain('Add the file again to retry.');
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 
   it('fetches the poster via apiFetch as a blob URL in embedded bearer mode and prefixes apiBase in direct mode', async () => {
@@ -685,4 +689,65 @@ describe('Slides card (Story 3.8): processing, poster thumbs and failure', () =>
     render(tree(start));
     expect(rows()[0]!.querySelector('[data-slide-thumb] img')?.getAttribute('src')).toBe(`https://api.slips.sa/v1/media/${assetId(1)}/poster`);
   });
+});
+
+
+it.each(['below_min_resolution', 'over_duration', 'no_video_track'] as const)('shows the permanent quality failure %s without re-import Retry', reason => {
+  setup(item({ slides: [savedSlide(1, { kind: 'video', alt_text: null, status: 'failed', failure_reason: reason, source_url: 'https://cdn.example.com/source.mp4' })] }));
+  expect(stateOf(0)).toBe('Failed');
+  expect(rows()[0]!.textContent).toContain(getMessages('en').content.editor.slides.failures[reason]);
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+});
+
+
+it('retries an unattached transient processing failure using its held file', async () => {
+  assetOnGet.set(assetId(1), { status: 'failed', failure_reason: 'processing_failed' });
+  setup(item());
+  await drop([file('c.mp4', 'video/mp4')]);
+  await until(() => expect(open()).toHaveLength(1));
+  await act(async () => FakeXhr.all[0]!.finish());
+  await until(() => expect(stateOf(0)).toBe('Failed'));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await until(() => expect(grants).toBe(2));
+  await act(async () => FakeXhr.all[1]!.finish());
+  await until(() => expect(stateOf(0)).toBe('Processing'));
+});
+
+it('item Retry refreshes held media and polls beyond the previous attempt deadline to Draft', async () => {
+  setup();
+  const base = handler;
+  let current: ContentItem | null = null;
+  handler = async call => {
+    if (call.path.endsWith('/retry') && current) {
+      current = { ...current, status: 'processing', status_reason: null, slides: current.slides.map(s => ({ ...s, status: 'scanned', failure_reason: null })), updated_at: '2026-11-08T00:00:00.000Z' };
+      assetOnGet.set(assetId(1), { status: 'scanned', failure_reason: null });
+      return json(current);
+    }
+    if (call.method === 'GET' && call.path.startsWith('/v1/content/') && current) return json(current);
+    const response = await base(call);
+    if (call.path.startsWith('/v1/content') && call.method !== 'GET') { current = { ...await response.clone().json(), status: 'processing' } as ContentItem; return json(current, call.method === 'POST' ? 201 : 200); }
+    return response;
+  };
+  await drop([file('c.mp4', 'video/mp4')]);
+  await until(() => expect(open()).toHaveLength(1));
+  await act(async () => FakeXhr.all[0]!.finish());
+  fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Retry fixture' } });
+  await until(() => expect(current?.slides).toHaveLength(1));
+  const failed = current! as ContentItem;
+  current = { ...failed, status: 'failed', status_reason: { code: 'processing_failed', kind: 'video' }, slides: failed.slides.map(s => ({ ...s, status: 'failed', failure_reason: 'processing_failed' })), updated_at: '2026-11-07T00:00:00.000Z' };
+  assetOnGet.set(assetId(1), { status: 'failed', failure_reason: 'processing_failed' });
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.content.item(failed.id) }); await client.invalidateQueries({ queryKey: queryKeys.media.asset(assetId(1)) }); });
+  await advance(121000);
+  const retry = screen.getAllByRole('button', { name: 'Retry' }).find(b => b.closest('[role="alert"]'))!;
+  fireEvent.click(retry);
+  await until(() => expect(screen.queryByRole('alert')).toBeNull());
+  const before = calls.filter(c => c.method === 'GET' && c.path === '/v1/media/' + assetId(1)).length;
+  await advance(3100);
+  expect(calls.filter(c => c.method === 'GET' && c.path === '/v1/media/' + assetId(1)).length).toBeGreaterThan(before);
+  assetOnGet.set(assetId(1), { status: 'processed', failure_reason: null });
+  const processing = current! as ContentItem;
+  current = { ...processing, status: 'draft', slides: processing.slides.map(s => ({ ...s, status: 'processed' })), updated_at: '2026-11-09T00:00:00.000Z' };
+  await advance(3100);
+  await until(() => expect(stateOf(0)).toBe('Ready'));
+  expect(screen.getByText('Draft')).toBeTruthy();
 });

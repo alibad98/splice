@@ -893,6 +893,80 @@ describe('merchant content API & I/O matrix', () => {
       )
     ).rows;
 
+  it('Story 3.9: shared retry recovery and failed-slide replacements preserve lifecycle events and reasons', async () => {
+    const { storeId, token } = await installedStore();
+    const media = nest.get(MediaService); const commands = nest.get(ContentLifecycle);
+    const shared = await seedAsset(storeId, 'video', 'scanned');
+    const ready = await seedAsset(storeId, 'video', 'processed');
+    const pending = await seedAsset(storeId, 'video', 'scanned');
+    const slide = (id: string) => ({ media_asset_id: id, alt_text: null });
+    const create = async () => ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, auto_publish: false, slides: [slide(shared), slide(ready)] })).body);
+    const a = await create(); const b = await create();
+    const sync = () => withStoreContext(app, storeId, tx => commands.syncSlideProcessing(tx, storeId, shared, async ids => new Map([...(await media.getAssetsByIds(storeId, ids))].map(([id, asset]) => [id, asset.status]))));
+    const get = async (id: string) => ContentItem.parse((await request(token, 'GET', '/v1/content/' + id)).body);
+    const fail = async () => { await admin.query("update media_assets set status = 'failed', failure_reason = 'processing_failed' where id = $1", [shared]); await sync(); };
+    await fail();
+    expect((await get(b.id)).status_reason).toEqual({ code: 'processing_failed', kind: 'video' });
+    await request(token, 'POST', '/v1/content/' + a.id + '/retry');
+    await sync();
+    expect(await get(b.id)).toMatchObject({ status: 'processing', status_reason: null });
+    await admin.query("update media_assets set status = 'processed' where id = $1", [shared]); await sync();
+    expect(await get(b.id)).toMatchObject({ status: 'draft', auto_publish: false, status_reason: null });
+    await fail();
+    await request(token, 'POST', '/v1/content/' + a.id + '/retry');
+    await admin.query("update media_assets set status = 'processed' where id = $1", [shared]); await sync();
+    expect(await get(b.id)).toMatchObject({ status: 'draft', status_reason: null });
+    expect((await eventsForContent(storeId, b.id)).at(-1)).toMatchObject({ name: 'content.item.processed', payload: { from: 'failed', to: 'draft' } });
+    await fail();
+    const replacing = ContentItem.parse((await request(token, 'PATCH', '/v1/content/' + a.id, { slides: [slide(pending), slide(ready)] })).body);
+    expect(replacing).toMatchObject({ status: 'processing', status_reason: null });
+    expect((await eventsForContent(storeId, a.id)).at(-1)).toMatchObject({ name: 'content.item.processing_started', payload: { from: 'failed', to: 'processing' } });
+    const retained = ContentItem.parse((await request(token, 'PATCH', '/v1/content/' + b.id, { slides: [slide(ready)] })).body);
+    expect(retained).toMatchObject({ status: 'draft', status_reason: null });
+    expect(retained.slides).toHaveLength(1);
+    expect((await eventsForContent(storeId, b.id)).at(-1)).toMatchObject({ name: 'content.item.processed', payload: { from: 'failed', to: 'draft' } });
+    await admin.query("update media_assets set status = 'processed' where id = $1", [pending]);
+    await withStoreContext(app, storeId, tx => commands.syncSlideProcessing(tx, storeId, pending, async ids => new Map([...(await media.getAssetsByIds(storeId, ids))].map(([id, asset]) => [id, asset.status]))));
+    expect(await get(a.id)).toMatchObject({ status: 'draft', auto_publish: false, status_reason: null });
+    expect((await eventsForContent(storeId, a.id)).at(-1)).toMatchObject({ name: 'content.item.processed', payload: { from: 'processing', to: 'draft' } });
+  });
+
+  it('Story 3.9: failure events, retry restrictions, recovery and auto-publish without placement', async () => {
+    const { storeId, token } = await installedStore();
+    const asset = await seedAsset(storeId, 'video', 'scanned');
+    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, auto_publish: true, slides: [{ media_asset_id: asset, alt_text: null }] })).body);
+    const registry = new EventHandlerRegistry();
+    registerContentEventHandlers(registry, telemetry, nest.get(ContentLifecycle), nest.get(MediaService));
+    const dispatch = eventDispatcher(app, registry);
+    const emit = async (name: 'media.asset.failed' | 'media.asset.processed', reason: 'processing_failed' | 'below_min_resolution' = 'processing_failed') => {
+      const ev: EventEnvelope = { v: 1, trace_id: 'quality-test', store_id: storeId, event_id: uuidv7(), name, occurred_at: new Date().toISOString(), payload: name === 'media.asset.failed' ? { v: 1, store_id: storeId, asset_id: asset, reason } : { v: 1, store_id: storeId, asset_id: asset, kind: 'video' } };
+      await dispatch(ev, { id: ev.event_id, data: ev });
+    };
+    expect((await request(token, 'POST', '/v1/content/' + item.id + '/retry')).res.status).toBe(409);
+    await admin.query("update media_assets set status = 'failed', failure_reason = 'processing_failed' where id = $1", [asset]);
+    await emit('media.asset.failed');
+    let failed = ContentItem.parse((await request(token, 'GET', '/v1/content/' + item.id)).body);
+    expect(failed).toMatchObject({ status: 'failed', status_reason: { code: 'processing_failed', kind: 'video' } });
+    const retry = await request(token, 'POST', '/v1/content/' + item.id + '/retry');
+    expect(retry.res.status).toBe(200);
+    expect(ContentItem.parse(retry.body).status).toBe('processing');
+    expect((await admin.query('select status, failure_reason from media_assets where id = $1', [asset])).rows[0]).toEqual({ status: 'scanned', failure_reason: null });
+    await admin.query("update media_assets set status = 'processed' where id = $1", [asset]);
+    await emit('media.asset.processed');
+    const finished = ContentItem.parse((await request(token, 'GET', '/v1/content/' + item.id)).body);
+    expect(finished).toMatchObject({ status: 'draft', auto_publish: true, status_reason: { code: 'no_placement' } });
+    const off = ContentItem.parse((await request(token, 'PATCH', '/v1/content/' + item.id, { auto_publish: false })).body);
+    expect(off.status_reason).toBeNull();
+    await admin.query("update media_assets set status = 'failed', failure_reason = 'below_min_resolution' where id = $1", [asset]);
+    await emit('media.asset.failed', 'below_min_resolution');
+    failed = ContentItem.parse((await request(token, 'GET', '/v1/content/' + item.id)).body);
+    expect(failed.status).toBe('failed');
+    expect((await request(token, 'POST', '/v1/content/' + item.id + '/retry')).res.status).toBe(409);
+    const recovered = ContentItem.parse((await request(token, 'PATCH', '/v1/content/' + item.id, { slides: [] })).body);
+    expect(recovered).toMatchObject({ status: 'draft', status_reason: null });
+    expect((await eventsForContent(storeId, item.id)).filter(e => e.name === 'content.item.published')).toEqual([]);
+  });
+
   it('Slides (Story 3.7): an importing asset is attachable; the slide carries its source_url (null for uploads), also once the import failed', async () => {
     const { storeId, token } = await installedStore();
     const link = 'https://cdn.example.com/a.jpg';
@@ -1056,10 +1130,7 @@ describe('merchant content API & I/O matrix', () => {
     // Receiving media.asset.scanned on a draft item with a scanned slide transitions it draft -> processing (start_processing).
     const s5 = await seedAsset(storeId, 'video', 'scanned');
     const restoredDraft = await seedItemInStatus(storeId, 'draft');
-    await admin.query(
-      `insert into slides (id, store_id, content_id, media_asset_id, kind, position, alt_text) values ($1, $2, $3, $4, 'video', 0, null)`,
-      [uuidv7(), storeId, restoredDraft.id, s5],
-    );
+    await withStoreContext(app, storeId, tx => lifecycle.edit(tx, storeId, restoredDraft.id, { slides: [{ media_asset_id: s5, alt_text: null }] }, new Date(), new Map([[s5, 'video']])));
     const scannedEv: EventEnvelope = {
       v: 1,
       trace_id: 't4',

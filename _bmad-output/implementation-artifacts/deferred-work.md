@@ -156,3 +156,10 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-8-process-videos-into-renditions-and-posters.md`
   summary: Replace `DevMediaProcessor` video transcoding with a real FFmpeg/cloud `MediaProcessor` adapter once hosting is chosen (Q-05), and refuse to boot in production without one.
   evidence: Story 3.8 uses `sharp` for real WebP image optimization and poster generation, and a deterministic in-process MP4 generator for video renditions until Q-05 is resolved.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-9-run-quality-checks-retry-failures-auto-publish.md`
+  summary: Reconcile media status atomically when attaching slides so completion/failure events cannot race the attachment transaction.
+  evidence: Attachment validation already reads media outside the lifecycle transaction in Story 3.8; an event delivered before the slide write sees no referencing item, and the subsequent write can use stale status. Verify with an interleaved event/attachment integration test.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-9-run-quality-checks-retry-failures-auto-publish.md`
+  summary: Extend the production processor probe to support WebM without Duration and verify encoded resolution against representative container fixtures.
+  evidence: The development adapter requires explicit duration metadata and uses presentation dimensions. Keep conservative rejection when duration is unknown. Timestamp-derived WebM duration and encoded-versus-presentation resolution validation must accompany the production FFmpeg/cloud adapter deferred under Q-05; encoded-resolution bypass impact remains unverified until a representative fixture is tested.

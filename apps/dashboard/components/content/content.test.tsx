@@ -29,6 +29,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   status: 'draft',
   archived_from: null,
   reactivate_to: null,
+  status_reason: null,
   auto_publish: false,
   first_published_at: null,
   product: null,
@@ -613,5 +614,20 @@ describe('URL state and API path', () => {
     expect(toContentQuery({ tab: 'all', q: '', sort: '-updated', page: 1, size: 7 }).page_size).toBe(10);
     expect(contentPath(DEFAULT)).toBe('/v1/content');
     expect(contentPath({ tab: 'scheduled', q: 'a%b', sort: 'title', page: 2, page_size: 50 })).toBe('/v1/content?tab=scheduled&q=a%25b&sort=title&page=2&page_size=50');
+  });
+});
+
+
+describe('Story 3.9 list status reasons and Retry', () => {
+  it.each(['processing_failed', 'below_min_resolution'] as const)('shows Retry only for retryable failure %s', async (reason) => {
+    const a = item({ status: 'failed', status_reason: { code: reason, kind: 'video' }, slides: [{ id: crypto.randomUUID(), media_asset_id: crypto.randomUUID(), kind: 'video', status: 'failed', failure_reason: reason, alt_text: null, source_url: null, poster_url: null }] });
+    const calls: string[] = [];
+    session = { state: { status: 'signed-in', connection: { state: 'connected' } }, client: { apiFetch: async (path, init) => { if (init?.method === 'POST') { calls.push(path); return json({ ...a, status: 'processing' }); } return json(page([a])); } } };
+    setup({ lists: [[DEFAULT, page([a])]] });
+    expect(screen.getAllByText(/This video did not finish processing/).length).toBeGreaterThan(0);
+    const menu = await openRowMenu(a.title);
+    const retry = within(menu).queryByRole('menuitem', { name: 'Retry' });
+    expect(Boolean(retry)).toBe(reason === 'processing_failed');
+    if (retry) { fireEvent.click(retry); await waitFor(() => expect(calls).toContain('/v1/content/' + a.id + '/retry')); }
   });
 });

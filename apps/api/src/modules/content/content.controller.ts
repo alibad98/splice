@@ -93,6 +93,7 @@ export const toContentItem = (row: ContentItemRow, product: ContentProductSummar
   // A style outside the preset list (none are written since Story 3.3) reads as the default.
   cta_style: (CTA_STYLES as readonly (string | null)[]).includes(row.ctaStyle) ? (row.ctaStyle as CtaStyle) : null,
   status: row.status,
+  status_reason: row.status === 'failed' ? (() => { const failed = slides.find(s => s.status === 'failed'); return failed?.failure_reason ? { code: failed.failure_reason, kind: failed.kind } : null; })() : row.status === 'draft' && row.autoPublish ? { code: 'no_placement' } : null,
   archived_from: row.archivedFrom,
   reactivate_to: row.reactivateTo,
   auto_publish: row.autoPublish,
@@ -268,6 +269,16 @@ export class ContentController {
     const row = await withStoreContext(this.pool, storeId, () => this.repo.findById(id));
     if (!row) throw new NotFoundException({ message: 'Content item not found', code: 'content_not_found' });
     return (await this.withProducts(storeId, [row]))[0]!;
+  }
+
+  @Post('content/:id/retry')
+  @HttpCode(HttpStatus.OK)
+  async retry(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<ContentItem> {
+    const storeId = req.merchantSession!.storeId;
+    try {
+      const row = await withStoreContext(this.pool, storeId, tx => this.lifecycle.retry(tx, storeId, id));
+      return (await this.withProducts(storeId, [row]))[0]!;
+    } catch (err) { throw this.toHttpError(err); }
   }
 
   @Post('content/:id/archive')

@@ -786,6 +786,29 @@ describe('Story 3.8: media.asset.process and GET /v1/media/:id/poster', () => {
       }>('select profile, content_type, width, height, size_bytes::text, sha256, storage_key from renditions where asset_id = $1 order by profile', [assetId])
     ).rows;
 
+  it('quality failures are permanent on attempt one and create no rendition rows or storage objects', async () => {
+    const { storeId, token } = await installedStore();
+    const image = await sharp({ create: { width: 800, height: 1200, channels: 3, background: 'red' } }).jpeg().toBuffer();
+    const cases = [
+      { kind: 'video' as const, type: 'video/mp4', bytes: Buffer.concat([buildMp4Buffer(1080, 1920, undefined, { durationSeconds: 0 }), Buffer.from([0, 0, 0, 8, 0x6d, 0x6f, 0x6f, 0x66])]), reason: 'corrupt' },
+      { kind: 'video' as const, type: 'video/mp4', bytes: buildMp4Buffer(540, 960), reason: 'below_min_resolution' },
+      { kind: 'video' as const, type: 'video/mp4', bytes: buildMp4Buffer(1080, 1920, undefined, { durationSeconds: 95 }), reason: 'over_duration' },
+      { kind: 'video' as const, type: 'video/mp4', bytes: buildMp4Buffer(1080, 1920, undefined, { noVideoTrack: true }), reason: 'no_video_track' },
+      { kind: 'video' as const, type: 'video/mp4', bytes: buildMp4Buffer(1080, 1920).subarray(0, 24), reason: 'corrupt' },
+      { kind: 'image' as const, type: 'image/jpeg', bytes: image, reason: 'below_min_resolution' },
+    ];
+    for (const c of cases) {
+      const asset = await uploadAndComplete(token, c.kind, c.type, c.bytes);
+      await inspect(storeId, asset.id);
+      const before = storage.objects.size;
+      await processorRunner.process(storeId, asset.id);
+      expect(await assetRow(asset.id)).toMatchObject({ status: 'failed', failure_reason: c.reason });
+      expect(await renditionRows(asset.id)).toEqual([]);
+      expect(storage.objects.size).toBe(before);
+      expect((await mediaEvents(storeId, asset.id)).some(e => e.name === 'media.asset.failed')).toBe(true);
+    }
+  });
+
   it('1080p video: produces 480p, 720p, 1080p MP4s + 720x1280 WebP poster at immutable keys, marks processed, emits media.asset.processed, records metrics and serves poster', async () => {
     const { storeId, token } = await installedStore();
     const mp4 = buildMp4Buffer(1080, 1920);
@@ -897,10 +920,12 @@ describe('Story 3.8: media.asset.process and GET /v1/media/:id/poster', () => {
       )
     ).rows;
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]).toMatchObject({ id: asset.id, data: { store_id: storeId, asset_id: asset.id } });
+    expect(jobs[0]?.id).toBe(scannedEvent.event_id);
+    expect(jobs[0]).toMatchObject({ data: { store_id: storeId, asset_id: asset.id } });
 
     // Failing processor: attempts 1 and 2 throw; final attempt records processing_failed and emits media.asset.failed.
     const brokenProcessor: MediaProcessor = {
+      probe: (bytes, type) => new DevMediaProcessor().probe(bytes, type),
       processVideo: async () => {
         throw new Error('transcoder crashed');
       },
@@ -921,5 +946,15 @@ describe('Story 3.8: media.asset.process and GET /v1/media/:id/poster', () => {
       name: 'media.asset.failed',
       payload: { store_id: storeId, asset_id: asset.id, reason: 'processing_failed' },
     });
+    // A merchant retry must enqueue a fresh job even when the prior job is retained.
+    await boss.complete(MEDIA_PROCESS_QUEUE, jobs[0]!.id);
+    await withStoreContext(app, storeId, tx => nest.get(MediaService).requeueProcessing(tx, storeId, [asset.id]));
+    const retryEvent = (await mediaEvents(storeId, asset.id)).filter(e => e.name === 'media.asset.scanned').at(-1)!;
+    await dispatch(retryEvent, { id: retryEvent.event_id, data: retryEvent });
+    const retriedJobs = (await admin.query<{ id: string }>(`select id::text from ${SCHEMA}.job where name = $1 and data->>'asset_id' = $2`, [MEDIA_PROCESS_QUEUE, asset.id])).rows;
+    expect(retriedJobs).toHaveLength(2);
+    expect(retriedJobs.map(j => j.id)).toContain(retryEvent.event_id);
+    await processorRunner.process(storeId, asset.id);
+    expect((await assetRow(asset.id)).status).toBe('processed');
   });
 });

@@ -91,8 +91,8 @@ export interface ContentTransition {
 export const CONTENT_TRANSITIONS: Readonly<Record<ContentAction, ContentTransition>> = {
   create: { action: 'create', from: [], to: 'draft', event: 'content.item.created' },
   start_processing: { action: 'start_processing', from: ['draft', 'failed'], to: 'processing', event: 'content.item.processing_started' },
-  finish_processing: { action: 'finish_processing', from: ['processing'], to: 'draft', event: 'content.item.processed' },
-  fail_processing: { action: 'fail_processing', from: ['processing'], to: 'failed', event: 'content.item.processing_failed' },
+  finish_processing: { action: 'finish_processing', from: ['processing', 'failed'], to: 'draft', event: 'content.item.processed' },
+  fail_processing: { action: 'fail_processing', from: ['processing', 'draft'], to: 'failed', event: 'content.item.processing_failed' },
   publish: { action: 'publish', from: ['draft'], to: 'published', event: 'content.item.published' },
   schedule: { action: 'schedule', from: ['draft'], to: 'scheduled', event: 'content.item.scheduled' },
   go_live: { action: 'go_live', from: ['scheduled'], to: 'published', event: 'content.item.published' },
@@ -147,6 +147,7 @@ export const slideAltTextOk = (kind: MediaKind, altText: string | null | undefin
 
 /** The editable fields of a content item, without the cross-field rule (see `ctaUrlMatchesAction`). */
 export const ContentFields = z.strictObject({
+  auto_publish: z.boolean().optional(),
   title: z.string().min(1).max(CONTENT_TITLE_MAX),
   format: ContentFormat,
   cta_label: z.string().min(1).max(CTA_LABEL_MAX),
@@ -250,6 +251,10 @@ export const ContentSlide = z.object({
 });
 export type ContentSlide = z.infer<typeof ContentSlide>;
 
+export const CONTENT_STATUS_REASONS = [...MediaFailureReason.options, 'no_placement'] as const;
+export const ContentStatusReason = z.object({ code: z.enum(CONTENT_STATUS_REASONS), kind: MediaKind.optional() });
+export type ContentStatusReason = z.infer<typeof ContentStatusReason>;
+
 /** One content item returned by the merchant content API. */
 export const ContentItem = z.object({
   v: z.literal(1).default(1),
@@ -261,6 +266,7 @@ export const ContentItem = z.object({
   cta_url: z.string().nullable(),
   cta_style: CtaStyle.nullable(),
   status: ContentStatus,
+  status_reason: ContentStatusReason.nullable().default(null),
   archived_from: ContentStatus.nullable(),
   reactivate_to: ContentStatus.nullable(),
   auto_publish: z.boolean(),

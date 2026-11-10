@@ -155,6 +155,12 @@ export const ar: Messages = {
       clicks: 'النقرات',
       actions: 'الإجراءات',
     },
+    actions: { retry: 'إعادة المحاولة' },
+    statusReasons: {
+      no_placement: 'أضف موضعًا للنشر',
+      image: 'لم تكتمل معالجة هذه الصورة:',
+      video: 'لم تكتمل معالجة هذا الفيديو:',
+    },
     statuses: {
       draft: 'مسودة',
       processing: 'قيد المعالجة',
@@ -205,6 +211,8 @@ export const ar: Messages = {
     flags: { productDeleted: 'المنتج المرتبط محذوف' },
     create: 'ستوري جديدة',
     editor: {
+      autoPublish: { label: 'النشر تلقائيًا بعد المعالجة', hint: 'أضف موضعًا لنشر هذا المحتوى.' },
+      replaceMedia: 'استبدل الوسائط التي فشلت للمتابعة.',
       untitled: { story: 'ستوري جديدة', reel: 'ريل جديد' },
       back: 'العودة إلى الفيديوهات والستوريز',
       saving: 'نحفظ…',
@@ -293,6 +301,9 @@ export const ar: Messages = {
           full: '{file}: العنصر يقبل {max} شرائح كحد أقصى',
         },
         failures: {
+          below_min_resolution: 'الدقة أقل من الحد الأدنى: 720p للفيديو و1080 بكسل للصورة.',
+          over_duration: 'مدة الفيديو تتجاوز 90 ثانية.',
+          no_video_track: 'لا يحتوي الملف على مسار فيديو.',
           network: 'ما اكتمل الرفع. تأكد من اتصالك وحاول مرة ثانية.',
           throttled: 'رفعت ملفات كثيرة الحين. حاول بعد {minutes} دقيقة.',
           rejected: 'ما نقدر نرفع هذا الملف.',

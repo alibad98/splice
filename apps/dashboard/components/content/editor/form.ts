@@ -31,6 +31,7 @@ export interface SlideValue {
 
 /** What the editor form holds. `cta_url` is a plain string (empty when unused); it is sent as `null` unless the action is open link. */
 export interface EditorValues {
+  auto_publish: boolean;
   title: string;
   format: ContentFormat;
   cta_label: string;
@@ -83,6 +84,7 @@ const contractUrl = ContentFields.shape.cta_url;
 export function editorSchema(domains: readonly string[]) {
   return z
     .object({
+      auto_publish: z.boolean(),
       title: z.string().min(1, 'titleRequired').max(CONTENT_TITLE_MAX, 'titleTooLong'),
       format: ContentFormat,
       cta_label: z.string().min(1, 'labelRequired').max(CTA_LABEL_MAX, 'labelTooLong'),
@@ -112,6 +114,7 @@ export function editorSchema(domains: readonly string[]) {
 /** The API body for these values. */
 export function toInput(v: EditorValues): ContentCreateInput {
   return {
+    auto_publish: v.auto_publish,
     title: v.title,
     format: v.format,
     cta_label: v.cta_label,
@@ -126,6 +129,7 @@ export function toInput(v: EditorValues): ContentCreateInput {
 /** Form values of a saved item. A missing style is the default, ink. */
 export function fromItem(item: ContentItem): EditorValues {
   return {
+    auto_publish: item.auto_publish,
     title: item.title,
     format: item.format,
     cta_label: item.cta_label,
@@ -139,7 +143,7 @@ export function fromItem(item: ContentItem): EditorValues {
 
 /** A new item: Story, Add to cart, the button text in the UI language, ink style, no product, no slides. */
 export function newItemValues(ctaLabel: string): EditorValues {
-  return { title: '', format: 'story', cta_label: ctaLabel, cta_action: 'add_to_cart', cta_url: '', cta_style: DEFAULT_CTA_STYLE, product_id: null, slides: [] };
+  return { auto_publish: false, title: '', format: 'story', cta_label: ctaLabel, cta_action: 'add_to_cart', cta_url: '', cta_style: DEFAULT_CTA_STYLE, product_id: null, slides: [] };
 }
 
 /** A stable key of what would be sent; equal keys mean nothing to save. */

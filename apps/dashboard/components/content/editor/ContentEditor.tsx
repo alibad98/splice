@@ -18,10 +18,11 @@ import { Alert, Button, ErrorSummary, Icon, cn, toast } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
 import { ApiError } from '../../../lib/api/fetch';
 import { queryKeys } from '../../../lib/api/query-keys';
-import { useCreateContent, useUpdateContent } from '../../../lib/api/content';
+import { useCreateContent, useUpdateContent, useRetryContent, useContentItem } from '../../../lib/api/content';
 import { fill } from '../../products/format';
 import { useSession } from '../../session/SessionProvider';
 import { LangLink } from '../../shell/LangLink';
+import { ContentStatusReason, hasRetryableSlides } from '../ContentStatusReason';
 import { ContentStatusChip } from '../ContentStatusChip';
 import { contentHref } from '../ContentTable';
 import { CtaCard } from './CtaCard';
@@ -55,6 +56,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const { mutateAsync: create } = useCreateContent();
   const { mutateAsync: update } = useUpdateContent();
   const uploads = useUploads();
+  const retryProcessing = useRetryContent();
 
   const schema = useMemo(() => editorSchema(domains), [domains]);
   const [initialValues] = useState<EditorValues>(() => (item ? fromItem(item) : newItemValues(m.cta.picks.addToCart)));
@@ -63,6 +65,8 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
 
   // The API's latest answer for this item; null until a new item is first saved.
   const [saved, setSaved] = useState<ContentItem | null>(item ?? null);
+  const observed = useContentItem(item ? null : saved?.id ?? null);
+  const incoming = item ?? observed.data;
   const savedRef = useRef(saved);
   const persisting = useRef(false);
   useEffect(() => {
@@ -72,7 +76,8 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   // A refetch brought a different version (changed elsewhere, or after a 409): show it.
   useEffect(() => {
     const prev = savedRef.current;
-    if (!item || persisting.current || item.updated_at === prev?.updated_at) return;
+    const item = incoming;
+    if (!item || persisting.current || item.updated_at <= (prev?.updated_at ?? '')) return;
     savedRef.current = item;
     setSaved(item);
     const next = fromItem(item);
@@ -82,7 +87,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
     const savedAssets = new Set(item.slides.map((s) => s.media_asset_id));
     const pending = getValues('slides').filter((s) => uploads.uploads.has(s.key) && !(s.media_asset_id && savedAssets.has(s.media_asset_id)));
     reset({ ...next, slides: [...next.slides, ...pending] });
-  }, [item, reset, getValues, uploads.uploads]);
+  }, [incoming, reset, getValues, uploads.uploads]);
 
   const values = watch();
   const currentKey = saveKey(values);
@@ -245,6 +250,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
                 {title || m.untitled[values.format]}
               </h1>
               <ContentStatusChip status={status} labels={messages.content.statuses} />
+              {saved ? <ContentStatusReason item={saved} /> : null}
             </div>
           </div>
           {readOnly ? null : (
@@ -258,12 +264,23 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         </header>
 
         {readOnly ? <Alert tone="info" description={m.archivedNote} /> : null}
+        {saved?.status === 'failed' ? <div role="alert" className="flex items-center gap-3 rounded border border-destructive p-3">
+          <span>{hasRetryableSlides(saved) ? m.slides.failures.processing_failed : m.replaceMedia}</span>
+          <Button disabled={!hasRetryableSlides(saved)} pending={retryProcessing.isPending} onClick={() => retryProcessing.mutate(saved.id, { onSuccess: (item) => {
+            savedRef.current = item; setSaved(item);
+            for (const [key, held] of uploads.uploads) {
+              if (held.asset && item.slides.some(s => s.media_asset_id === held.asset?.id && s.status === 'scanned')) uploads.setAsset(key, { ...held.asset, status: 'scanned', failure_reason: null, poster_url: null });
+            }
+          }, onError: () => toast({ title: m.changesFailed, tone: 'danger' }) })}>{messages.content.actions.retry}</Button>
+        </div> : null}
         <ErrorSummary title={m.errors.summary} items={summaryItems} focusKey={submitCount} />
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           <form id="content-editor-form" noValidate onSubmit={(e) => void onSubmit(e)} className={cn('flex-col gap-6', previewOpen ? 'hidden lg:flex' : 'flex')}>
             <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-6">
               <FormatTitleCard autoFocusTitle={!item} />
+              <label className="flex items-center gap-3"><input type="checkbox" role="switch" {...form.register('auto_publish')} />{m.autoPublish.label}</label>
+              <p className="text-small text-muted-foreground">{m.autoPublish.hint}</p>
               <SlidesCard uploads={uploads} savedSlides={saved?.slides ?? []} readOnly={readOnly} onAssetProcessed={onAssetProcessed} />
               <ProductCard product={product} onPicked={setPicked} />
               <CtaCard domains={domains} />

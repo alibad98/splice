@@ -67,6 +67,9 @@ export const MEDIA_FAILURE_REASONS = [
   'fetch_too_large',
   'fetch_failed',
   'processing_failed',
+  'below_min_resolution',
+  'over_duration',
+  'no_video_track',
 ] as const;
 export type MediaFailureReason = (typeof MEDIA_FAILURE_REASONS)[number];
 export const MediaFailureReason = z.enum(MEDIA_FAILURE_REASONS);

@@ -57,6 +57,7 @@ export function useContentItem(id: string | null) {
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
     // The editor owns the form state; a refetch on focus must not look like a change.
     refetchOnWindowFocus: false,
+    refetchInterval: (query) => query.state.data?.status === 'processing' ? 3_000 : false,
   });
 }
 
@@ -96,3 +97,20 @@ export function useUpdateContent() {
 export const useArchiveContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/archive`, ContentItem));
 export const useUndoArchiveContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/undo-archive`, ContentItem));
 export const useDeleteContent = () => useContentMutation((client, id) => deleteResource(client, itemPath(id)));
+
+export function useRetryContent() {
+  const { client } = useClient();
+  const queryClient = useQueryClient();
+  const store = useStoreSavedItem();
+  return useMutation({
+    mutationFn: (id: string) => client ? postJson(client, `${itemPath(id)}/retry`, ContentItem) : Promise.reject(new ApiError(0)),
+    onSuccess: (item) => {
+      for (const slide of item.slides) {
+        if (slide.status !== 'scanned') continue;
+        queryClient.setQueryData(queryKeys.media.asset(slide.media_asset_id), (previous: Record<string, unknown> | undefined) => previous ? { ...previous, status: 'scanned', failure_reason: null, poster_url: null } : undefined);
+      }
+      store(item, {});
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.content.all }),
+  });
+}

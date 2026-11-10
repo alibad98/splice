@@ -324,6 +324,16 @@ export const ROUTES: RouteDoc[] = [
   },
   {
     method: 'post',
+    path: '/v1/content/:id/retry',
+    tag: 'Content',
+    summary: 'Retry failed processing',
+    description: 'Requeues processing_failed live slides and moves a failed item to processing. Returns 409 invalid-transition if the item is not failed or has no retryable slides.',
+    auth: 'merchant',
+    success: { status: 200, description: 'Processing content item', body: ContentItem },
+    errors: [401, 403, 404, 409],
+  },
+  {
+    method: 'post',
     path: '/v1/content/:id/archive',
     tag: 'Content',
     summary: 'Archive a content item',

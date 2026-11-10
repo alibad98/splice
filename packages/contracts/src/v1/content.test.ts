@@ -65,8 +65,8 @@ describe('content contracts', () => {
     for (const status of CONTENT_STATUSES) expect(canTransition(status, 'create')).toBe(false);
 
     expect(CONTENT_TRANSITIONS.start_processing.from).toEqual(['draft', 'failed']);
-    expect(CONTENT_TRANSITIONS.finish_processing).toMatchObject({ from: ['processing'], to: 'draft', event: 'content.item.processed' });
-    expect(CONTENT_TRANSITIONS.fail_processing).toMatchObject({ from: ['processing'], to: 'failed', event: 'content.item.processing_failed' });
+    expect(CONTENT_TRANSITIONS.finish_processing).toMatchObject({ from: ['processing', 'failed'], to: 'draft', event: 'content.item.processed' });
+    expect(CONTENT_TRANSITIONS.fail_processing).toMatchObject({ from: ['processing', 'draft'], to: 'failed', event: 'content.item.processing_failed' });
     expect(CONTENT_TRANSITIONS.publish).toMatchObject({ from: ['draft'], to: 'published', event: 'content.item.published' });
     expect(CONTENT_TRANSITIONS.schedule).toMatchObject({ from: ['draft'], to: 'scheduled', event: 'content.item.scheduled' });
     expect(CONTENT_TRANSITIONS.go_live).toMatchObject({ from: ['scheduled'], to: 'published', event: 'content.item.published' });
@@ -304,4 +304,13 @@ describe('content slide contracts (Story 3.6)', () => {
     expect(ContentItem.safeParse(withoutSlides).success).toBe(false);
     expect(ContentFields.keyof().options).toContain('slides');
   });
+});
+
+
+it('accepts auto_publish edits and validates derived media or placement status reasons', () => {
+  expect(ContentUpdateInput.parse({ auto_publish: true })).toEqual({ auto_publish: true });
+  expect(ContentUpdateInput.safeParse({ auto_publish: 'true' }).success).toBe(false);
+  expect(ContentItem.parse({ ...item, status_reason: { code: 'below_min_resolution', kind: 'video' } }).status_reason).toEqual({ code: 'below_min_resolution', kind: 'video' });
+  expect(ContentItem.parse({ ...item, status_reason: { code: 'no_placement' } }).status_reason).toEqual({ code: 'no_placement' });
+  expect(ContentItem.safeParse({ ...item, status_reason: { code: 'unknown' } }).success).toBe(false);
 });

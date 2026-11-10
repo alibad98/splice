@@ -8,7 +8,7 @@ import { MEDIA_LIMITS, type MediaFailureReason, type RenditionProfile } from '@s
 import { currentStoreContext, requireStoreContext, withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
 import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
-import type { MediaProcessor } from '../../ports/media-processor.js';
+import { UnparseableMediaError, type MediaProbe, type MediaProcessor } from '../../ports/media-processor.js';
 import type { ObjectStorage } from '../../ports/object-storage.js';
 import { Metric, type Telemetry } from '../../ports/telemetry.js';
 import { MediaRepository, type MediaAssetRow, type NewRenditionRow } from './media.repository.js';
@@ -51,6 +51,14 @@ interface PreparedRendition {
   readonly row: NewRenditionRow;
   readonly bytes: Buffer;
 }
+
+export function qualityCheck(kind: 'image' | 'video', probe: MediaProbe): MediaFailureReason | null {
+  if (kind === 'video' && !probe.hasVideoTrack) return 'no_video_track';
+  if (Math.min(probe.width, probe.height) < MEDIA_LIMITS[kind].min_short_side) return 'below_min_resolution';
+  if (kind === 'video' && probe.durationSeconds !== null && probe.durationSeconds > MEDIA_LIMITS.video.max_duration_seconds) return 'over_duration';
+  return null;
+}
+class QualityFailure extends Error { constructor(readonly reason: MediaFailureReason) { super(reason); } }
 
 export class MediaProcessorRunner {
   constructor(
@@ -95,6 +103,8 @@ export class MediaProcessorRunner {
         throw new Error(`scanned asset ${assetId} object is missing at ${initial.storageKey}`);
       }
       const raw = await readBounded(stream, MEDIA_LIMITS[initial.kind].max_bytes);
+      const reason = qualityCheck(initial.kind, await this.processor.probe(raw, initial.contentType));
+      if (reason) throw new QualityFailure(reason);
       const outputs =
         initial.kind === 'video'
           ? await this.processor.processVideo(raw, initial.contentType)
@@ -160,12 +170,13 @@ export class MediaProcessorRunner {
       for (const key of uploadedKeys) {
         await this.storage.delete(key).catch(() => undefined);
       }
-      if (!opts.finalAttempt) throw err;
+      const permanentReason = err instanceof QualityFailure ? err.reason : err instanceof UnparseableMediaError ? 'corrupt' : null;
+      if (!permanentReason && !opts.finalAttempt) throw err;
       this.telemetry.captureError(err, { asset_id: assetId, store_id: storeId, stage: 'media.asset.process' });
       return this.inStore(storeId, async () => {
         const locked = await this.repo.findAsset(assetId, { forUpdate: true });
         if (!locked || locked.status !== 'scanned') return locked;
-        return this.fail(storeId, locked, 'processing_failed', now);
+        return this.fail(storeId, locked, permanentReason ?? 'processing_failed', now);
       });
     }
   }

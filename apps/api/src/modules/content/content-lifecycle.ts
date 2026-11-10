@@ -17,6 +17,7 @@ import { and, eq, inArray, requireStoreContext, schema } from '@slips/db';
 import { publishEvent, uuidv7, type EventSender, type TxQueryable } from '../../events/outbox.js';
 import { EVENT_SENDER } from '../../infra.module.js';
 import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
+import { MediaService } from '../media/media.service.js';
 import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
 
 const { contentItems, contentProductLinks, slides } = schema;
@@ -26,7 +27,7 @@ export class InvalidTransitionError extends Error {
     public readonly contentId: string,
     public readonly from: ContentStatus | null,
     /** A lifecycle action, or `edit` for a field change on an archived item. */
-    public readonly action: ContentAction | 'edit',
+    public readonly action: ContentAction | 'edit' | 'retry',
   ) {
     super(`Cannot apply ${action} to content item ${contentId} in status ${from ?? 'none'}`);
     this.name = 'InvalidTransitionError';
@@ -90,6 +91,7 @@ const toSlideInputs = (rows: readonly SlideRow[]): SlideInput[] => rows.map((s) 
 const normalizeSlides = (list: readonly SlideInput[]): SlideInput[] => list.map((s) => ({ media_asset_id: s.media_asset_id, alt_text: normalizeAlt(s.alt_text) }));
 
 const fieldsOf = (row: ContentItemRow, productId: string | null, liveSlides: readonly SlideRow[]): ContentFields => ({
+  auto_publish: row.autoPublish,
   title: row.title,
   format: row.format,
   cta_label: row.ctaLabel,
@@ -114,6 +116,7 @@ export class ContentLifecycle {
   constructor(
     @Inject(EVENT_SENDER) private readonly events: EventSender,
     @Inject(TELEMETRY) private readonly telemetry: Telemetry,
+    @Inject(MediaService) private readonly media?: MediaService,
   ) {}
 
   async create(tx: TxQueryable, storeId: string, input: ContentCreateInput, now: Date = new Date(), assetKinds: SlideAssetKinds = new Map()): Promise<ContentItemRow> {
@@ -135,7 +138,7 @@ export class ContentLifecycle {
         status: 'draft',
         archivedFrom: null,
         reactivateTo: null,
-        autoPublish: false,
+        autoPublish: parsed.auto_publish ?? false,
         firstPublishedAt: null,
         deletedAt: null,
         createdAt: now,
@@ -205,6 +208,7 @@ export class ContentLifecycle {
     const [updated] = await requireStoreContext()
       .db.update(contentItems)
       .set({
+        autoPublish: next.auto_publish ?? false,
         title: next.title,
         format: next.format,
         ctaLabel: next.cta_label,
@@ -224,10 +228,10 @@ export class ContentLifecycle {
       changed,
     });
     if (changed.includes('slides')) {
-      if (row.status === 'draft' && this.hasInFlightSlides(next.slides, assetKinds)) {
+      if ((row.status === 'draft' || row.status === 'failed') && !next.slides.some(s => statusOf(assetKinds.get(s.media_asset_id)) === 'failed') && this.hasInFlightSlides(next.slides, assetKinds)) {
         return this.apply(tx, storeId, contentId, 'start_processing', now);
       }
-      if (row.status === 'processing' && this.allSlidesProcessed(next.slides, assetKinds)) {
+      if ((row.status === 'processing' || row.status === 'failed') && this.allSlidesProcessed(next.slides, assetKinds)) {
         return this.apply(tx, storeId, contentId, 'finish_processing', now);
       }
     }
@@ -284,10 +288,13 @@ export class ContentLifecycle {
       });
       const allProcessed = itemSlides.every((s) => statuses.get(s.mediaAssetId) === 'processed');
       try {
-        if (locked.status === 'draft' && anyInFlight) {
+        if ((locked.status === 'draft' || locked.status === 'processing') && itemSlides.some(s => statuses.get(s.mediaAssetId) === 'failed')) {
+          await this.apply(tx, storeId, locked.id, 'fail_processing', now);
+          transitioned.push(locked.id);
+        } else if ((locked.status === 'draft' || locked.status === 'failed') && !itemSlides.some(s => statuses.get(s.mediaAssetId) === 'failed') && anyInFlight) {
           await this.apply(tx, storeId, locked.id, 'start_processing', now);
           transitioned.push(locked.id);
-        } else if (locked.status === 'processing' && allProcessed) {
+        } else if ((locked.status === 'processing' || locked.status === 'failed') && allProcessed) {
           await this.apply(tx, storeId, locked.id, 'finish_processing', now);
           transitioned.push(locked.id);
         }
@@ -297,6 +304,21 @@ export class ContentLifecycle {
       }
     }
     return transitioned;
+  }
+
+  async retry(tx: TxQueryable, storeId: string, contentId: string): Promise<ContentItemRow> {
+    const row = await this.repo.lockById(contentId);
+    if (!row) throw new ContentNotFoundError(contentId);
+    if (row.status !== 'failed') throw new InvalidTransitionError(contentId, row.status, 'retry');
+    const slides = await this.repo.liveSlides([contentId]);
+    const ids = await this.media!.requeueProcessing(tx, storeId, slides.map(s => s.mediaAssetId));
+    if (!ids.length) throw new InvalidTransitionError(contentId, row.status, 'retry');
+    return this.apply(tx, storeId, contentId, 'start_processing');
+  }
+
+  async publishEligibility(_tx: TxQueryable, _storeId: string, _itemId: string): Promise<{ eligible: false; reason: 'no_placement' }> {
+    void _tx; void _storeId; void _itemId;
+    return { eligible: false, reason: 'no_placement' };
   }
 
   private hasInFlightSlides(list: readonly SlideInput[], assetKinds: SlideAssetKinds): boolean {
@@ -397,6 +419,7 @@ export class ContentLifecycle {
       throw new InvalidTransitionError(contentId, row.status, action);
     }
 
+    if (action === 'finish_processing' && row.autoPublish) await this.publishEligibility(tx, storeId, contentId);
     const from = row.status;
     if (action === 'delete') {
       const [deleted] = await requireStoreContext()

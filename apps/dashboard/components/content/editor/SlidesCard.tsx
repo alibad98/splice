@@ -228,12 +228,13 @@ export function SlidesCard({
   const onAssetFailed = useCallback(
     (key: string, asset: MediaAsset) => {
       uploads.setAsset(key, asset);
+      onAssetProcessed?.(asset);
       if (savedSlides.some((x) => x.media_asset_id === asset.id)) return;
       const list = getValues('slides');
       const index = list.findIndex((r) => r.key === key);
       if (index >= 0 && list[index]!.media_asset_id === asset.id) setValue(`slides.${index}.media_asset_id`, null, { shouldDirty: true });
     },
-    [getValues, savedSlides, setValue, uploads],
+    [getValues, savedSlides, setValue, uploads, onAssetProcessed],
   );
 
   /** When a polled asset finishes processing, update the held upload asset and notify the editor so item status refreshes (Story 3.8). */
@@ -329,6 +330,8 @@ const failureMessage = (copy: SlidesCopy, reason: MediaFailureReason | null): st
  * The row's state: the upload (or the import request) while it runs, then the asset's status (polled while it is being
  * imported or waits for inspection). A failed asset can retry while its file is held or when it came from a link.
  */
+const NO_REUPLOAD_REASONS: readonly (MediaFailureReason | null)[] = ['below_min_resolution', 'over_duration', 'no_video_track', 'corrupt', 'malware', 'type_not_allowed', 'type_mismatch'];
+
 function viewOf(copy: SlidesCopy, upload: UploadState | null, asset: Pick<MediaAsset, 'status' | 'failure_reason'> | null, sourceUrl: string | null): View {
   const link = upload ? upload.source.type === 'link' : Boolean(sourceUrl);
   if (upload?.phase === 'waiting') return link ? { state: 'importing' } : { state: 'waiting' };
@@ -340,7 +343,7 @@ function viewOf(copy: SlidesCopy, upload: UploadState | null, asset: Pick<MediaA
     return { state: 'failed', message, canRetry: true };
   }
   if (!asset) return link ? { state: 'importing' } : { state: 'processing' };
-  if (asset.status === 'failed') return { state: 'failed', message: failureMessage(copy, asset.failure_reason), canRetry: Boolean(upload) || Boolean(sourceUrl) };
+  if (asset.status === 'failed') return { state: 'failed', message: failureMessage(copy, asset.failure_reason), canRetry: !NO_REUPLOAD_REASONS.includes(asset.failure_reason) && (Boolean(upload) || Boolean(sourceUrl)) };
   if (asset.status === 'importing') return { state: 'importing' };
   return asset.status === 'processed' ? { state: 'ready' } : { state: 'processing' };
 }
@@ -455,19 +458,21 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
   const [mountedAt] = useState(() => Date.now());
 
   // The asset as last known: polled, else from the upload, else from the saved item.
-  const known = upload?.asset ?? saved ?? null;
+  const known = saved?.status === 'scanned' && upload?.asset?.status === 'failed' ? saved : upload?.asset ?? saved ?? null;
+  const [attempt, setAttempt] = useState(() => ({ status: known?.status, since: upload?.completedAt ?? mountedAt }));
+  if (attempt.status !== known?.status) setAttempt({ status: known?.status, since: isPendingAssetStatus(known?.status) && !isPendingAssetStatus(attempt.status) ? Date.now() : attempt.since });
   const sourceUrl = row.source_url ?? saved?.source_url ?? null;
   const polled = useMediaAssetStatus(row.media_asset_id, {
     enabled: isPendingAssetStatus(known?.status),
-    since: upload?.completedAt ?? mountedAt,
+    since: attempt.since,
     ...(sourceUrl ? { maxMs: MEDIA_IMPORT_POLL_MAX_MS } : {}),
   });
-  const asset = polled.data && polled.data.id === row.media_asset_id ? polled.data : (known as Pick<MediaAsset, 'status' | 'failure_reason' | 'poster_url'> | null);
-  const failedId = polled.data?.status === 'failed' ? polled.data.id : null;
+  const asset = polled.data && polled.data.id === row.media_asset_id && polled.dataUpdatedAt >= attempt.since ? polled.data : (known as Pick<MediaAsset, 'status' | 'failure_reason' | 'poster_url'> | null);
+  const failedId = asset === polled.data && polled.data?.status === 'failed' ? polled.data.id : null;
   useEffect(() => {
     if (failedId && polled.data) onAssetFailed(row.key, polled.data);
   }, [failedId]);
-  const processedId = polled.data?.status === 'processed' ? polled.data.id : null;
+  const processedId = asset === polled.data && polled.data?.status === 'processed' ? polled.data.id : null;
   useEffect(() => {
     if (processedId && polled.data && saved?.status !== 'processed') onAssetProcessed(row.key, polled.data);
   }, [processedId, saved?.status]);
@@ -510,7 +515,7 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
         {view.state === 'failed' ? (
           <p className="text-small text-destructive-text" role="alert">
             {view.message}
-            {!view.canRetry ? ` ${copy.failures.noFile}` : null}
+            {!view.canRetry && asset?.failure_reason !== 'processing_failed' && !NO_REUPLOAD_REASONS.includes(asset?.failure_reason ?? null) ? ` ${copy.failures.noFile}` : null}
           </p>
         ) : null}
         <Controller
@@ -538,7 +543,7 @@ function SlideItem({ row, index, total, upload, saved, readOnly, dragging, copy,
             <Icon name="trash" className="size-4" />
           </Button>
         </div>
-        {view.state === 'failed' && view.canRetry && !readOnly ? (
+        {view.state === 'failed' && view.canRetry && !(saved && asset?.failure_reason === 'processing_failed') && !readOnly ? (
           <Button size="sm" variant="secondary" onClick={onRetry}>
             <Icon name="retry" className="size-3.5" />
             {copy.retry}

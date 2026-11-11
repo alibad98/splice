@@ -9,8 +9,8 @@ import { ensureTestAppRole } from '../testing/app-role.js';
 import { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables } from '../testing/cross-tenant.js';
 import * as schema from './index.js';
 
-const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_catalog:it_catalog_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = process.env.TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = process.env.TEST_APP_URL ?? `postgres://slips_it_catalog:it_catalog_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const TENANT_TABLES = ['products', 'categories', 'catalog_sync_state'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });

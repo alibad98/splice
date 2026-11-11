@@ -128,3 +128,10 @@ context:
 - Before the fix, new policy/proxy regressions failed with the original Salla-only header. After the fix, all 13 policy/proxy tests pass, including no-cookie iframe navigation, custom Salla origin, lookalike-path isolation and existing merchant/auth/admin restrictions.
 - Live development server at port 3003 returns HTTP 200 and `frame-ancestors 'self' https://s.salla.sa` for the preview document.
 - Node 24.15.0: production build (including TypeScript), focused ESLint, and all 8 dashboard browser tests pass. The new case uses an actual production Next.js server, asserts its CSP header, and proves browser framing, ready handshake and content rendering. Logs: system temp `splice-3-12-final/framing-{build,browser}.log`.
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed: current editor/player integration and browser checks pass for saved updates, explicit Published-save isolation, protected media ownership, retry/bootstrap recovery and responsive controls.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

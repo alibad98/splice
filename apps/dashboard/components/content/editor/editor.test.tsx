@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ContentItem, ContentProductSummary, ProductRow } from '@slips/contracts';
+import { CONTENT_NO_PLACEMENT, type ContentItem, type ContentProductSummary, type ProductRow } from '@slips/contracts';
 import { DialogHost, dialog, toast, Toaster } from '@slips/ui';
 import { I18nProvider } from '../../../i18n/provider';
 import { getMessages } from '../../../i18n/messages';
@@ -45,6 +45,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   first_published_at: null,
   product: null,
   slides: [],
+  placements: [],
   created_at: '2026-11-05T10:00:00.000Z',
   updated_at: '2026-11-05T10:00:00.000Z',
   ...over,
@@ -152,6 +153,78 @@ afterEach(() => {
 });
 
 describe('Content editor: new item', () => {
+  it.each(['en', 'ar'] as const)('%s: publication errors preserve Draft values and allow a successful retry', async locale => {
+    const m = getMessages(locale).content;
+    let current = item({ placements: [{ type: 'home' }] });
+    let attempts = 0;
+    handler = ({ method, path, body }) => {
+      if (method === 'PATCH') current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
+      if (path.endsWith('/publish')) {
+        attempts++;
+        if (attempts === 1) return problem(422, { type: CONTENT_NO_PLACEMENT, code: 'no_placement' });
+        if (attempts === 2) return problem(500);
+        current = { ...current, status: 'published', updated_at: '2026-11-06T10:01:00.000Z' };
+      }
+      return json(current);
+    };
+    setup({ locale, element: <ContentEditor item={current} /> });
+    const titleInput = screen.getByRole('textbox', { name: m.editor.formatTitle.title }) as HTMLInputElement;
+    type(titleInput, 'Retained title');
+    for (const reason of [m.statusReasons.no_placement, m.editor.publish.failed]) {
+      fireEvent.click(screen.getByRole('button', { name: m.editor.publish.now }));
+      await until(() => expect(screen.getByRole('alert').textContent).toBe(reason));
+      expect(titleInput.value).toBe('Retained title');
+      expect((screen.getByRole('checkbox', { name: m.editor.placements.home }) as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByText(m.statuses.draft)).toBeTruthy();
+      const publish = screen.getByRole('button', { name: m.editor.publish.now });
+      expect(publish.getAttribute('aria-busy')).toBeNull();
+      expect(publish.getAttribute('aria-disabled')).toBeNull();
+    }
+    fireEvent.click(screen.getByRole('button', { name: m.editor.publish.now }));
+    await until(() => expect(screen.queryByRole('button', { name: m.editor.publish.now })).toBeNull());
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(titleInput.value).toBe('Retained title');
+    expect(current.status).toBe('published');
+    expect(attempts).toBe(3);
+  });
+
+  it('Home toggles autosave; missing placement keeps Publish focusable with a reason', async () => {
+    setup({ element: <ContentEditor item={item()} /> });
+    const publish = screen.getByRole('button', { name: 'Publish now' });
+    expect(publish.getAttribute('aria-disabled')).toBe('true');
+    publish.focus(); fireEvent.click(publish);
+    expect(document.activeElement).toBe(publish);
+    expect(writes()).toHaveLength(0);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    expect(screen.queryByText('Add a placement to publish this content.')).toBeNull();
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { placements: [{ type: 'home' }] } })]);
+    expect((screen.getByRole('checkbox', { name: 'Category page' }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('Publish waits for an in-flight autosave and then saves the latest combined values', async () => {
+    const initial = item({ placements: [{ type: 'home' }] });
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let current = initial; let patches = 0;
+    handler = async ({ method, path, body }) => {
+      if (method === 'PATCH') {
+        if (++patches === 1) await held;
+        current = { ...current, ...(body as object), updated_at: `2026-11-06T10:00:0${patches}.000Z` };
+      } else if (path.endsWith('/publish')) current = { ...current, status: 'published', updated_at: '2026-11-06T10:01:00.000Z' };
+      return json(current);
+    };
+    setup({ element: <ContentEditor item={initial} /> });
+    type(title(), 'First'); await advance(AUTOSAVE_DELAY_MS + 20);
+    type(title(), 'Latest');
+    fireEvent.click(screen.getByRole('button', { name: 'Publish now' }));
+    await advance(30);
+    expect(calls.some(c => c.path.endsWith('/publish'))).toBe(false);
+    await act(async () => { release(); await held; });
+    await until(() => expect(calls.some(c => c.path.endsWith('/publish'))).toBe(true));
+    expect(writes().map(c => c.path.endsWith('/publish') ? 'publish' : (c.body as { title: string }).title)).toEqual(['First', 'Latest', 'publish']);
+  });
+
   it('focuses the title; a format-only change saves nothing; a typed title creates the Draft once after 1 s and swaps the URL without a remount', async () => {
     setup({ element: <ContentEditor /> });
     expect(document.activeElement).toBe(title());
@@ -170,7 +243,7 @@ describe('Content editor: new item', () => {
     expect(writes()[0]).toEqual({
       method: 'POST',
       path: '/v1/content',
-      body: { auto_publish: false, title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [] },
+      body: { auto_publish: false, title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [], placements: [] },
     });
     await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
     expect(window.location.pathname).toBe(`/content/${ID}`);
@@ -410,6 +483,7 @@ describe('Content editor: explicit saves, read-only, errors and leaving', () => 
     setup({ element: <ContentEditorPage id={ID} /> });
     await until(() => expect(title().value).toBe(published.title));
     type(title(), 'All live changes');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Reel' }), { button: 0 });
     fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
     type(screen.getByRole('textbox', { name: 'Button text' }), 'Shop');
@@ -422,12 +496,13 @@ describe('Content editor: explicit saves, read-only, errors and leaving', () => 
     expect(writes()).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await until(() => expect(writes()).toHaveLength(1));
-    const expected = { title: 'All live changes', format: 'reel', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p', cta_style: 'outline', slides: [{ media_asset_id: assetB, alt_text: null }, { media_asset_id: assetA, alt_text: 'Changed photo' }] };
+    const expected = { title: 'All live changes', format: 'reel', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p', cta_style: 'outline', slides: [{ media_asset_id: assetB, alt_text: null }, { media_asset_id: assetA, alt_text: 'Changed photo' }], placements: [{ type: 'home' }] };
     expect(writes()[0]!.body).toEqual(expected);
     await until(() => expect(refetchedAfterRejection).toBe(true));
     await until(() => expect(screen.getAllByText('The linked product was deleted in your store')).toHaveLength(2));
     await until(() => expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(false));
     expect(title().value).toBe('All live changes');
+    expect((screen.getByRole('checkbox', { name: 'Home' }) as HTMLInputElement).checked).toBe(true);
     expect((document.getElementById(`slide-alt-${assetA}`) as HTMLInputElement).value).toBe('Changed photo');
     expect(screen.getByTestId('linked-product').textContent).toContain('Oud');
     reject = false;
@@ -722,7 +797,7 @@ describe('Story 3.9 processing controls', () => {
     const current = item({ auto_publish: true, status_reason: { code: 'no_placement' } });
     handler = echo(current);
     setup({ element: <ContentEditor item={current} /> });
-    expect(screen.getByText('Add a placement to publish')).toBeTruthy();
+    expect(screen.getByText('Add a placement to publish', { selector: 'p' })).toBeTruthy();
     const toggle = screen.getByRole('switch', { name: 'Publish automatically after processing' });
     expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);

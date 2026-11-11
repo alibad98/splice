@@ -64,3 +64,12 @@ export const slides = pgTable('slides', {
   createdAt: ts('created_at').notNull().default(sql`now()`),
   updatedAt: ts('updated_at').notNull().default(sql`now()`),
 });
+
+/** Home placements, owned and written by content. Unsupported targets remain outside the pilot. */
+export const placements = pgTable('placements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').notNull(),
+  contentId: uuid('content_id').notNull(),
+  type: text('type').$type<'home'>().notNull(),
+  createdAt: ts('created_at').notNull().default(sql`now()`),
+});

@@ -23,8 +23,8 @@ import type { SessionConfig } from '../infra.module.js';
 import { CredentialsService } from '../modules/auth/credentials.service.js';
 import { SessionService } from '../modules/session/session.service.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_api:it_api_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_api:it_api_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_integration_test';
 const lines: string[] = [];
 const telemetry = new PinoTelemetry({ role: 'http', level: 'debug', stream: { write: (l: string) => void lines.push(l) } });

@@ -51,7 +51,7 @@ export class SessionService {
   }
 
   /** Resolve a credential. Expired sessions (hard expiry or idle for `idleMs`) are removed and reported as such. */
-  async authenticate(token: string, expectedMode: SessionMode): Promise<AuthOutcome> {
+  async authenticate(token: string, expectedMode: SessionMode, options: { touch?: boolean } = {}): Promise<AuthOutcome> {
     const [storeId, id, secret, extra] = token.split('.');
     if (!storeId || !id || !secret || extra !== undefined || !UUID.test(storeId) || !UUID.test(id)) return { kind: 'none' };
     return withStoreContext(this.pool, storeId, async (): Promise<AuthOutcome> => {
@@ -66,7 +66,7 @@ export class SessionService {
         await this.repo.delete(id);
         return { kind: 'expired' };
       }
-      if (now - row.lastSeenAt.getTime() > TOUCH_EVERY_MS) await this.repo.touch(id, new Date(now));
+      if (options.touch !== false && now - row.lastSeenAt.getTime() > TOUCH_EVERY_MS) await this.repo.touch(id, new Date(now));
       return { kind: 'ok', session: { id, storeId, mode: row.mode, expiresAt: row.expiresAt } };
     });
   }

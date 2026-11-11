@@ -13,6 +13,8 @@ import {
   type ContentCreateInput,
   type ContentItem,
   type ContentUpdateInput,
+  PlacementList,
+  type Placement,
 } from '@slips/contracts';
 
 /**
@@ -42,6 +44,7 @@ export interface EditorValues {
   product_id: string | null;
   /** The slides in order (Story 3.6), uploads in progress included. */
   slides: SlideValue[];
+  placements: Placement[];
 }
 
 /** Keys into `messages.content.editor.errors`; the schema reports these instead of text so errors follow the active language. */
@@ -93,6 +96,7 @@ export function editorSchema(domains: readonly string[]) {
       cta_style: CtaStyle,
       product_id: z.uuid().nullable(),
       slides: z.array(SlideValueSchema),
+      placements: PlacementList,
     })
     .superRefine((v, ctx) => {
       // Image slides need alt text before any save, Drafts included (Story 3.6); rows still uploading are not sent yet.
@@ -123,6 +127,7 @@ export function toInput(v: EditorValues): ContentCreateInput {
     cta_style: v.cta_style,
     product_id: v.product_id,
     slides: v.slides.flatMap((s) => (s.media_asset_id ? [{ media_asset_id: s.media_asset_id, alt_text: altOf(s) }] : [])),
+    placements: v.placements,
   };
 }
 
@@ -138,12 +143,13 @@ export function fromItem(item: ContentItem): EditorValues {
     cta_style: item.cta_style ?? DEFAULT_CTA_STYLE,
     product_id: item.product?.id ?? null,
     slides: item.slides.map((s) => ({ key: s.id, media_asset_id: s.media_asset_id, kind: s.kind, alt_text: s.alt_text ?? '', source_url: s.source_url ?? null })),
+    placements: item.placements ?? [],
   };
 }
 
 /** A new item: Story, Add to cart, the button text in the UI language, ink style, no product, no slides. */
 export function newItemValues(ctaLabel: string): EditorValues {
-  return { auto_publish: false, title: '', format: 'story', cta_label: ctaLabel, cta_action: 'add_to_cart', cta_url: '', cta_style: DEFAULT_CTA_STYLE, product_id: null, slides: [] };
+  return { auto_publish: false, title: '', format: 'story', cta_label: ctaLabel, cta_action: 'add_to_cart', cta_url: '', cta_style: DEFAULT_CTA_STYLE, product_id: null, slides: [], placements: [] };
 }
 
 /** A stable key of what would be sent; equal keys mean nothing to save. */

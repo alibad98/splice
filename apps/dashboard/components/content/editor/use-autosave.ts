@@ -26,36 +26,32 @@ interface Options {
 export function useAutosave({ enabled, dirty, valid, changeKey, run, delay = AUTOSAVE_DELAY_MS }: Options) {
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [rerun, setRerun] = useState(0);
-  const inFlight = useRef(false);
-  const again = useRef(false);
+  const inFlight = useRef<Promise<boolean> | null>(null);
   const runRef = useRef(run);
   useEffect(() => {
     runRef.current = run;
   }, [run]);
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (inFlight.current) {
-      again.current = true;
-      return false;
-    }
-    inFlight.current = true;
-    setSaving(true);
-    let ok = false;
-    try {
-      await runRef.current();
-      ok = true;
-      setFailed(false);
-    } catch {
-      setFailed(true);
-    } finally {
-      inFlight.current = false;
-      setSaving(false);
-      if (again.current) {
-        again.current = false;
-        setRerun((n) => n + 1);
+    // Waiting for a previous request is not enough: it may contain older form values.
+    // Serialize, then persist the latest values before callers can publish.
+    while (inFlight.current) await inFlight.current;
+    const request = (async () => {
+      setSaving(true);
+      try {
+        await runRef.current();
+        setFailed(false);
+        return true;
+      } catch {
+        setFailed(true);
+        return false;
+      } finally {
+        setSaving(false);
       }
-    }
+    })();
+    inFlight.current = request;
+    const ok = await request;
+    if (inFlight.current === request) inFlight.current = null;
     return ok;
   }, []);
 
@@ -63,7 +59,7 @@ export function useAutosave({ enabled, dirty, valid, changeKey, run, delay = AUT
     if (!enabled || !dirty || !valid) return;
     const id = setTimeout(() => void save(), delay);
     return () => clearTimeout(id);
-  }, [enabled, dirty, valid, changeKey, rerun, delay, save]);
+  }, [enabled, dirty, valid, changeKey, delay, save]);
 
   return { saving, failed, save };
 }

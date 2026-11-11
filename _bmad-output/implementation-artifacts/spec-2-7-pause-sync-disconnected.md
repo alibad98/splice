@@ -122,3 +122,10 @@ context:
 - `pnpm -C apps/api exec vitest run src/composition/integration.test.ts src/composition/product-webhooks.test.ts src/composition/catalog.test.ts src/composition/lifecycle.test.ts src/worker` -- expected: pass (live DB; locally swap to the Docker DB on 5436 and back).
 - `pnpm -C apps/dashboard exec vitest run` -- expected: pass.
 - `pnpm turbo run lint typecheck test build` -- expected: pass except `@slips/player#build` on Windows.
+
+
+### Pilot review closeout — 2026-11-11
+
+Engineering gaps closed: pause/reconnect/banner checks pass; visible sessions now refresh connection metadata without extending cookie idle expiry. Full-story storefront-last-data acceptance remains open for publishing in 4.4-4.6.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

@@ -5,7 +5,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import pg from 'pg';
 import { PgBoss } from 'pg-boss';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CONTENT_ACTIONS,
   CONTENT_EVENT_NAMES,
@@ -32,13 +32,13 @@ import { uuidv7 } from '../events/outbox.js';
 import { grantEventPublishing } from '../events/queue-grants.js';
 import { createHttpApp } from '../http.js';
 import type { SessionConfig } from '../infra.module.js';
-import { ContentLifecycle, InvalidTransitionError } from '../modules/content/content-lifecycle.js';
+import { ContentLifecycle, InvalidTransitionError, PublishEligibilityError } from '../modules/content/content-lifecycle.js';
 import { contentStoreData } from '../modules/content/content.lifecycle.js';
 import { MediaService } from '../modules/media/media.service.js';
 import { SessionService } from '../modules/session/session.service.js';
 import { registerContentEventHandlers } from '../worker/content-jobs.js';
 
-const ADMIN_URL = process.env.CONTENT_TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
+const ADMIN_URL = process.env.CONTENT_TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const appUrl = new URL(ADMIN_URL);
 appUrl.username = 'slips_it_content_comp';
 appUrl.password = 'it_content_comp_pw';
@@ -55,6 +55,7 @@ let boss: PgBoss;
 let lifecycle: ContentLifecycle;
 
 const validCreateInput = {
+  placements: [{ type: 'home' as const }],
   title: 'عباية العيد الجديدة',
   format: 'story' as const,
   cta_label: 'أضف للسلة',
@@ -114,6 +115,52 @@ afterAll(async () => {
 });
 
 describe('ContentLifecycle exhaustive (status, action) transition matrix', () => {
+  it.each([
+    ['draft', 'publish'], ['draft', 'schedule'], ['scheduled', 'go_live'],
+    ['deactivated', 'reactivate'], ['archived', 'undo_archive'],
+  ] as const)('Home admission: %s + %s refuses atomically, then succeeds after Home is saved', async (status, action) => {
+    const storeId = randomUUID();
+    const item = await seedItemInStatus(storeId, status);
+    await withStoreContext(app, storeId, async tx => {
+      // Archived fields are read-only: remove via the owned command before archiving instead.
+      if (status === 'archived') {
+        await lifecycle.apply(tx, storeId, item.id, 'undo_archive');
+        await lifecycle.edit(tx, storeId, item.id, { placements: [] });
+        await lifecycle.apply(tx, storeId, item.id, 'archive');
+      } else await lifecycle.edit(tx, storeId, item.id, { placements: [] });
+    });
+    const before = await rowById(item.id);
+    const events = await eventsForContent(storeId, item.id);
+    await expect(withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, action))).rejects.toMatchObject({ reason: 'no_placement' });
+    expect(await rowById(item.id)).toEqual(before);
+    expect(await eventsForContent(storeId, item.id)).toEqual(events);
+    if (status !== 'archived') {
+      await withStoreContext(app, storeId, tx => lifecycle.edit(tx, storeId, item.id, { placements: [{ type: 'home' }] }));
+      expect((await withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, action))).status).toBe(action === 'schedule' ? 'scheduled' : 'published');
+    }
+  });
+
+  it.each(['scheduled', 'published'] as const)('Undo and reactivate resolve %s before checking admission', async target => {
+    const storeId = randomUUID();
+    const item = await seedItemInStatus(storeId, target);
+    await withStoreContext(app, storeId, async tx => {
+      await lifecycle.edit(tx, storeId, item.id, { placements: [] });
+      await lifecycle.apply(tx, storeId, item.id, 'deactivate');
+    });
+    await expect(withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, 'reactivate'))).rejects.toBeInstanceOf(PublishEligibilityError);
+    await withStoreContext(app, storeId, async tx => {
+      await lifecycle.edit(tx, storeId, item.id, { placements: [{ type: 'home' }] });
+      await lifecycle.apply(tx, storeId, item.id, 'reactivate');
+      await lifecycle.edit(tx, storeId, item.id, { placements: [] });
+      await lifecycle.apply(tx, storeId, item.id, 'archive');
+    });
+    const before = await rowById(item.id);
+    const events = await eventsForContent(storeId, item.id);
+    await expect(withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, 'undo_archive'))).rejects.toBeInstanceOf(PublishEligibilityError);
+    expect(await rowById(item.id)).toEqual(before);
+    expect(await eventsForContent(storeId, item.id)).toEqual(events);
+  });
+
   const pairs: Array<[ContentStatus, ContentAction]> = CONTENT_STATUSES.flatMap((status) =>
     CONTENT_ACTIONS.map((action): [ContentStatus, ContentAction] => [status, action]),
   );
@@ -1044,7 +1091,7 @@ describe('merchant content API & I/O matrix', () => {
   it('Story 3.9: failure events, retry restrictions, recovery and auto-publish without placement', async () => {
     const { storeId, token } = await installedStore();
     const asset = await seedAsset(storeId, 'video', 'scanned');
-    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, auto_publish: true, slides: [{ media_asset_id: asset, alt_text: null }] })).body);
+    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [], auto_publish: true, slides: [{ media_asset_id: asset, alt_text: null }] })).body);
     const registry = new EventHandlerRegistry();
     registerContentEventHandlers(registry, telemetry, nest.get(ContentLifecycle), nest.get(MediaService));
     const dispatch = eventDispatcher(app, registry);
@@ -1075,6 +1122,57 @@ describe('merchant content API & I/O matrix', () => {
     const recovered = ContentItem.parse((await request(token, 'PATCH', '/v1/content/' + item.id, { slides: [] })).body);
     expect(recovered).toMatchObject({ status: 'draft', status_reason: null });
     expect((await eventsForContent(storeId, item.id)).filter(e => e.name === 'content.item.published')).toEqual([]);
+  });
+
+  it('Home API: scoped persistence, strict choices, publish, copy omission and one atomic Published edit', async () => {
+    const { storeId, token } = await installedStore();
+    const other = await installedStore();
+    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
+    const before = await rowById(item.id); const events = await eventsForContent(storeId, item.id);
+    const refused = await request(token, 'POST', `/v1/content/${item.id}/publish`);
+    expect(refused.res.status).toBe(422); expect(refused.body).toMatchObject({ code: 'no_placement', type: 'no-placement' });
+    expect(await rowById(item.id)).toEqual(before); expect(await eventsForContent(storeId, item.id)).toEqual(events);
+    for (const placements of [[{ type: 'category' }], [{ type: 'product', target_id: randomUUID() }], [{ type: 'home' }, { type: 'home' }]]) expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { placements })).res.status).toBe(400);
+    expect((await request(other.token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'home' }] })).res.status).toBe(404);
+    expect((await request(other.token, 'GET', `/v1/content/${item.id}`)).res.status).toBe(404);
+    expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'home' }] })).res.status).toBe(200);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body).placements).toEqual([{ type: 'home' }]);
+    const unplaced = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
+    const listed = ContentListResponse.parse((await request(token, 'GET', '/v1/content')).body);
+    expect(listed.items.find(row => row.id === item.id)?.placements).toEqual([{ type: 'home' }]);
+    expect(listed.items.find(row => row.id === unplaced.id)?.placements).toEqual([]);
+    expect(ContentItem.parse((await request(token, 'POST', `/v1/content/${item.id}/publish`)).body).status).toBe('published');
+    const count = (await eventsForContent(storeId, item.id)).length;
+    const changed = await request(token, 'PATCH', `/v1/content/${item.id}`, { title: 'Saved together', placements: [] });
+    expect(ContentItem.parse(changed.body)).toMatchObject({ title: 'Saved together', status: 'published', placements: [] });
+    const after = await eventsForContent(storeId, item.id);
+    expect(after).toHaveLength(count + 1); expect(after.at(-1)).toMatchObject({ name: 'content.item.edited', payload: { changed: ['title', 'placements'] } });
+    await expect(withStoreContext(app, storeId, async tx => { await nest.get(ContentLifecycle).edit(tx, storeId, item.id, { title: 'Rollback', placements: [{ type: 'home' }] }); throw new Error('rollback'); })).rejects.toThrow('rollback');
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body)).toMatchObject({ title: 'Saved together', placements: [] });
+    expect(await eventsForContent(storeId, item.id)).toEqual(after);
+    await request(token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'home' }] });
+    expect(ContentItem.parse((await request(token, 'POST', `/v1/content/${item.id}/duplicate`)).body)).toMatchObject({ status: 'draft', placements: [] });
+  });
+
+  it('Home QC: processed media auto-publishes once, pending or failed media never enters live destinations', async () => {
+    const { storeId, token } = await installedStore();
+    const asset = await seedAsset(storeId, 'video', 'scanned');
+    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, auto_publish: true, slides: [{ media_asset_id: asset, alt_text: null }] })).body);
+    const commands = nest.get(ContentLifecycle); const media = nest.get(MediaService);
+    const resolve = async (ids: readonly string[]) => new Map([...(await media.getAssetsByIds(storeId, ids))].map(([id, asset]) => [id, asset.status]));
+    await admin.query("update media_assets set status = 'processed' where id = $1", [asset]);
+    await withStoreContext(app, storeId, tx => commands.syncSlideProcessing(tx, storeId, asset, resolve));
+    await withStoreContext(app, storeId, tx => commands.syncSlideProcessing(tx, storeId, asset, resolve));
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body)).toMatchObject({ status: 'published', first_published_at: expect.any(String), status_reason: null });
+    expect((await eventsForContent(storeId, item.id)).filter(e => e.name === 'content.item.published')).toHaveLength(1);
+    await request(token, 'POST', `/v1/content/${item.id}/archive`);
+    for (const state of ['scanned', 'failed']) {
+      await admin.query("update media_assets set status = $2, failure_reason = case when $2 = 'failed' then 'processing_failed' else null end where id = $1", [asset, state]);
+      const before = await rowById(item.id); const events = await eventsForContent(storeId, item.id);
+      const refused = await request(token, 'POST', `/v1/content/${item.id}/undo-archive`);
+      expect(refused.res.status).toBe(422); expect(refused.body).toMatchObject({ code: 'media_not_ready' });
+      expect(await rowById(item.id)).toEqual(before); expect(await eventsForContent(storeId, item.id)).toEqual(events);
+    }
   });
 
   it('Slides (Story 3.7): an importing asset is attachable; the slide carries its source_url (null for uploads), also once the import failed', async () => {
@@ -1133,7 +1231,73 @@ describe('merchant content API & I/O matrix', () => {
     const reordered = await request(token, 'PATCH', `/v1/content/${item.id}`, { slides: [slides[2], slides[0], slides[1]] });
     expect(reordered.res.status).toBe(200);
     expect(ContentItem.parse(reordered.body).slides.map((s) => s.media_asset_id)).toEqual([vid, img1, img2]);
-    expect((await eventsForContent(storeId, item.id)).at(-1)).toMatchObject({ name: 'content.item.edited', payload: { status: 'processing', changed: ['slides'] } });
+    expect(ContentItem.parse(reordered.body).status).toBe('failed');
+    expect((await eventsForContent(storeId, item.id)).slice(-2)).toMatchObject([
+      { name: 'content.item.edited', payload: { status: 'processing', changed: ['slides'] } },
+      { name: 'content.item.processing_failed', payload: { from: 'processing', to: 'failed' } },
+    ]);
+  });
+
+  it.each([['POST', 'processed'], ['POST', 'failed'], ['PATCH', 'processed'], ['PATCH', 'failed']] as const)('%s rechecks a stale attachment after media becomes %s before content writes', async (method, status) => {
+    const { storeId, token } = await installedStore();
+    const target = method === 'PATCH' ? ContentItem.parse((await request(token, 'POST', '/v1/content', validCreateInput)).body).id : null;
+    const asset = await seedAsset(storeId, 'video', 'scanned');
+    const media = nest.get(MediaService);
+    const original = media.getAssetsByIds.bind(media);
+    let interleaved = false;
+    const spy = vi.spyOn(media, 'getAssetsByIds').mockImplementation(async (store, ids, options) => {
+      const result = await original(store, ids, options);
+      if (!interleaved && ids.includes(asset) && !options?.lockForAttachment) {
+        interleaved = true;
+        await admin.query("update media_assets set status = $2, failure_reason = $3 where id = $1", [asset, status, status === 'failed' ? 'processing_failed' : null]);
+        // The completion event was already consumed while the asset had no referencing item.
+        await withStoreContext(app, storeId, tx => lifecycle.syncSlideProcessing(tx, storeId, asset, async () => new Map([[asset, status]])));
+      }
+      return result;
+    });
+    try {
+      const created = await request(token, method, target ? `/v1/content/${target}` : '/v1/content', { ...validCreateInput, slides: [{ media_asset_id: asset, alt_text: null }] });
+      expect(interleaved).toBe(true);
+      if (status === 'failed') {
+        expect(created.res.status).toBe(422);
+        expect(created.body).toMatchObject({ code: 'media_not_attachable' });
+      } else {
+        expect(created.res.status).toBe(method === 'POST' ? 201 : 200);
+        expect(ContentItem.parse(created.body)).toMatchObject({ status: 'draft', slides: [{ status: 'processed' }] });
+      }
+    } finally { spy.mockRestore(); }
+  });
+
+  it('holds attachment asset locks through commit so a concurrent completion waits for the reference', async () => {
+    const { storeId } = await installedStore();
+    const asset = await seedAsset(storeId, 'video', 'scanned');
+    const media = nest.get(MediaService);
+    const commands = nest.get(ContentLifecycle);
+    const updater = await admin.connect();
+    let update: Promise<pg.QueryResult> | undefined;
+    try {
+      await updater.query('begin');
+      // eslint-disable-next-line no-restricted-syntax -- test-only lock timeout, never changes tenant context
+      await updater.query("set local lock_timeout = '5s'");
+      const pid = (await updater.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+      const row = await withStoreContext(app, storeId, async tx => {
+        const item = await commands.create(tx, storeId, { ...validCreateInput, slides: [{ media_asset_id: asset, alt_text: null }] }, new Date(), new Map([[asset, { kind: 'video', status: 'scanned' }]]));
+        update = updater.query("update media_assets set status = 'processed' where id = $1", [asset]);
+        await vi.waitFor(async () => {
+          const activity = await admin.query('select wait_event_type from pg_stat_activity where pid = $1', [pid]);
+          expect(activity.rows[0]?.wait_event_type).toBe('Lock');
+        });
+        return item;
+      });
+      await update;
+      await updater.query('commit');
+      await withStoreContext(app, storeId, tx => commands.syncSlideProcessing(tx, storeId, asset, async ids => new Map([...(await media.getAssetsByIds(storeId, ids))].map(([id, value]) => [id, value.status]))));
+      expect((await rowById(row.id))!.status).toBe('draft');
+    } finally {
+      await update?.catch(() => undefined);
+      await updater.query('rollback');
+      updater.release();
+    }
   });
 
   it('Story 3.8 processing cycle: draft -> processing when in-flight slides are attached, and processing -> draft when all live slides reach processed (or are edited to processed); deleted items are ignored', async () => {
@@ -1399,6 +1563,7 @@ describe('worker content event handlers & store data lifecycle', () => {
       content_items: Array<Record<string, unknown>>;
     };
     expect(exported.content_items).toHaveLength(4);
+    expect((exported as unknown as { placements: unknown[] }).placements).toHaveLength(4);
     expect((exported as unknown as { content_product_links: Array<Record<string, unknown>> }).content_product_links).toEqual([
       expect.objectContaining({ content_id: linked.id, slide_id: null }),
     ]);
@@ -1409,7 +1574,9 @@ describe('worker content event handlers & store data lifecycle', () => {
     expect(exportedSlides[0]).not.toHaveProperty('store_id');
 
     const purge = () => withStoreContext(app, storeId, (tx) => contentStoreData.purge({ storeId, installEpoch: 1, tx, batchLimit: 2 }));
-    // Slides (2) fill the first batch; then the link and two items; then the last two items.
+    // Two placement batches, then slides, then the link and content item batches.
+    expect(await purge()).toEqual({ done: false });
+    expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: false });
     expect(await purge()).toEqual({ done: false });
@@ -1417,5 +1584,6 @@ describe('worker content event handlers & store data lifecycle', () => {
     expect((await admin.query('select 1 from content_items where store_id = $1', [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from content_product_links where store_id = $1', [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from slides where store_id = $1', [storeId])).rowCount).toBe(0);
+    expect((await admin.query('select 1 from placements where store_id = $1', [storeId])).rowCount).toBe(0);
   });
 });

@@ -46,8 +46,8 @@ import type { MediaProcessor } from '../ports/media-processor.js';
 import { Metric } from '../ports/telemetry.js';
 import { mediaJobHandlers, registerMediaEventHandlers } from '../worker/media-jobs.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_media_comp:it_media_comp_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_media_comp:it_media_comp_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_media_test';
 const MB = 1024 * 1024;
 

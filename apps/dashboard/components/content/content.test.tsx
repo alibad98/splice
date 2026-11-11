@@ -35,6 +35,7 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   first_published_at: null,
   product: null,
   slides: [],
+  placements: [],
   created_at: '2026-11-01T10:00:00.000Z',
   updated_at: '2026-11-01T10:00:00.000Z',
   ...over,
@@ -76,6 +77,9 @@ function setup({ locale = 'en', search = '', lists = [], onUrlUpdate }: Setup = 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 beforeAll(() => {
+  // Skeletons may mount after their 150 ms delay in any list test.
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined }) });
+  Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, writable: true, value: class { observe() {} unobserve() {} disconnect() {} } });
   // jsdom lacks the pointer-capture and scroll APIs Radix Select/DropdownMenu use.
   Object.assign(Element.prototype, {
     hasPointerCapture: () => false,
@@ -105,6 +109,23 @@ const openRowMenu = async (title: string) => {
 };
 
 describe('Videos & Stories page', () => {
+  it.each(['en', 'ar'] as const)('renders Home in the %s desktop row and mobile card, leaving unplaced items empty', locale => {
+    const m = getMessages(locale).content;
+    const home = item({ title: 'With Home', placements: [{ type: 'home' }] });
+    const unplaced = item({ title: 'No placement', placements: [] });
+    setup({ locale, lists: [[DEFAULT, page([home, unplaced])]] });
+    const table = screen.getByRole('table');
+    const homeRow = table.querySelector(`tr[data-row-id="${home.id}"]`)!;
+    const unplacedRow = table.querySelector(`tr[data-row-id="${unplaced.id}"]`)!;
+    expect(homeRow.querySelectorAll('td')[3]!.textContent).toBe(m.editor.placements.home);
+    expect(unplacedRow.querySelectorAll('td')[3]!.textContent).toBe(m.none);
+    const cards = screen.getByRole('list', { name: m.tableLabel });
+    const homeCard = within(cards).getByRole('link', { name: home.title }).closest('li')!;
+    const unplacedCard = within(cards).getByRole('link', { name: unplaced.title }).closest('li')!;
+    expect(within(homeCard).getByText(m.editor.placements.home)).toBeTruthy();
+    expect(within(unplacedCard).queryByText(m.editor.placements.home)).toBeNull();
+  });
+
   it('renders thumb, title (dir=auto), format, "—" placement, chip, "—" views/clicks and the tab counts', () => {
     const a = item({ title: 'Summer sale', format: 'reel', status: 'published' });
     setup({ lists: [[DEFAULT, page([a], { total: 8 })]] });

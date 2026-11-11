@@ -37,7 +37,7 @@ function declaredRoutes(): string[] {
 
 type Json = Record<string, unknown>;
 const doc = buildOpenApi('http://localhost:3001', '1.2.3') as unknown as Json & { paths: Record<string, Record<string, Json>>; components: { schemas: Record<string, Json>; responses: Json } };
-const op = (path: string, method: string) => doc.paths[path]![method] as Json & { parameters?: Json[]; responses: Record<string, Json>; requestBody?: Json; security: unknown[] };
+const op = (path: string, method: string) => doc.paths[path.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}')]![method] as Json & { parameters?: Json[]; responses: Record<string, Json>; requestBody?: Json; security: unknown[] };
 const jsonSchema = (response: Json) => ((response.content as Json)['application/json'] as Json).schema as Json;
 
 function walk(node: unknown, visit: (key: string, value: unknown, parent: Json) => void): void {
@@ -50,6 +50,18 @@ function walk(node: unknown, visit: (key: string, value: unknown, parent: Json) 
 }
 
 describe('API docs', () => {
+  it('uses OpenAPI path templates and declares every placeholder as a required path parameter', () => {
+    expect(doc.paths['/v1/media/{id}/renditions/{profile}']).toBeDefined();
+    for (const [path, operations] of Object.entries(doc.paths)) {
+      expect(path).not.toContain(':');
+      const names = [...path.matchAll(/\{([^}]+)\}/g)].map(match => match[1]);
+      for (const operation of Object.values(operations)) {
+        const pathParams = ((operation.parameters ?? []) as Json[]).filter(p => p.in === 'path');
+        expect(pathParams.map(p => p.name)).toEqual(names);
+        for (const parameter of pathParams) expect(parameter).toMatchObject({ required: true, schema: { type: 'string' } });
+      }
+    }
+  });
   it('documents authenticated bodyless duplication returning a created ContentItem', () => {
     const duplicate = op('/v1/content/:id/duplicate', 'post');
     expect(duplicate.security).toEqual([{ bearerAuth: [] }, { cookieAuth: [] }]);
@@ -57,6 +69,12 @@ describe('API docs', () => {
     expect(jsonSchema(duplicate.responses['201']!).$ref).toBe('#/components/schemas/ContentItem');
     expect(Object.keys(duplicate.responses).sort()).toEqual(['201', '401', '403', '404']);
   });
+    it('documents Undo Archive eligibility failures for live destinations', () => {
+      const undo = op('/v1/content/:id/undo-archive', 'post');
+      expect(Object.keys(undo.responses)).toContain('422');
+      expect(String(undo.description)).toContain('no-placement');
+      expect(String(undo.description)).toContain('content-media-not-ready');
+    });
   it('documents private preview manifests and authenticated inspected media bytes', () => {
     const preview = op('/v1/preview/content/:id', 'get');
     expect(jsonSchema(preview.responses['200']!).$ref).toBe('#/components/schemas/StoreManifest');

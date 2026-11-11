@@ -1,6 +1,6 @@
 # Salla spike findings (Epic 1 gate G1 to G8)
 
-**Status: hands-on run on a demo store 2026-10-25; conditional go signed off by Ali on 2026-10-25.** Results below were confirmed on Salla demo store 73897098 unless marked deferred. "Desk verdict" comes from `docs/salla-desk-research.md` (2026-10-10). Hands-on results are all PENDING. Follow `docs/runbooks/salla-gate-testing.md`; tools are in `tools/salla-gate/`.
+**Status: hands-on run on a demo store 2026-10-25; conditional go signed off by Ali on 2026-10-25.** Results below were confirmed on Salla demo store 73897098 unless marked deferred. "Desk verdict" comes from `docs/salla-desk-research.md` (2026-10-10). Hands-on results are mixed: use the gate table and detailed log below for confirmed, deferred and unverified outcomes. Follow `docs/runbooks/salla-gate-testing.md`; tools are in `tools/salla-gate/`.
 
 Demo store: متجر تجريبي / 73897098  Partners app id: 784019 (private app "Splice")  Themes tested: default theme (id 1298199463), Astra (id 2046553023); third theme deferred to pilot  Date: 2026-10-25  Tester: Ali
 

@@ -111,7 +111,7 @@ function contentColumns(m: M, actions: Actions): DataTableColumn<ContentItem>[] 
       cell: (row) => <TitleCell row={row} m={m} />,
     },
     { id: 'format', header: m.columns.format, cell: (row) => m.formats[row.format] },
-    { id: 'placement', header: m.columns.placement, cell: () => <None m={m} /> },
+    { id: 'placement', header: m.columns.placement, cell: (row) => row.placements?.length ? m.editor.placements.home : <None m={m} /> },
     { id: 'status', header: m.columns.status, cell: (row) => <ContentStatusChip status={row.status} labels={m.statuses} /> },
     { id: 'views', header: m.columns.views, cell: () => <None m={m} /> },
     { id: 'clicks', header: m.columns.clicks, cell: () => <None m={m} /> },
@@ -127,6 +127,7 @@ function ContentCard({ row, m, actions }: { row: ContentItem; m: M; actions: Act
         <TitleCell row={row} m={m} />
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted-foreground">
           {m.formats[row.format]}
+          {row.placements?.length ? <span>{m.editor.placements.home}</span> : null}
           <ContentStatusChip status={row.status} labels={m.statuses} />
         </span>
       </div>

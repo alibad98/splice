@@ -98,6 +98,7 @@ export function useUpdateContent() {
 }
 
 export const useArchiveContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/archive`, ContentItem));
+export const usePublishContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/publish`, ContentItem));
 export const useUndoArchiveContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/undo-archive`, ContentItem));
 export const useRestoreContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/restore`, ContentItem));
 export const useDuplicateContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/duplicate`, ContentItem), true);

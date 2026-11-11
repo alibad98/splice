@@ -220,6 +220,8 @@ export const en = {
     flags: { productDeleted: 'Linked product deleted' },
     create: 'New story',
     editor: {
+      placements: { heading: 'Placements', home: 'Home', category: 'Category page', product: 'Product page', pilot: 'This pilot supports Home. Category and Product pages are not available yet.' },
+      publish: { now: 'Publish now', done: 'Published', failed: "We couldn't publish this item. Try again.", waitMedia: 'Wait for all media to finish processing before publishing.' },
       autoPublish: { label: 'Publish automatically after processing', hint: 'Add a placement to publish this content.' },
       replaceMedia: 'Replace the failed media to continue.',
       untitled: { story: 'New story', reel: 'New reel' },

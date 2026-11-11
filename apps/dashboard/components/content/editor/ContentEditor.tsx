@@ -8,6 +8,7 @@ import {
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
   CONTENT_PRODUCT_NOT_LINKABLE,
   CONTENT_SLIDE_ALT_REQUIRED,
+  CONTENT_NO_PLACEMENT,
   MEDIA_NOT_ATTACHABLE,
   SLIDE_ALT_MAX,
   type ContentItem,
@@ -18,7 +19,7 @@ import { Alert, Button, ErrorSummary, Icon, cn, toast } from '@slips/ui';
 import { useI18n } from '../../../i18n/provider';
 import { ApiError } from '../../../lib/api/fetch';
 import { queryKeys } from '../../../lib/api/query-keys';
-import { useCreateContent, useUpdateContent, useRetryContent, useContentItem } from '../../../lib/api/content';
+import { useCreateContent, useUpdateContent, useRetryContent, useContentItem, usePublishContent } from '../../../lib/api/content';
 import { fill } from '../../products/format';
 import { useSession } from '../../session/SessionProvider';
 import { LangLink } from '../../shell/LangLink';
@@ -57,6 +58,9 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const { mutateAsync: update } = useUpdateContent();
   const uploads = useUploads();
   const retryProcessing = useRetryContent();
+  const publishContent = usePublishContent();
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const schema = useMemo(() => editorSchema(domains), [domains]);
   const [initialValues] = useState<EditorValues>(() => (item ? fromItem(item) : newItemValues(m.cta.picks.addToCart)));
@@ -122,7 +126,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
           : s,
       );
       const allProcessed = slides.length > 0 && slides.every((s) => s.status === 'processed');
-      const nextStatus = current.status === 'processing' && allProcessed ? 'draft' : current.status;
+      const nextStatus = current.status === 'processing' && allProcessed && !current.auto_publish ? 'draft' : current.status;
       if (
         nextStatus !== current.status ||
         slides.some((s, i) => s.status !== current.slides[i]?.status || s.poster_url !== current.slides[i]?.poster_url)
@@ -195,7 +199,27 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
     }
   }, [create, getValues, onSaveError, schema, update]);
 
-  const autosave = useAutosave({ enabled: autosaves && !readOnly, dirty, valid, changeKey: currentKey, run: persist });
+  const autosave = useAutosave({ enabled: autosaves && !readOnly && !publishing, dirty, valid, changeKey: currentKey, run: persist });
+
+  const publishReason = !values.placements.length ? messages.content.statusReasons.no_placement : uploads.active || status === 'processing' || saved?.slides.some(s => s.status !== 'processed') ? m.publish.waitMedia : null;
+  const onPublish = handleSubmit(async () => {
+    if (publishReason || publishing) return;
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      if (!await autosave.save()) return;
+      const current = savedRef.current;
+      if (!current || current.status !== 'draft') return;
+      const published = await publishContent.mutateAsync(current.id);
+      savedRef.current = published;
+      setSaved(published);
+      toast({ title: m.publish.done, tone: 'success' });
+    } catch (err) {
+      setPublishError(err instanceof ApiError && err.type === CONTENT_NO_PLACEMENT ? messages.content.statusReasons.no_placement : m.publish.failed);
+    } finally {
+      setPublishing(false);
+    }
+  }, () => setSubmitCount(n => n + 1));
 
   // Error summary: shown after a submit with errors, focused on each such submit, gone once they are fixed.
   const [submitCount, setSubmitCount] = useState(0);
@@ -253,7 +277,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
                 {title || m.untitled[values.format]}
               </h1>
               <ContentStatusChip status={status} labels={messages.content.statuses} />
-              {saved ? <ContentStatusReason item={saved} /> : null}
+              {saved && saved.status_reason?.code !== 'no_placement' ? <ContentStatusReason item={saved} /> : null}
             </div>
           </div>
           {readOnly ? null : (
@@ -262,11 +286,14 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
               <Button type="submit" form="content-editor-form" variant={autosaves ? 'secondary' : 'primary'} pending={autosaves ? autosave.saving : savingChanges} disabled={!autosaves && !dirty}>
                 {autosaves ? m.saveDraft : m.saveChanges}
               </Button>
+              {status === 'draft' || status === 'processing' ? <Button variant="primary" pending={publishing} unavailableReason={publishReason ?? undefined} onClick={() => void onPublish()}>{m.publish.now}</Button> : null}
             </div>
           )}
         </header>
 
         {readOnly ? <Alert tone="info" description={m.archivedNote} /> : null}
+        {!readOnly && (status === 'draft' || status === 'processing') && publishReason ? <p aria-live="polite" className="text-small text-muted-foreground">{publishReason}</p> : null}
+        {publishError ? <p role="alert" className="text-small text-destructive-text">{publishError}</p> : null}
         {saved?.status === 'failed' ? <div role="alert" className="flex items-center gap-3 rounded border border-destructive p-3">
           <span>{hasRetryableSlides(saved) ? m.slides.failures.processing_failed : m.replaceMedia}</span>
           <Button disabled={!hasRetryableSlides(saved)} pending={retryProcessing.isPending} onClick={() => retryProcessing.mutate(saved.id, { onSuccess: (item) => {
@@ -280,10 +307,17 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           <form id="content-editor-form" noValidate onSubmit={(e) => void onSubmit(e)} className={cn('flex-col gap-6', previewOpen ? 'hidden lg:flex' : 'flex')}>
-            <fieldset disabled={readOnly} className="flex min-w-0 flex-col gap-6">
+            <fieldset disabled={readOnly || publishing} className="flex min-w-0 flex-col gap-6">
               <FormatTitleCard autoFocusTitle={!item} />
+              <section className="flex flex-col gap-3 rounded border border-border p-4" aria-labelledby="placement-heading">
+                <h2 id="placement-heading" className="text-h3">{m.placements.heading}</h2>
+                <label className="flex items-center gap-3"><input type="checkbox" checked={values.placements.some(p => p.type === 'home')} onChange={e => setValue('placements', e.target.checked ? [{ type: 'home' }] : [], { shouldDirty: true })} />{m.placements.home}</label>
+                <label className="flex items-center gap-3 text-muted-foreground"><input type="checkbox" disabled />{m.placements.category}</label>
+                <label className="flex items-center gap-3 text-muted-foreground"><input type="checkbox" disabled />{m.placements.product}</label>
+                <p className="text-small text-muted-foreground">{m.placements.pilot}</p>
+              </section>
               <label className="flex items-center gap-3"><input type="checkbox" role="switch" {...form.register('auto_publish')} />{m.autoPublish.label}</label>
-              <p className="text-small text-muted-foreground">{m.autoPublish.hint}</p>
+              {!values.placements.length ? <p className="text-small text-muted-foreground">{m.autoPublish.hint}</p> : null}
               <SlidesCard uploads={uploads} savedSlides={saved?.slides ?? []} readOnly={readOnly} onAssetProcessed={onAssetProcessed} />
               <ProductCard product={product} onPicked={setPicked} />
               <CtaCard domains={domains} />

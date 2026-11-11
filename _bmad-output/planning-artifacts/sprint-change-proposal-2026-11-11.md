@@ -1,6 +1,8 @@
 # Controlled Salla pilot: sprint change proposal
 
-Date: 2026-11-11. Status: proposed; release-scope approval pending.
+Date: 2026-11-11. Status: approved by Ali on 2026-11-11; planning changes applied.
+
+Approval evidence: owner replied "okay approve" after the recommendation to approve the pilot direction, apply planning changes, and close relevant review gaps before the Home placement slice. Approval covers the free, manually onboarded pilot direction and delivery sequence, starting with one enrolled merchant and expanding to at most three after acceptance. It does not select a merchant, provider/region, support contact or numeric resource caps, and does not authorize deployment, enrollment or communications. Track these open launch decisions in [pilot readiness](../implementation-artifacts/pilot-readiness.md).
 Mode: batch, inferred from the request to produce a complete plan and then finish 3.13.
 Scope: moderate backlog reprioritization. Story 3.13 is separately authorized and retains its existing acceptance criteria.
 
@@ -40,7 +42,7 @@ Reuse existing image/video processing and preview playback. Required options use
 
 Effort: medium-to-high remaining implementation, driven by manifests, storefront adapter and production readiness; planning change itself is low effort. Risk: medium-to-high until live Salla behavior and hosting are proven. No delivery date is justified by historic test counts. Estimate after the first publish-to-store slice and hosting decisions, using observed throughput.
 
-## 4. Detailed proposed edits (apply scope changes only after approval)
+## 4. Approved planning edits
 
 ### PRD `docs/prd.md`, §1.3 and §1.6
 
@@ -76,7 +78,7 @@ NEW: Audit review records, run checks for open acceptance gaps, record real outc
 
 | Order | Work | Dependency / completion evidence |
 | --- | --- | --- |
-| 0 | Owner approves pilot scope and selects live merchant, hosting region/provider and support contact | Proposed scope, commercial terms and environment suitable for real merchant data |
+| 0 | Pilot scope approved November 11; owner still selects live merchant, hosting region/provider and support contact | Approved direction; record remaining operational decisions before deployment/enrollment |
 | 1 | Finish **3.13** unchanged | Atomic explicit Published save; duplicate with shared slides/product; archive/Undo/restore; named delete confirmation; tenant isolation and reference safety |
 | 2 | Close **2.6–2.7, 3.3–3.12** review gaps | Reuse historic evidence; rerun current affected integration/browser paths; do not mass-promote statuses |
 | 3 | **4.1**, pilot part of **4.2** | Home placement, Ring, publish eligibility, all return-to-live transitions gated; no placement means no publish |
@@ -113,8 +115,10 @@ Stop/disable enrollment or player on cross-store exposure, broken cart/theme, un
 - [x] 4.1 Direct adjustment viable, medium implementation effort/risk; 4.2 rollback rejected (wastes verified work); 4.3 earlier milestone viable; 4.4 hybrid selected.
 - [x] 5.1–5.5 Issue, impacts, before/after proposals, milestone plan and role handoff recorded.
 - [x] 6.1–6.2 Evidence reviewed; historical test claims distinguished from current checks.
-- [!] 6.3 Owner approval pending. Do not apply pilot scope reductions until approved.
-- [N/A] 6.4 No epic/story IDs added, removed or renumbered; no scope-driven status changes yet.
-- [x] 6.5 Concrete next action: original Story 3.13 already authorized; later scope changes await approval.
+- [x] 6.3 Owner approved the pilot direction on 2026-11-11 ("okay approve").
+- [x] 6.4 Planning changes applied to PRD, epics, architecture and UX; pilot readiness linked from sprint status. No epic/story IDs or full-story statuses changed.
+- [x] 6.5 Story 3.13 has final verification recorded. Next: audit review gaps, then implement the Home placement slice. Resolve launch decisions alongside development.
+
+Applied planning changes: `docs/prd.md`, `epics.md`, `docs/architecture.md`, the architecture spine (AD-20/AD-22), `docs/ux.md`, the experience spine, `docs/runbooks/staging.md`, and `docs/runbooks/production-pilot.md`. Added `implementation-artifacts/pilot-readiness.md`; annotated resolved transcoding debt and corrected the spike summary. Historical evidence above remains a snapshot from proposal preparation, not a current verification run.
 
 This proposal does not authorize deployment, enrollment or merchant communications. Story 3.13 implementation can proceed independently of the proposed pilot restrictions.

@@ -17,10 +17,13 @@ export const contentStoreData: StoreDataLifecycle = {
     const items = await tx.query(`select ${CONTENT_ITEM_EXPORT_COLUMNS} from content_items where store_id = $1 order by id`, [storeId]);
     const links = await tx.query(`select ${PRODUCT_LINK_EXPORT_COLUMNS} from content_product_links where store_id = $1 order by content_id`, [storeId]);
     const slides = await tx.query(`select ${SLIDE_EXPORT_COLUMNS} from slides where store_id = $1 order by content_id, position, id`, [storeId]);
-    return { content_items: items.rows, content_product_links: links.rows, slides: slides.rows };
+    const placements = await tx.query('select id::text as id, content_id::text as content_id, type, created_at from placements where store_id = $1 order by content_id, id', [storeId]);
+    return { content_items: items.rows, content_product_links: links.rows, slides: slides.rows, placements: placements.rows };
   },
   /** Slides and links go first, then items, one batch per call. */
   async purge({ tx, storeId, batchLimit }) {
+    const placements = await tx.query('with doomed as (select id from placements where store_id = $1 limit $2) delete from placements p using doomed where p.id = doomed.id returning p.id', [storeId, batchLimit]);
+    if (placements.rows.length >= batchLimit) return { done: false };
     const slides = await tx.query(
       'with doomed as (select id from slides where store_id = $1 limit $2) delete from slides s using doomed where s.id = doomed.id returning s.id',
       [storeId, batchLimit],

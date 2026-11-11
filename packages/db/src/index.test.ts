@@ -21,6 +21,7 @@ describe('@slips/db', () => {
         'contentItems',
         'contentProductLinks',
         'slides',
+        'placements',
         'MEDIA_ASSET_STATUSES',
         'MEDIA_KINDS',
         'RENDITION_CONTENT_TYPES',

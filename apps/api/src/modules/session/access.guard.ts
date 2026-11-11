@@ -65,7 +65,8 @@ export class AccessGuard implements CanActivate {
     if (!credential) throw new UnauthorizedException({ message: 'Sign in to continue', code: 'session_required' });
 
     const source: SessionSource = bearer ? 'bearer' : 'cookie';
-    const outcome = await this.sessions.authenticate(credential, source === 'bearer' ? 'embedded' : 'direct');
+    const backgroundRefresh = path === '/v1/session' && header(req, 'x-slips-client') === 'session-refresh';
+    const outcome = await this.sessions.authenticate(credential, source === 'bearer' ? 'embedded' : 'direct', { touch: !backgroundRefresh });
     if (outcome.kind !== 'ok') {
       if (source === 'cookie') res.setHeader('Set-Cookie', this.sessions.clearedCookie());
       throw new UnauthorizedException(

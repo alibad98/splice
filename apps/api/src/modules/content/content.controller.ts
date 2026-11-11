@@ -23,6 +23,8 @@ import {
   CTA_STYLES,
   MEDIA_NOT_ATTACHABLE,
   CONTENT_INVALID_TRANSITION,
+  CONTENT_NO_PLACEMENT,
+  CONTENT_MEDIA_NOT_READY,
   ContentCreateInput,
   ContentListQuery,
   ContentUpdateInput,
@@ -35,6 +37,7 @@ import {
   type ContentSlide,
   type CtaStyle,
   type SlideInput,
+  type Placement,
 } from '@slips/contracts';
 import { withStoreContext } from '@slips/db';
 import type { Pool } from 'pg';
@@ -50,6 +53,7 @@ import {
   InvalidTransitionError,
   SlideAltTextRequiredError,
   SlideAssetUnknownError,
+  PublishEligibilityError,
   type SlideAssetInfo,
 } from './content-lifecycle.js';
 import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
@@ -82,7 +86,7 @@ export const toProductSummary = (p: ProductSummaryRow): ContentProductSummary =>
 });
 
 /** `product`: the item's linked product summary, or null when it links none (or the catalog no longer knows the id). */
-export const toContentItem = (row: ContentItemRow, product: ContentProductSummary | null = null, slides: ContentSlide[] = []): ContentItem => ({
+export const toContentItem = (row: ContentItemRow, product: ContentProductSummary | null = null, slides: ContentSlide[] = [], placements: Placement[] = []): ContentItem => ({
   v: 1,
   id: row.id,
   title: row.title,
@@ -93,13 +97,14 @@ export const toContentItem = (row: ContentItemRow, product: ContentProductSummar
   // A style outside the preset list (none are written since Story 3.3) reads as the default.
   cta_style: (CTA_STYLES as readonly (string | null)[]).includes(row.ctaStyle) ? (row.ctaStyle as CtaStyle) : null,
   status: row.status,
-  status_reason: row.status === 'failed' ? (() => { const failed = slides.find(s => s.status === 'failed'); return failed?.failure_reason ? { code: failed.failure_reason, kind: failed.kind } : null; })() : row.status === 'draft' && row.autoPublish ? { code: 'no_placement' } : null,
+  status_reason: row.status === 'failed' ? (() => { const failed = slides.find(s => s.status === 'failed'); return failed?.failure_reason ? { code: failed.failure_reason, kind: failed.kind } : null; })() : row.status === 'draft' && row.autoPublish && !placements.length ? { code: 'no_placement' } : null,
   archived_from: row.archivedFrom,
   reactivate_to: row.reactivateTo,
   auto_publish: row.autoPublish,
   first_published_at: row.firstPublishedAt?.toISOString() ?? null,
   product,
   slides,
+  placements,
   created_at: row.createdAt.toISOString(),
   updated_at: row.updatedAt.toISOString(),
 });
@@ -204,11 +209,12 @@ export class ContentController {
   private async withProducts(storeId: string, rows: readonly ContentItemRow[]): Promise<ContentItem[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
-    const { links, slides } = await withStoreContext(this.pool, storeId, async () => ({
+    const { links, slides, placements } = await withStoreContext(this.pool, storeId, async () => ({
       links: await this.repo.linkedProductIds(ids),
       slides: await this.repo.liveSlides(ids),
+      placements: await this.repo.placements(ids),
     }));
-    return this.attachProducts(storeId, rows, links, slides);
+    return this.attachProducts(storeId, rows, links, slides, placements);
   }
 
   /**
@@ -220,6 +226,7 @@ export class ContentController {
     rows: readonly ContentItemRow[],
     links: ReadonlyMap<string, string>,
     slides: readonly SlideRow[],
+    placements: readonly { contentId: string; type: 'home' }[],
   ): Promise<ContentItem[]> {
     const [products, assets] = await Promise.all([
       this.catalog.getProductsByIds(storeId, [...new Set(links.values())]),
@@ -233,7 +240,7 @@ export class ContentController {
     }
     return rows.map((row) => {
       const product = products.get(links.get(row.id) ?? '');
-      return toContentItem(row, product ? toProductSummary(product) : null, byItem.get(row.id) ?? []);
+      return toContentItem(row, product ? toProductSummary(product) : null, byItem.get(row.id) ?? [], placements.filter(p => p.contentId === row.id).map(p => ({ type: p.type })));
     });
   }
 
@@ -255,12 +262,12 @@ export class ContentController {
     if (!parsed.success) throw new BadRequestException({ message: 'The content list query is not valid', code: 'invalid_query' });
     const { tab, q, sort, page, page_size } = parsed.data;
     const storeId = req.merchantSession!.storeId;
-    const { rows, total, counts, links, slides } = await withStoreContext(this.pool, storeId, async () => {
+    const { rows, total, counts, links, slides, placements } = await withStoreContext(this.pool, storeId, async () => {
       const result = await this.repo.list({ statuses: TAB_STATUSES[tab], search: q || undefined, sort, limit: page_size, offset: (page - 1) * page_size });
       const ids = result.rows.map((r) => r.id);
-      return { ...result, counts: await this.repo.countByTab(), links: await this.repo.linkedProductIds(ids), slides: await this.repo.liveSlides(ids) };
+      return { ...result, counts: await this.repo.countByTab(), links: await this.repo.linkedProductIds(ids), slides: await this.repo.liveSlides(ids), placements: await this.repo.placements(ids) };
     });
-    return { v: 1, total, page, page_size, counts, items: await this.attachProducts(storeId, rows, links, slides) };
+    return { v: 1, total, page, page_size, counts, items: await this.attachProducts(storeId, rows, links, slides, placements) };
   }
 
   @Get('content/:id')
@@ -297,6 +304,12 @@ export class ContentController {
     return this.applyTransition(req.merchantSession!.storeId, id, 'archive');
   }
 
+  @Post('content/:id/publish')
+  @HttpCode(HttpStatus.OK)
+  async publish(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<ContentItem> {
+    return this.applyTransition(req.merchantSession!.storeId, id, 'publish');
+  }
+
   @Post('content/:id/undo-archive')
   @HttpCode(HttpStatus.OK)
   async undoArchive(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<ContentItem> {
@@ -325,6 +338,9 @@ export class ContentController {
   }
 
   private toHttpError(err: unknown): unknown {
+    if (err instanceof PublishEligibilityError) {
+      return new HttpException({ message: err.message, code: err.reason, type: err.reason === 'no_placement' ? CONTENT_NO_PLACEMENT : CONTENT_MEDIA_NOT_READY }, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
     if (err instanceof ContentNotFoundError) {
       return new NotFoundException({ message: 'Content item not found', code: 'content_not_found' });
     }

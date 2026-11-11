@@ -9,9 +9,9 @@ import { ensureTestAppRole } from '../testing/app-role.js';
 import { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables } from '../testing/cross-tenant.js';
 import * as schema from './index.js';
 
-const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_content:it_content_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['content_items', 'content_product_links', 'slides'];
+const ADMIN_URL = process.env.TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = process.env.TEST_APP_URL ?? `postgres://slips_it_content:it_content_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const TENANT_TABLES = ['content_items', 'content_product_links', 'slides', 'placements'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -37,6 +37,7 @@ describe('content tables', () => {
   });
 
   it('every content tenant table registers with the cross-tenant harness', () => {
+    registerTenantTable({ table: 'placements', seed: async (c, s) => (await c.query<{ id: string }>("insert into placements (store_id, content_id, type) values ($1, gen_random_uuid(), 'home') returning id::text as id", [s])).rows[0]!.id });
     registerTenantTable({
       table: 'content_items',
       seed: async (c: pg.PoolClient, s: string) =>
@@ -105,6 +106,17 @@ describe('content_product_links', () => {
       code: '23505',
     });
     await expect(admin.query(`update content_product_links set product_id = null where store_id = $1 and content_id = $2`, [s, content])).resolves.toMatchObject({ rowCount: 1 });
+  });
+});
+
+describe('placements', () => {
+  it('allows one Home per item and rejects unsupported placements and missing tenant scope', async () => {
+    const store = randomUUID(); const content = randomUUID();
+    const insert = (type: string, storeId: string | null = store) => admin.query('insert into placements (store_id, content_id, type) values ($1, $2, $3)', [storeId, content, type]);
+    await insert('home');
+    await expect(insert('home')).rejects.toMatchObject({ code: '23505' });
+    await expect(insert('category')).rejects.toMatchObject({ code: '23514' });
+    await expect(insert('home', null)).rejects.toMatchObject({ code: '23502' });
   });
 });
 

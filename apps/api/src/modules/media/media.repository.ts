@@ -149,13 +149,16 @@ export class MediaRepository extends StoreScoped {
   /** Kind, status, failure reason and import link of the asked ids that are the store's assets, in one read (Stories 3.6, 3.7). */
   async summariesByIds(
     ids: readonly string[],
+    lock = false,
   ): Promise<Array<{ id: string; kind: MediaAssetRow['kind']; status: MediaAssetStatus; failureReason: string | null; sourceUrl: string | null }>> {
-    const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id));
+    const wanted = [...new Set(ids)].filter((id) => UUID_RE.test(id)).sort();
     if (wanted.length === 0) return [];
-    return this.db
+    const query = this.db
       .select({ id: mediaAssets.id, kind: mediaAssets.kind, status: mediaAssets.status, failureReason: mediaAssets.failureReason, sourceUrl: mediaAssets.sourceUrl })
       .from(mediaAssets)
-      .where(and(eq(mediaAssets.storeId, this.storeId), inArray(mediaAssets.id, wanted)));
+      .where(and(eq(mediaAssets.storeId, this.storeId), inArray(mediaAssets.id, wanted)))
+      .orderBy(mediaAssets.id);
+    return lock ? query.for('share') : query;
   }
 
   /** The asked ids that are `processed` (the only publishable status). */

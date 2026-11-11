@@ -108,3 +108,10 @@ context:
 - `pnpm -C packages/contracts test` and `pnpm -C packages/contracts build`.
 - `pnpm -C apps/api exec vitest run src/modules/publishing src/composition/preview.test.ts src/docs` with the repository test database configured.
 - `pnpm --filter @slips/contracts --filter @slips/api lint` and corresponding `typecheck` / `build` commands.
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed: authenticated saved preview, protected inspected media, cross-store rejection and no-write behavior pass. Deferred OpenAPI colon paths are fixed with required path parameters and generator coverage.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

@@ -51,6 +51,11 @@ const item = {
 };
 
 describe('content contracts', () => {
+  it('accepts Home only, rejects targets and duplicate placements, and exposes edited placement changes', () => {
+    expect(ContentUpdateInput.parse({ placements: [{ type: 'home' }] })).toEqual({ placements: [{ type: 'home' }] });
+    for (const placements of [[{ type: 'category' }], [{ type: 'product' }], [{ type: 'home', target_id: 'x' }], [{ type: 'home' }, { type: 'home' }]]) expect(ContentUpdateInput.safeParse({ placements }).success).toBe(false);
+    expect(ContentFields.keyof().options).toContain('placements');
+  });
   it('defines the 8 content statuses (no ready), formats, CTA actions and invalid-transition problem slug', () => {
     expect(CONTENT_STATUSES).toEqual(['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated']);
     expect(CONTENT_STATUSES).not.toContain('ready');

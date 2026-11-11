@@ -11,7 +11,7 @@ import { createHttpApp } from '../http.js';
 import { ContentLifecycle } from '../modules/content/content-lifecycle.js';
 import { SessionService } from '../modules/session/session.service.js';
 
-const adminUrl = process.env.PREVIEW_TEST_DATABASE_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
+const adminUrl = process.env.PREVIEW_TEST_DATABASE_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const appUrl = new URL(adminUrl);
 appUrl.username = 'slips_it_preview_comp';
 appUrl.password = 'it_preview_comp_pw';

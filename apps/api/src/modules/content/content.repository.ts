@@ -1,7 +1,7 @@
 import { TAB_STATUSES, type ContentSort, type ContentStatus, type ContentTabCounts } from '@slips/contracts';
 import { schema, StoreScoped, and, eq, inArray, isNull, sql } from '@slips/db';
 
-const { contentItems, contentProductLinks, slides } = schema;
+const { contentItems, contentProductLinks, slides, placements } = schema;
 
 export type ContentItemRow = typeof contentItems.$inferSelect;
 export type ContentProductLinkRow = typeof contentProductLinks.$inferSelect;
@@ -28,6 +28,12 @@ const inList = (statuses: readonly ContentStatus[]) =>
 
 /** Data access for `content_items` reads and row locks; runs only inside `withStoreContext` (StoreScoped). Status writes go through `ContentLifecycle` only. */
 export class ContentRepository extends StoreScoped {
+  async placements(contentIds: readonly string[]) {
+    const wanted = [...new Set(contentIds)].filter(id => UUID_RE.test(id));
+    if (!wanted.length) return [];
+    return this.db.select().from(placements).where(and(eq(placements.storeId, this.storeId), inArray(placements.contentId, wanted)));
+  }
+
   async findById(id: string): Promise<ContentItemRow | undefined> {
     if (!UUID_RE.test(id)) return undefined;
     return (

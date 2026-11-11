@@ -1,6 +1,6 @@
 # Slips (سليبس) Product Requirements Document (PRD)
 
-**Version:** 0.4 | **Date:** 10 Oct 2026 | **Scope:** MVP (Phase 1) in detail; Phases 2-3 as epic outlines
+**Version:** 0.5 | **Date:** 11 Nov 2026 | **Scope:** controlled pilot milestone, full MVP (Phase 1), Phases 2-3 as epic outlines
 **Companion documents:** `docs/prd-addendum.md` (technical detail, architect notes, rejected alternatives), `docs/tech-stack.md` (chosen stack), `docs/Slips_SRS_v0.1.md` (detailed reference)
 
 > **Precedence.** For the MVP, this PRD is the single source of truth; where it differs from the SRS, the PRD wins. The SRS remains the detailed reference for later phases. SRS requirement IDs are cited in brackets (for example [FR-CON-05]) so readers can trace each requirement back.
@@ -13,6 +13,7 @@
 ### Change log
 | Version | Date | Description | Author |
 |---|---|---|---|
+| 0.5 | 11 Nov 2026 | Owner-approved controlled pilot before full MVP; original requirements and E1-E5 retained | Product owner (with Codex) |
 | 0.1 | 10 Oct 2026 | Initial BMAD PRD derived from SRS v0.1 | Product owner |
 | 0.2 | 10 Oct 2026 | Applied validation findings and owner decisions C1, C4, C6, C8 | Product owner (with PM agent) |
 | 0.3 | 10 Oct 2026 | Q-07 resolved (multi-platform later, adapter boundary); interim answers for Q-10, Q-12 to Q-17; journeys and uninstall target kept | Product owner (with PM agent) |
@@ -28,12 +29,16 @@
 3. Show merchants **attributed orders and revenue** under a strict, conservative definition (§1.5, FR13), so the app proves its own ROI in numbers merchants can check against their Salla orders.
 4. Keep the storefront player **lightweight**: initial payload ≤ 50 KB gzip (~20 KB core), and **no layout shift caused by Slips** on pages where content is shown; when no content is eligible, Slips reserves no space (NFR1).
 5. Support **Arabic (RTL) and English (LTR)** throughout.
-6. Reach a pilot-ready MVP by **[TBD: product owner, Q-19]** and use the pilot to validate willingness to pay before funding Phases 2-3.
+6. First run the approved free controlled pilot to validate publication, playback and cart usability. Reach the full MVP by **[TBD: product owner, Q-19]**; validate willingness to pay separately before funding Phases 2-3.
 
 ### 1.2 Background
 Salla merchants rely heavily on mobile shoppers, and short-form video drives purchase decisions. The main competitor on the Salla App Store, Na3na3, offers shoppable video (Reels) only (source: Salla App Store listing reviewed for SRS §8, Oct 2026). For the MVP, Slips differentiates on three things it can deliver at launch: **Stories as well as Reels**, **scheduling and page-level visibility rules**, and **attribution to real orders and revenue**. AI-generated Reels and audience insights are later-phase differentiators (Epics 8-9) and are not part of the MVP pitch.
 
 ### 1.3 Success Metrics & MVP Exit Criteria
+
+**Earlier milestone: controlled pilot (approved by Ali, 11 November 2026).** Start with one explicitly enrolled live merchant; expand to at most three only after the first acceptance run. The pilot is free and manually onboarded. It proves Home placement, Story ring, publish-now, accessible playback and real simple-product cart usability. Required options use View options to the product page. Reels storefront delivery, category/product placements, scheduling, extra layouts, billing automation and analytics/attributed ROI are deferred to the full MVP; retain completed creation/media/preview capabilities. Do not add shopper tracking or claim attribution in this milestone.
+
+Ali owns pilot acceptance and the remaining merchant, provider/region and named support decisions. Set numeric upload/storage/cost caps before enrollment. Require production readiness, applicable Salla/cart/theme gates, withdrawal within one minute, security/data-rights procedures and a deployed acceptance run. Disable enrollment/player for cross-store exposure, broken cart/theme, high/critical security issues, excessive resource use or inability to withdraw content. See [pilot readiness](../_bmad-output/implementation-artifacts/pilot-readiness.md) for evidence and open decisions. This milestone does not establish willingness to pay or satisfy E1-E5 automatically.
 
 The MVP is "done" and Phase 2 full development may start only when **all** exit criteria are met.
 
@@ -101,6 +106,8 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **Consistency rule:** each credited line item belongs to exactly one content item, so per-content attributed revenue always sums to the total attributed revenue for the same range [resolves SRS Appendix B item 1].
 
 ### 1.6 User Journeys [ASSUMPTION: protagonists and details to be confirmed by the product owner]
+
+**Approved pilot journey.** Install through Easy Mode, sign in through verified embedded or direct re-entry, sync products, create a Story, upload/process media, link one product, preview, choose Home and publish now. A shopper opens the Home Story ring and adds an available simple product to the real Salla cart. Products requiring options link to their product page. Archive/delete withdraws content within one minute. Verify Arabic/English, keyboard operation and guest/signed-in carts. Show pilot availability and support honestly; hide unsupported storefront choices and analytics, with no fabricated performance values. UJ1-UJ3 below describe the broader MVP; pilot publication still requires media QC and a valid placement.
 
 **UJ1. Noura onboards and publishes her first Story.** Noura owns an abaya store on Salla. She installs Slips from the Salla App Store and lands in the dashboard already connected ("Connected to Salla: Noura Abayas"). An onboarding checklist shows four steps: store connected ✓, products synced ✓ (done automatically), injector installed, first content created. She creates a Story, uploads three clips from her phone, links a best-selling abaya, keeps the "Add to cart" CTA and sets the placement to Home. The live preview shows what shoppers will see. She turns on auto-publish; a few minutes later the clips pass processing and the Story goes live. She opens Store Preview, then her real storefront, and sees the story ring on her home page.
 

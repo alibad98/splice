@@ -156,6 +156,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-8-process-videos-into-renditions-and-posters.md`
   summary: Replace `DevMediaProcessor` video transcoding with a real FFmpeg/cloud `MediaProcessor` adapter once hosting is chosen (Q-05), and refuse to boot in production without one.
   evidence: Story 3.8 uses `sharp` for real WebP image optimization and poster generation, and a deterministic in-process MP4 generator for video renditions until Q-05 is resolved.
+  update_2026_11_11: Superseded for adapter implementation: apps/api/src/http.ts imports FfmpegMediaProcessor and wires it for workers with env.FFMPEG_PATH. Production runtime FFmpeg, representative media, limits and playback verification remain open in pilot-readiness.md; the separate EicarMalwareScanner production gap remains open. Historical evidence above is retained.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-9-run-quality-checks-retry-failures-auto-publish.md`
   summary: Reconcile media status atomically when attaching slides so completion/failure events cannot race the attachment transaction.
@@ -171,3 +172,30 @@
 - source_spec: `spec-3-13-edit-duplicate-archive-restore-delete-content.md`
   summary: Restore quantified upload/processing and cost-abuse constraints in the refreshed Epic 3 agent context.
   evidence: Independent review B9/B10 found the context refresh omitted upload-URL throttling, abuse metrics, per-store stored-byte metering, the exact 15-minute presigned expiry and recording the processing P95 metric; authoritative planning requirements remain unchanged. Context-file corrections are deferred by the BMAD review routing rule.
+
+## Review-gap resolutions — 2026-11-11
+
+Original entries above retain their historical findings. Current disposition and executed evidence are in [review-gap closeout](review-gap-closeout-2026-11-11.md).
+
+- Daily reconcile cron registration and registration of every catalogued domain event are now covered through worker startup tests, including media-only queue selection.
+- Mid-session disconnect/reconnect metadata now refreshes periodically/on focus with cleanup and failure coverage. Background refresh preserves cookie idle expiry.
+- The purge-sweep integration fixture no longer falls outside its first 100-row page when earlier test runs leave due schedules; unrelated rows are retained.
+- Media attachment now locks/re-reads media owner data inside the content transaction. Interleaved create/PATCH completion/failure and actual PostgreSQL lock-wait regression tests pass.
+- OpenAPI colon paths are normalized to brace parameters, with required path schemas; every path placeholder is covered.
+- Epic 3 context once again carries exact presigned expiry, throttling/abuse metrics, per-store metering and processing-duration measurement requirements, plus the approved pilot direction.
+- Full FFmpeg output correctness is verified locally. Staging 60-second 1080p P95, real scanner/hosting decisions, deployed HTTPS/merchant format compatibility, Salla 404 behavior and bounded ingestion resource validation remain open launch evidence. Publishing disconnected-store eligibility and every return-to-live placement gate remain explicit Epic 4 dependencies.
+
+
+## Home pilot review follow-ups - 2026-11-11
+
+- source_spec: `spec-4-1-placements-and-targets.md`
+  summary: Ensure 4.4 storefront selection excludes empty or unprocessed media after explicit Published edits.
+  evidence: B1/B2 confirm existing lifecycle behavior permits zero slides and pending Published replacements. The Home slice gates every new live destination; storefront delivery remains absent. Apply the existing processed-assets requirement at 4.4 selection, without exposing pending preview media publicly.
+
+- source_spec: `spec-4-1-placements-and-targets.md`
+  summary: Bound background session refresh and guard late authentication failures against a replaced/stopped session.
+  evidence: B4/B5/E1/E2 trace the inherited review-gap changes: a never-settling request keeps refreshing occupied; request() handles a late cookie 401 before the caller's generation/state guard. Add timeout/abort plus stop/restart/late-401 tests and mounted unresolved-request cleanup coverage (B9).
+
+- source_spec: `spec-4-1-placements-and-targets.md`
+  summary: Strengthen inherited resolution browser and worker-startup verification.
+  evidence: B8/B10 propose a real-browser valid replacement after invalid media and exact startup handler identities/counts plus recurring registration counts. Existing tests cover invalid replacement feedback and at least one handler per event; no new Home implementation defect was demonstrated.

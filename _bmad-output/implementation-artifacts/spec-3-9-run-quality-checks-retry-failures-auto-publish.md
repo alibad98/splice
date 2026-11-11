@@ -123,3 +123,10 @@ All review fixes preserve the approved behavior and public surface. Corrections 
 - Initial verification: API 640 tests, dashboard 323, contracts 89, DB 62, shared UI 101, player 20 passed. Arabic correction: 9 focused i18n tests plus dashboard lint/typecheck passed. Full lint/typecheck/build: 18/19 tasks passed; known player Windows path failure only.
 - `pnpm -C packages/contracts test`, `pnpm -C apps/api exec vitest run` (DB on 5436), `pnpm -C apps/dashboard test` -- all pass.
 - `pnpm turbo run lint typecheck build --continue` -- pass except `@slips/player#build`.
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed: content now locks/rechecks attachment assets in the write transaction; actual interleaved create/PATCH and lock-wait tests cover media completion/failure races. QC, retry/shared recovery and no-placement auto-publish refusal pass. Placement admission and all return-to-live guards remain 4.1 work.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

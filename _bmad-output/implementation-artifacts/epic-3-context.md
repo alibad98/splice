@@ -4,7 +4,7 @@
 
 ## Goal
 
-Merchants create, upload, preview and manage Stories and Reels through their full lifecycle. Content must be safe, tenant-isolated and ready for later storefront publishing. Published changes remain under merchant control. The controlled-pilot proposal dated 2026-11-11 is unapproved; it does not change this epic or Story 3.13 acceptance criteria.
+Merchants create, upload, preview and manage Stories and Reels through their full lifecycle. Content must be safe, tenant-isolated and ready for later storefront publishing. Published changes remain under merchant control. Ali approved the controlled pilot on 2026-11-11: Home/Story/Ring/publish-now storefront delivery first, preserving completed creation/media/preview capabilities and original full-story acceptance criteria. Track launch gates in `pilot-readiness.md`.
 
 ## Stories
 
@@ -37,7 +37,7 @@ Merchants create, upload, preview and manage Stories and Reels through their ful
 - Modular monolith with ports/adapters and explicit ownership. Content owns items, product links and slides; media owns assets/renditions. Other modules use owner services or transactional events. Avoid cascading foreign keys across modules.
 - Non-null store IDs, forced RLS and store-scoped repositories protect every tenant table; verify cross-tenant access. Workers establish store context per job.
 - Content alone writes lifecycle status against the contracts transition table. Invalid transitions produce a stable problem and no writes. Changes and outbox events commit together; handlers are idempotent. Soft deletion must not free media referenced elsewhere.
-- Presigned uploads are store-prefixed, content-addressed, size-limited and short-lived. Assets progress uploaded to scanned to processed/failed; only processed assets publish. External integrations remain behind storage, scanner and processor ports. Progressive MP4 renditions at supported 480p/720p/1080p plus posters; no HLS.
+- Presigned uploads are store-prefixed, content-addressed, size-limited and expire in exactly 15 minutes. Throttle abusive upload-URL issue rates and record abuse metrics; meter per-store stored bytes, storage and delivery usage. Assets progress uploaded to scanned to processed/failed; only processed assets publish. External integrations remain behind storage, scanner and processor ports. Progressive MP4 renditions at supported 480p/720p/1080p plus posters; no HLS. Record processing-duration metrics to evaluate the five-minute P95 target for 60-second 1080p video (excluding queue spikes); a single local test is not deployed P95 evidence.
 - External fetch blocks private, loopback, link-local and metadata destinations, including redirects; bound bytes/time. Media jobs use their own worker queue, three automatic attempts, versioned payloads and trace/store IDs.
 - Preview is authenticated, never CDN-cached and returns 404 for another store's item. One compiler serves preview now and storefront later. Processing slides may use posters/source uploads in preview only. Embed the real player in an iframe with a mock platform; update manifests without reload. Player uses Shadow DOM, system fonts, 9:16 and its own custom properties.
 - Shared versioned Zod wire contracts and stable problem slugs govern APIs. Money uses integer minor units; timestamps are UTC with store-zone display.

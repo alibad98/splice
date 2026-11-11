@@ -16,8 +16,8 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SessionService } from '../modules/session/session.service.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CommercePlatform, type EmbeddedIdentity, type MerchantProfile, type TokenSet } from '../ports/commerce-platform.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_session:it_session_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_session:it_session_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_session_test';
 const lines: string[] = [];
 const telemetry = new PinoTelemetry({ role: 'http', level: 'debug', stream: { write: (l: string) => void lines.push(l) } });
@@ -237,6 +237,21 @@ describe('direct-link sign-in', () => {
     const { bearer } = await embeddedBearer();
     expect((await post('/v1/session/sign-out', { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(204);
     expect((await fetch(`${base}/v1/session`, { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(401);
+  });
+
+  it('background connection refresh does not keep an idle cookie session alive', async () => {
+    const d = await directCookie();
+    const sessions = nest.get(SessionService);
+    const before = (await admin.query('select last_seen_at from merchant_sessions where store_id = $1', [d.storeId])).rows[0]!.last_seen_at;
+    try {
+      sessions.now = () => Date.now() + 11 * HOUR;
+      expect((await fetch(`${base}/v1/session`, { headers: { cookie: d.cookie, 'x-slips-client': 'session-refresh' } })).status).toBe(200);
+      expect((await admin.query('select last_seen_at from merchant_sessions where store_id = $1', [d.storeId])).rows[0]!.last_seen_at).toEqual(before);
+      sessions.now = () => Date.now() + 13 * HOUR;
+      const expired = await fetch(`${base}/v1/session`, { headers: { cookie: d.cookie, 'x-slips-client': 'session-refresh' } });
+      expect(expired.status).toBe(401);
+      expect(await expired.json()).toMatchObject({ code: 'session_expired' });
+    } finally { sessions.now = Date.now; }
   });
 
   it('expires a session idle for 12 hours, clears the cookie and says so; activity keeps it alive', async () => {

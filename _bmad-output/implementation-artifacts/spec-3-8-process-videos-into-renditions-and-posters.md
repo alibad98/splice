@@ -117,3 +117,9 @@ context:
 - `pnpm -C apps/api exec vitest run` (on 5436) -- 32 files, 636 tests passed.
 - `pnpm -C apps/dashboard test` -- 25 files, 312 tests passed.
 - `pnpm turbo run lint typecheck build --continue` -- all passed except the known Windows-only `@slips/player#build` (`D:\D:\...` path bug in `check-size.mjs`).
+
+### Pilot review closeout — 2026-11-11
+
+Engineering gaps closed: real FFmpeg fixture produces decodable video/audio and poster; rendition/metric integration passes. Full story remains review in sprint tracking: representative 60-second 1080p staging P95 evidence is still missing.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

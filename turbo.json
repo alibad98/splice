@@ -32,6 +32,14 @@
     "test": {
       "dependsOn": [
         "^build"
+      ],
+      "env": [
+        "TEST_DATABASE_PORT",
+        "TEST_ADMIN_URL",
+        "TEST_APP_URL",
+        "CONTENT_TEST_ADMIN_URL",
+        "PREVIEW_TEST_DATABASE_URL",
+        "FFMPEG_PATH"
       ]
     }
   }

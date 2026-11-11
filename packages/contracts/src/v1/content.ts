@@ -113,6 +113,13 @@ export function canTransition(from: ContentStatus | null, action: ContentAction)
 
 /** Problem `type` of content lifecycle endpoints when a status transition is not allowed (409). */
 export const CONTENT_INVALID_TRANSITION = 'invalid-transition';
+export const CONTENT_NO_PLACEMENT = 'no-placement';
+export const CONTENT_MEDIA_NOT_READY = 'content-media-not-ready';
+
+/** The controlled pilot supports Home only; targets are deliberately not accepted. */
+export const Placement = z.strictObject({ type: z.literal('home') });
+export type Placement = z.infer<typeof Placement>;
+export const PlacementList = z.array(Placement).max(1);
 
 /** Problem `type` when an open-link CTA URL is not on one of the store's synced domains (422). */
 export const CONTENT_CTA_URL_NOT_STORE_DOMAIN = 'cta-url-not-store-domain';
@@ -158,6 +165,7 @@ export const ContentFields = z.strictObject({
   product_id: z.uuid().nullable().optional(),
   /** The ordered slides (Story 3.6); the list replaces the item's slides. */
   slides: SlideList.optional(),
+  placements: PlacementList.optional(),
 });
 export type ContentFields = z.infer<typeof ContentFields>;
 
@@ -275,6 +283,7 @@ export const ContentItem = z.object({
   product: ContentProductSummary.nullable(),
   /** The live slides in order (Story 3.6). */
   slides: z.array(ContentSlide),
+  placements: PlacementList.default([]),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 });

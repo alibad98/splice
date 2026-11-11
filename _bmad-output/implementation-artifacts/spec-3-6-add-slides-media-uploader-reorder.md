@@ -116,3 +116,10 @@ Ran 2026-11-05: contracts 81, db 59 (on 5436), API 523 (full suite on 5436), ui 
 - `pnpm -C packages/contracts test`, `pnpm -C packages/ui test`, `pnpm -C apps/dashboard test`, `pnpm -C packages/db test` (on 5436) -- pass.
 - API suite on the Docker DB at 5436 (swap `127.0.0.1:5433` → `5436` in test files, run `pnpm -C apps/api exec vitest run`, swap back) -- pass.
 - `pnpm turbo run lint typecheck build --continue` -- pass except `@slips/player#build`.
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed: uploader/order/alt-text/unit checks pass. New English/Arabic desktop/mobile browser tests verify actual low-resolution rejection before upload and replacement-picker warning refresh. English desktop and Arabic mobile screenshots inspected.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

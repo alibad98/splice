@@ -355,6 +355,16 @@ export const ROUTES: RouteDoc[] = [
   },
   {
     method: 'post',
+    path: '/v1/content/:id/publish',
+    tag: 'Content',
+    summary: 'Publish a content item now',
+    description: 'Publishes a Draft under its item lock. Requires a saved Home placement and all attached media to be processed. Refuses atomically with 422 no-placement (code no_placement) or content-media-not-ready (code media_not_ready). Unsupported placement types and targets are rejected by create/edit. Sets first_published_at once and emits content.item.published in the same transaction.',
+    auth: 'merchant',
+    success: { status: 200, description: 'Published content item', body: ContentItem },
+    errors: [401, 403, 404, 409, 422],
+  },
+  {
+    method: 'post',
     path: '/v1/content/:id/archive',
     tag: 'Content',
     summary: 'Archive a content item',
@@ -368,10 +378,10 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content/:id/undo-archive',
     tag: 'Content',
     summary: 'Undo archive on a content item',
-    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`.`,
+    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`. Returning to Published or Scheduled requires a saved Home placement and processed media; admission failures answer 422 with type no-placement (code no_placement) or content-media-not-ready (code media_not_ready), without changing the item or emitting an event.`,
     auth: 'merchant',
     success: { status: 200, description: 'Unarchived content item', body: ContentItem },
-    errors: [401, 403, 404, 409],
+    errors: [401, 403, 404, 409, 422],
   },
   {
     method: 'post',
@@ -532,13 +542,18 @@ export function buildOpenApi(serverUrl: string, version = '0.0.0') {
       },
     };
     for (const status of r.errors ?? []) responses[status] = { $ref: `#/components/responses/E${status}` };
-    (paths[r.path] ??= {})[r.method] = {
+    const pathParameters = [...r.path.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => ({
+      name: match[1]!, in: 'path', required: true, schema: { type: 'string' },
+    }));
+    const operationParameters = [...pathParameters, ...(r.query ? parameters(r.query) : [])];
+    const path = r.path.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}');
+    (paths[path] ??= {})[r.method] = {
       tags: [r.tag],
       summary: r.summary,
       ...(r.description ? { description: r.description } : {}),
       operationId: `${r.method}${r.path.replace(/[^a-zA-Z0-9]+(\w)?/g, (_, c: string | undefined) => (c ? c.toUpperCase() : ''))}`,
       security: security(r.auth),
-      ...(r.query ? { parameters: parameters(r.query) } : {}),
+      ...(operationParameters.length ? { parameters: operationParameters } : {}),
       ...(r.body ? { requestBody: { required: true, content: { 'application/json': { schema: refFor(r.body, inputs) } } } } : {}),
       responses,
     };

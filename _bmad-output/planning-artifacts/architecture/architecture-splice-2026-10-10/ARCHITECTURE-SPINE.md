@@ -276,6 +276,7 @@ Arrows are the only allowed import directions (runtime calls are in the Containe
 - **Rule:**
   - `integration` owns `stores.lifecycle_state`: `active → disconnected → uninstalled` (30-day grace) `→ purged`, plus `install_epoch`, incremented on each install. Transitions emit AD-17 events.
   - Every module implements a `StoreDataLifecycle` port: export, purge and restore-on-reinstall, including media objects and CDN manifests.
+  - Approved pilot clarification (2026-11-11): publishing distinguishes token availability from installation state. Disconnected stores retain the last good manifest while synchronization pauses; uninstalled, purged and unknown stores serve empty. Do not reuse an active-token guard as storefront eligibility. Implement and verify this distinction on the publishing path; this amendment does not claim the current guard is fixed.
   - Reinstall within the grace period restores the same store row; `(platform, platform_store_id)` is the reinstall key.
   - Purge is one orchestrated, resumable job that takes a per-store lock, re-checks state and epoch before each batch, and writes an audit record. Work carrying a stale epoch is dropped.
 
@@ -302,6 +303,7 @@ Arrows are the only allowed import directions (runtime calls are in the Containe
   - A job creates `events_raw` partitions 3 months ahead and alerts on failure.
   - Risky features ship behind feature flags in a config table.
   - Degraded mode: a Salla outage pauses sync while manifests keep serving.
+  - Approved pilot operational gate (2026-11-11): choose production provider/region, storage/CDN, named monitoring/support owners and numeric caps before enrollment. Release order is migration, workers, HTTP, dashboard with compatibility checks between stages. Require protected source media, public processed assets only, verified session configuration, backup restore, kill switch, rollback and audited export/purge evidence. See `docs/runbooks/production-pilot.md`; scope approval alone does not authorize deployment.
 
 ### AD-23 — Preview mode [ADOPTED]
 

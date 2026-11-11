@@ -337,11 +337,13 @@ export class MediaService {
    * Kind, status and failure reason of the asked assets in one read (Story 3.6: slides). Unknown and other-store ids are
    * absent from the map.
    */
-  async getAssetsByIds(storeId: string, ids: readonly string[]): Promise<Map<string, MediaAssetSummary>> {
+  async getAssetsByIds(storeId: string, ids: readonly string[], options: { lockForAttachment?: boolean } = {}): Promise<Map<string, MediaAssetSummary>> {
     if (ids.length === 0) return new Map();
+    // A caller attaching slides must retain the asset locks until its content transaction commits.
+    if (options.lockForAttachment && currentStoreContext()?.storeId !== storeId) throw new Error('attachment locks require a store transaction');
     const rows =
       currentStoreContext()?.storeId === storeId
-        ? await this.repo.summariesByIds(ids)
+        ? await this.repo.summariesByIds(ids, options.lockForAttachment)
         : await withStoreContext(this.pool, storeId, () => this.repo.summariesByIds(ids));
     return new Map(
       rows.map((r) => [

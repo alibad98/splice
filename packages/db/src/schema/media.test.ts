@@ -9,8 +9,8 @@ import { ensureTestAppRole } from '../testing/app-role.js';
 import { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables } from '../testing/cross-tenant.js';
 import * as schema from './index.js';
 
-const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_media:it_media_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = process.env.TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = process.env.TEST_APP_URL ?? `postgres://slips_it_media:it_media_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const TENANT_TABLES = ['media_assets', 'media_upload_grants', 'renditions'];
 const SHA = 'a'.repeat(64);
 

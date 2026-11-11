@@ -34,6 +34,11 @@ project: splice
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
+# Approved controlled-pilot scope: 2026-11-11. Partial delivery and launch gates:
+# _bmad-output/implementation-artifacts/pilot-readiness.md
+# Original story statuses below retain full acceptance criteria.
+# Per-story review evidence: review-gap-closeout-2026-11-11.md
+# 2.7 remains review for storefront-last-data acceptance; 3.8 for staging P95.
 development_status:
   epic-1: done
   1-1-scaffold-the-turborepo-monorepo-and-ci-pipeline: done
@@ -58,28 +63,28 @@ development_status:
   2-3-sync-products-manually-and-see-last-sync-time: done
   2-4-apply-product-webhooks-in-near-real-time: done
   2-5-handle-products-deleted-in-salla: done
-  2-6-reconcile-the-catalog-daily: review
+  2-6-reconcile-the-catalog-daily: done
   2-7-pause-sync-when-disconnected-and-resume-on-reconnect: review
   epic-2-retrospective: optional
 
   epic-3: in-progress
   3-1-model-content-items-and-their-status-lifecycle: done
   3-2-list-and-filter-content-with-status-tabs: done
-  3-3-create-a-story-or-reel-with-title-format-and-cta: review
-  3-4-link-a-product-with-the-product-picker: review
-  3-5-upload-media-directly-to-storage-safely: review
-  3-6-add-slides-with-the-media-uploader-and-reorder-them: review
-  3-7-import-media-from-an-external-link: review
+  3-3-create-a-story-or-reel-with-title-format-and-cta: done
+  3-4-link-a-product-with-the-product-picker: done
+  3-5-upload-media-directly-to-storage-safely: done
+  3-6-add-slides-with-the-media-uploader-and-reorder-them: done
+  3-7-import-media-from-an-external-link: done
   3-8-process-videos-into-renditions-and-posters: review
-  3-9-run-quality-checks-retry-failures-and-auto-publish: review
-  3-10-serve-a-preview-manifest-for-one-content-item: review
-  3-11-render-content-in-the-player-s-preview-mode: review
-  3-12-show-the-live-preview-panel-in-the-editor: review
-  3-13-edit-duplicate-archive-restore-and-delete-content: review
+  3-9-run-quality-checks-retry-failures-and-auto-publish: done
+  3-10-serve-a-preview-manifest-for-one-content-item: done
+  3-11-render-content-in-the-player-s-preview-mode: done
+  3-12-show-the-live-preview-panel-in-the-editor: done
+  3-13-edit-duplicate-archive-restore-and-delete-content: done
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-choose-placements-and-targets-for-a-content-item: backlog
+  epic-4: in-progress
+  4-1-choose-placements-and-targets-for-a-content-item: in-progress # Home pilot slice; full Category/Product acceptance remains open
   4-2-pick-a-layout-per-placement-with-settings-defaults: backlog
   4-3-schedule-start-and-end-in-the-store-time-zone: backlog
   4-4-compile-the-per-store-manifest-of-eligible-content: backlog

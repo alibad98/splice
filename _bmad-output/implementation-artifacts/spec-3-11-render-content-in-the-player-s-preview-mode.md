@@ -140,3 +140,10 @@ Existing DESIGN.md is preserved; documentation of the extension belongs in the p
 - Parent ran Node24 direct CLIs: ESLint, typecheck, Vite/declarations and gzip gates passed. Player unit suite: 8 files / 62 tests passed. Config boundary suite: 34 passed. Full Playwright: 33 passed, including all 18 existing CLS cases, parent-created blobs, unavailable-product navigation and deferred/rejecting adapter lifecycle.
 - Final gzip: initial 7.08 KB, loader 6.45 KB, viewer 10.07 KB, analytics 0.22 KB. Logs: system temp/splice-3-11-final/{lint,typecheck,unit,boundaries,build,browser}.log.
 - Impeccable verdict pass scored all three material design fixes resolved and returned ship; all eight final captures valid. Documenter rechecked current code and documentation with no necessary changes.
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed: player unit/browser/budget checks pass, including real preview media, protocol, simulated actions, direction and lifecycle behavior. The historical Windows build failure no longer reproduces.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

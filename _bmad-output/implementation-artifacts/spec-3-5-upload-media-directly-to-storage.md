@@ -112,3 +112,10 @@ Ran 2026-11-05: contracts 78, db 57 (on 5436), API 510 (full suite on 5436, incl
 - `pnpm -C packages/contracts test`, `pnpm -C packages/db test` -- pass.
 - API suite on the Docker DB at 5436 (swap `127.0.0.1:5433` → `5436` in test files, run `pnpm -C apps/api exec vitest run`, swap back) -- pass.
 - `pnpm turbo run lint typecheck build --continue` -- pass except `@slips/player#build`.
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed within specified adapter scope: current media integration verifies grant expiry/limits/throttling, inspection, storage accounting and scanner port. A real production scanner remains an explicit live-pilot gate.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

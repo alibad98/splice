@@ -124,3 +124,10 @@ context:
 - Full dashboard suite: **28 files / 363 tests passed**. Dashboard ESLint, route generation/typecheck and production build passed after final patches. Full dashboard browser suite: **12 passed**, covering new menus and existing real-player preview integration. API remains **180 passed**, with API lint/typecheck/build passed and no subsequent API code change.
 - Logs: system temp `splice-3-13-final/parent-dashboard-{all,lint,typecheck,build,browser}.log`; prior API logs in the same directory. `git diff --check` passed.
 - Story implementation is complete. Sprint tracker retains `review` as prescribed by BMAD Build's completion sync; other review stories are unchanged. Pilot scope remains proposed; no deployment or enrollment occurred.
+
+
+### Pilot review closeout — 2026-11-11
+
+Existing final review confirmed by shared content/editor/list/browser regression. Restored quantified upload/processing/abuse constraints and approved-pilot state in Epic 3 context; no original acceptance criteria changed.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

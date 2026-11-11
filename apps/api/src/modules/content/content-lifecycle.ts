@@ -13,6 +13,7 @@ import {
   type MediaAssetStatus,
   type MediaKind,
   type SlideInput,
+  type Placement,
 } from '@slips/contracts';
 import { and, eq, inArray, requireStoreContext, schema } from '@slips/db';
 import { publishEvent, uuidv7, type EventSender, type TxQueryable } from '../../events/outbox.js';
@@ -21,7 +22,14 @@ import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
 import { MediaService } from '../media/media.service.js';
 import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
 
-const { contentItems, contentProductLinks, slides } = schema;
+const { contentItems, contentProductLinks, slides, placements } = schema;
+
+export class PublishEligibilityError extends Error {
+  constructor(public readonly reason: 'no_placement' | 'media_not_ready') {
+    super(reason === 'no_placement' ? 'Add a placement to publish' : 'Wait for all media to pass processing before publishing');
+    this.name = 'PublishEligibilityError';
+  }
+}
 
 export class InvalidTransitionError extends Error {
   constructor(
@@ -124,6 +132,7 @@ export class ContentLifecycle {
     const parsed = ContentCreateInput.parse(input);
     const id = uuidv7(now.getTime());
     const slideList = normalizeSlides(parsed.slides ?? []);
+    assetKinds = await this.attachmentAssets(storeId, slideList, assetKinds, []);
     this.checkSlides(slideList, assetKinds, []);
     const [row] = await requireStoreContext()
       .db.insert(contentItems)
@@ -147,6 +156,7 @@ export class ContentLifecycle {
       })
       .returning();
     if (parsed.product_id) await this.writeLink(storeId, id, parsed.product_id, now);
+    if (parsed.placements?.length) await this.writePlacements(storeId, id, parsed.placements, now);
     if (slideList.length > 0) await this.writeSlides(storeId, id, slideList, now, assetKinds);
     await publishEvent(tx, this.events, this.telemetry, 'content.item.created', {
       v: 1,
@@ -185,7 +195,8 @@ export class ContentLifecycle {
    * Change an item's fields (Story 3.3). Locks the live row, refuses archived items (`InvalidTransitionError`), merges the
    * patch, re-checks the field rules on the merged item, writes, and emits `content.item.edited` with the unchanged
    * status in the caller's transaction. Moving the action off `open_link` clears the URL. A patch that changes nothing
-   * writes nothing and emits nothing. `slides` replaces the whole list (Story 3.6); the item's status never changes.
+   * writes nothing and emits nothing. `slides` replaces the whole list (Story 3.6); processing state is reconciled in
+   * the same transaction using the media owner's locked asset summaries.
    */
   async edit(
     tx: TxQueryable,
@@ -203,6 +214,7 @@ export class ContentLifecycle {
     const link = await this.repo.findLink(contentId);
     const liveSlides = await this.repo.liveSlides([contentId]);
     const before = fieldsOf(row, link?.productId ?? null, liveSlides);
+    before.placements = (await this.repo.placements([contentId])).map(p => ({ type: p.type }));
     const merged: ContentFields = { ...before, ...parsedPatch };
     if (parsedPatch.slides !== undefined) merged.slides = normalizeSlides(parsedPatch.slides);
     if (merged.cta_action !== 'open_link' && parsedPatch.cta_url === undefined) merged.cta_url = null;
@@ -214,18 +226,21 @@ export class ContentLifecycle {
       cta_style: checked.data.cta_style ?? null,
       product_id: checked.data.product_id ?? null,
       slides: checked.data.slides ?? [],
+      placements: checked.data.placements ?? [],
     };
 
     const same = (f: EditableField): boolean =>
-      f === 'slides' ? JSON.stringify(before.slides ?? []) === JSON.stringify(next.slides) : (before[f] ?? null) === (next[f] ?? null);
+      f === 'slides' || f === 'placements' ? JSON.stringify(before[f] ?? []) === JSON.stringify(next[f]) : (before[f] ?? null) === (next[f] ?? null);
     const changed = EDITABLE_FIELDS.filter((f: EditableField) => !same(f));
     if (changed.length === 0) return row;
 
     if (changed.includes('slides')) {
+      assetKinds = await this.attachmentAssets(storeId, next.slides, assetKinds, liveSlides);
       this.checkSlides(next.slides, assetKinds, liveSlides);
       await this.writeSlides(storeId, contentId, next.slides, now, assetKinds);
     }
     if (changed.includes('product_id')) await this.writeLink(storeId, contentId, next.product_id, now);
+    if (changed.includes('placements')) await this.writePlacements(storeId, contentId, next.placements, now);
     const [updated] = await requireStoreContext()
       .db.update(contentItems)
       .set({
@@ -249,6 +264,9 @@ export class ContentLifecycle {
       changed,
     });
     if (changed.includes('slides')) {
+      if ((row.status === 'draft' || row.status === 'processing') && next.slides.some(s => statusOf(assetKinds.get(s.media_asset_id)) === 'failed')) {
+        return this.apply(tx, storeId, contentId, 'fail_processing', now);
+      }
       if ((row.status === 'draft' || row.status === 'failed') && !next.slides.some(s => statusOf(assetKinds.get(s.media_asset_id)) === 'failed') && this.hasInFlightSlides(next.slides, assetKinds)) {
         return this.apply(tx, storeId, contentId, 'start_processing', now);
       }
@@ -257,6 +275,18 @@ export class ContentLifecycle {
       }
     }
     return updated!;
+  }
+
+  /** Serialize attachment with media updates; kind-only copies intentionally remain Draft without admission. */
+  private async attachmentAssets(storeId: string, list: readonly SlideInput[], supplied: SlideAssetKinds, existing: readonly SlideRow[]): Promise<SlideAssetKinds> {
+    if (!this.media || list.length === 0 || ![...supplied.values()].some(info => typeof info !== 'string')) return supplied;
+    const assets = await this.media.getAssetsByIds(storeId, list.map(slide => slide.media_asset_id), { lockForAttachment: true });
+    const retained = new Set(existing.map(slide => slide.mediaAssetId));
+    for (const slide of list) {
+      const asset = assets.get(slide.media_asset_id);
+      if (!asset || (asset.status === 'failed' && !retained.has(slide.media_asset_id))) throw new SlideAssetUnknownError(slide.media_asset_id);
+    }
+    return assets;
   }
 
   /**
@@ -337,9 +367,25 @@ export class ContentLifecycle {
     return this.apply(tx, storeId, contentId, 'start_processing');
   }
 
-  async publishEligibility(_tx: TxQueryable, _storeId: string, _itemId: string): Promise<{ eligible: false; reason: 'no_placement' }> {
-    void _tx; void _storeId; void _itemId;
-    return { eligible: false, reason: 'no_placement' };
+  async publishEligibility(_tx: TxQueryable, storeId: string, itemId: string): Promise<{ eligible: true } | { eligible: false; reason: 'no_placement' | 'media_not_ready' }> {
+    if (!(await this.repo.placements([itemId])).some(p => p.type === 'home')) return { eligible: false, reason: 'no_placement' };
+    const liveSlides = await this.repo.liveSlides([itemId]);
+    if (liveSlides.length) {
+      // Media owns QC state. Keep its attachment locks until this content transaction commits.
+      if (!this.media) return { eligible: false, reason: 'media_not_ready' };
+      const assets = await this.media.getAssetsByIds(storeId, liveSlides.map(s => s.mediaAssetId), { lockForAttachment: true });
+      if (liveSlides.some(s => assets.get(s.mediaAssetId)?.status !== 'processed' || !slideAltTextOk(s.kind, s.altText))) return { eligible: false, reason: 'media_not_ready' };
+    }
+    return { eligible: true };
+  }
+
+  private async writePlacements(storeId: string, contentId: string, list: readonly Placement[], now: Date): Promise<void> {
+    const db = requireStoreContext().db;
+    if (!list.length) {
+      await db.delete(placements).where(and(eq(placements.storeId, storeId), eq(placements.contentId, contentId)));
+    } else {
+      await db.insert(placements).values({ id: uuidv7(now.getTime()), storeId, contentId, type: 'home', createdAt: now }).onConflictDoNothing();
+    }
   }
 
   private hasInFlightSlides(list: readonly SlideInput[], assetKinds: SlideAssetKinds): boolean {
@@ -440,7 +486,6 @@ export class ContentLifecycle {
       throw new InvalidTransitionError(contentId, row.status, action);
     }
 
-    if (action === 'finish_processing' && row.autoPublish) await this.publishEligibility(tx, storeId, contentId);
     const from = row.status;
     if (action === 'delete') {
       const [deleted] = await requireStoreContext()
@@ -468,6 +513,15 @@ export class ContentLifecycle {
       to = CONTENT_TRANSITIONS[action].to as ContentStatus;
     }
 
+    if (action === 'finish_processing' && row.autoPublish) {
+      const eligibility = await this.publishEligibility(tx, storeId, contentId);
+      if (eligibility.eligible) to = 'published';
+    }
+    if (to === 'published' || to === 'scheduled') {
+      const eligibility = await this.publishEligibility(tx, storeId, contentId);
+      if (!eligibility.eligible) throw new PublishEligibilityError(eligibility.reason);
+    }
+
     const archivedFrom = action === 'archive' ? from : action === 'undo_archive' || action === 'restore' ? null : row.archivedFrom;
     const reactivateTo = action === 'deactivate' ? from : action === 'reactivate' || action === 'restore' ? null : row.reactivateTo;
     const firstPublishedAt = row.firstPublishedAt ?? (to === 'published' ? now : null);
@@ -492,6 +546,9 @@ export class ContentLifecycle {
       from,
       to,
     });
+    if (action === 'finish_processing' && to === 'published') {
+      await publishEvent(tx, this.events, this.telemetry, 'content.item.published', { v: 1, store_id: storeId, content_id: contentId, from, to });
+    }
     return updated!;
   }
 }

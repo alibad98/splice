@@ -49,6 +49,8 @@ export class SessionClient {
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (id: unknown) => void;
   private minting: Promise<void> | undefined;
+  private refreshing: Promise<void> | undefined;
+  private refreshGeneration = 0;
 
   constructor(private readonly options: SessionClientOptions, initial: SessionState) {
     this.state = initial;
@@ -97,8 +99,23 @@ export class SessionClient {
   }
 
   stop(): void {
+    this.refreshGeneration++;
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
+  }
+
+  /** Refresh connection metadata without replacing a healthy session on network/platform trouble. */
+  refreshConnection(): Promise<void> {
+    if (this.state.status !== 'signed-in') return Promise.resolve();
+    this.refreshing ??= this.doRefreshConnection().finally(() => { this.refreshing = undefined; });
+    return this.refreshing;
+  }
+
+  private async doRefreshConnection(): Promise<void> {
+    const state = this.state;
+    const generation = this.refreshGeneration;
+    const info = await this.loadInfo(true);
+    if (info && this.state === state && this.refreshGeneration === generation) this.set(stateFromInfo(info));
   }
 
   /** Trade the host's current token for a bearer. Single-flight. */
@@ -148,9 +165,9 @@ export class SessionClient {
     this.set({ status: 'error', code });
   }
 
-  private async loadInfo(): Promise<SessionInfo | undefined> {
+  private async loadInfo(background = false): Promise<SessionInfo | undefined> {
     try {
-      const res = await this.request('/v1/session', {}, false);
+      const res = await this.request('/v1/session', background ? { headers: { 'x-slips-client': 'session-refresh' } } : {}, false);
       if (!res.ok) return undefined;
       const parsed = SessionInfo.safeParse(await res.json());
       return parsed.success ? parsed.data : undefined;

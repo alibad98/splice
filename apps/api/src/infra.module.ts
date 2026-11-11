@@ -27,6 +27,11 @@ export const MEDIA_CONFIG = Symbol('MEDIA_CONFIG');
 export interface MediaConfig {
   /** Upload URLs one store may be issued per throttle window (`MEDIA_UPLOAD_RATE_LIMIT`). */
   uploadRateLimit: number;
+  /**
+   * Public base URL of the media bucket (`MEDIA_PUBLIC_BASE_URL`) that store manifests link renditions under (Story 4.4).
+   * Rendition keys are content-addressed, so the URLs are immutable.
+   */
+  publicBaseUrl: string;
 }
 
 export interface IntegrationConfig {

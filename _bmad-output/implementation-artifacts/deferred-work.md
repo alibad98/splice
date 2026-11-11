@@ -203,3 +203,20 @@ Original entries above retain their historical findings. Current disposition and
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-2-ring-layout-pilot-slice.md`
   summary: Verify that the API (DI-built) and worker `ContentLifecycle` instances actually read the store display default from `IntegrationService.getDisplayDefaults` when a placement layout is omitted.
   evidence: Review V1/B13 (2026-11-11). Ring is both the only allowed default and the fallback, so the current API settings-row test passes even when the integration dependency is not wired. Settle it once a second layout (Bar) exists by storing a non-Ring default and asserting a new Home placement inherits it through the HTTP and worker paths.
+
+- source_spec: none
+  summary: Pilot slice of Story 4.5 — serve the compiled store manifest from the CDN at /m/v1/salla/<platform_store_id>.json with 60-second TTL and retried purge on change.
+  evidence: Split from the combined 4.4–4.6 pilot intent on 2026-11-11 (user chose one story at a time); depends on 4.4 output.
+- source_spec: none
+  summary: Pilot slice of Story 4.6 — recompile and refresh the storefront manifest on visible product price, stock and deletion changes within the two-minute P95 budget.
+  evidence: Split from the combined 4.4–4.6 pilot intent on 2026-11-11 (user chose one story at a time); depends on 4.4 compiler and 4.5 delivery.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
+  summary: Avoid CDN uploads/purges (or revision bumps) when a compile produces an unchanged manifest.
+  evidence: Review B3 (2026-11-11). Every compile writes revision + 1, including those triggered by unrelated catalog/media events and repeated compiles of an uninstalled store. Story 4.5 uploads and purges per revision; compare a content hash before uploading.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
+  summary: Bound the store manifest candidate read instead of loading every published Home Story on each compile.
+  evidence: Review B7 (2026-11-11). `publishedHomeStories` is unbounded; only 10 are kept after media and product filtering. Negligible at pilot scale; needs an iterative or over-fetching read before wider rollout.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
+  summary: Emit a manifest trigger when an active store's synced domains change.
+  evidence: Review E3 (2026-11-11). Refreshing an active store's details updates `synced_domains` without any `MANIFEST_INPUTS` event, so open-link CTA drop decisions can stay stale until the next trigger. Pre-existing; save-time validation still rejects off-domain URLs.

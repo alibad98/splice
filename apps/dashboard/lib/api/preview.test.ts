@@ -5,7 +5,7 @@ import type { StoreManifest } from '@slips/contracts';
 import { loadPreview, protectedMediaPath } from './preview';
 const id = '019a473a-0000-7000-8000-000000000001';
 const path = `/v1/media/${id}/source`;
-const manifest = () => ({ v: 1, store_id: id, items: [{ id, title: 'Saved', format: 'story', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://shop.example', cta_style: null, product: null, slides: [{ id, media_asset_id: id, kind: 'image', status: 'scanned', alt_text: 'Saved image', source_url: path, poster_url: null, renditions: [] }] }] });
+const manifest = () => ({ v: 1, store_id: id, placements: [], items: [{ id, title: 'Saved', format: 'story', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://shop.example', cta_style: null, product: null, slides: [{ id, media_asset_id: id, kind: 'image', status: 'scanned', alt_text: 'Saved image', source_url: path, poster_url: null, renditions: [] }] }] });
 afterEach(() => vi.unstubAllGlobals());
 it('restricts authenticated bytes to known endpoints on the configured API', () => {
   expect(protectedMediaPath(path, 'https://api.example')).toBe(path);

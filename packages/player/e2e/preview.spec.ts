@@ -96,6 +96,7 @@ test('rejects untrusted state and removes listener on destroy', async ({
       manifest: {
         v: 1,
         store_id: '11111111-1111-4111-8111-111111111111',
+        placements: [],
         items: [],
       },
     };
@@ -137,6 +138,7 @@ test('draft, failed media, missing/deleted products, availability', async ({
     'both',
     'null-alt',
     'missing',
+    'no-cta',
   ] as const) {
     const m = manifest(),
       i = m.items[0]!;
@@ -160,6 +162,11 @@ test('draft, failed media, missing/deleted products, availability', async ({
       i.slides[0]!.alt_text = null;
     }
     if (state === 'missing') i.product = null;
+    if (state === 'no-cta') {
+      i.cta_label = null;
+      i.cta_action = null;
+      i.cta_url = null;
+    }
     await page.evaluate((m) => window.sendPreview(m), m);
     if (state === 'empty')
       await expect(frame.locator('.media')).toContainText('Add a slide');
@@ -176,6 +183,10 @@ test('draft, failed media, missing/deleted products, availability', async ({
       await expect(frame.locator('.details')).toContainText('Required options');
       await expect(frame.locator('.cta')).toBeDisabled();
     }
+    if (state === 'no-cta') {
+      await expect(frame.locator('.cta')).toHaveCount(0);
+      await expect(frame.locator('.product')).toHaveCount(1);
+    }
     if (state === 'null-alt')
       await expect(
         frame.getByRole('img', { name: i.title, exact: true }),
@@ -185,6 +196,7 @@ test('draft, failed media, missing/deleted products, availability', async ({
     window.sendPreview({
       v: 1,
       store_id: window.demoManifest().store_id,
+      placements: [],
       items: [],
     }),
   );

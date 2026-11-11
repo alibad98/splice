@@ -110,7 +110,7 @@ beforeAll(async () => {
   processorRunner = new MediaProcessorRunner(storage, new DevMediaProcessor(), boss, telemetry, app);
   nest = await createHttpApp(
     { CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' },
-    { pool: new pg.Pool({ connectionString: APP_URL, max: 4 }), events: boss, telemetry, session: sessionConfig, storage, scanner, media: { uploadRateLimit: 60 } },
+    { pool: new pg.Pool({ connectionString: APP_URL, max: 4 }), events: boss, telemetry, session: sessionConfig, storage, scanner, media: { uploadRateLimit: 60, publicBaseUrl: 'https://media.example.test/slips-media' } },
   );
   await nest.listen(0);
   base = await nest.getUrl();

@@ -3,6 +3,7 @@ export const id = '11111111-1111-4111-8111-111111111111';
 export const manifest = (): StoreManifest => ({
   v: 1,
   store_id: id,
+  placements: [{ type: 'home', layout: 'ring', item_ids: [id] }],
   items: [
     {
       id,

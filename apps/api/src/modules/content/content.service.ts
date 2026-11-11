@@ -21,7 +21,30 @@ export class ContentService {
       if (!item) return undefined;
       const link = await this.repo.findLink(id);
       const slides = await this.repo.liveSlides([id]);
-      return { item, productId: link?.productId ?? null, slides };
+      const placements = (await this.repo.placements([id])).map((p) => ({ type: p.type, layout: p.layout }));
+      return { item, productId: link?.productId ?? null, slides, placements, firstPublishedAt: item.firstPublishedAt };
+    });
+  }
+
+  /**
+   * Store manifest candidates (Story 4.4 pilot): every live `published` Story with a Home placement, newest
+   * `first_published_at` first, then id, each in the `getItemSnapshot` shape plus its placements and first publication.
+   * No media or product eligibility here; publishing decides through the media and catalog owners. Joins the caller's
+   * transaction when it already runs in this store's context.
+   */
+  async getStoreManifestCandidates(storeId: string) {
+    return withStoreContext(this.pool, storeId, async () => {
+      const items = await this.repo.publishedHomeStories();
+      if (items.length === 0) return [];
+      const ids = items.map((item) => item.id);
+      const [links, slides, placements] = [await this.repo.linkedProductIds(ids), await this.repo.liveSlides(ids), await this.repo.placements(ids)];
+      return items.map((item) => ({
+        item,
+        productId: links.get(item.id) ?? null,
+        slides: slides.filter((slide) => slide.contentId === item.id),
+        placements: placements.filter((p) => p.contentId === item.id).map((p) => ({ type: p.type, layout: p.layout })),
+        firstPublishedAt: item.firstPublishedAt,
+      }));
     });
   }
 

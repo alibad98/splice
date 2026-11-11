@@ -1,5 +1,5 @@
 export * as v1 from './v1/index.js';
-export { StoreManifest, ManifestItem, ManifestSlide, ManifestRendition } from './v1/manifest.js';
+export { StoreManifest, ManifestItem, ManifestSlide, ManifestRendition, ManifestPlacement, MANIFEST_PLACEMENT_MAX_ITEMS } from './v1/manifest.js';
 export {
   AUTH_PROBLEM_CODES,
   Availability,

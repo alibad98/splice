@@ -13,6 +13,10 @@ import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegr
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { registerContentEventHandlers } from './content-jobs.js';
 import { mediaJobHandlers, registerMediaEventHandlers } from './media-jobs.js';
+import { publishingJobHandlers, registerPublishingEventHandlers } from './publishing-jobs.js';
+import { CatalogService } from '../modules/catalog/catalog.service.js';
+import { ContentService } from '../modules/content/content.service.js';
+import { StoreManifestCompiler } from '../modules/publishing/store-manifest.js';
 import { MediaImporter } from '../modules/media/media-import.js';
 import { MediaInspector } from '../modules/media/media-inspect.js';
 import { MediaProcessorRunner } from '../modules/media/media-process.js';
@@ -136,7 +140,10 @@ export async function startWorker(
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer, processorRunner), ...handlers };
+  // Store manifests (Story 4.4): MANIFEST_INPUTS events enqueue a compile in their delivery transaction.
+  registerPublishingEventHandlers(events, boss, telemetry);
+  const manifestCompiler = new StoreManifestCompiler(pool, new ContentService(pool), new CatalogService(pool, boss, telemetry), mediaService, integration, telemetry);
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer, processorRunner), ...publishingJobHandlers(pool, manifestCompiler), ...handlers };
   let stopPoller = () => {};
   try {
     if (env.NODE_ENV === 'development') await ensureDevBucket(infra.storage, telemetry);

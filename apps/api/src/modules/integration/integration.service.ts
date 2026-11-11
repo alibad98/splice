@@ -309,6 +309,14 @@ export class IntegrationService {
     return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.lifecycleState === 'active');
   }
 
+  /**
+   * The store's lifecycle state, or `null` for an unknown store (Story 4.4: the manifest compile keeps, empties or writes
+   * the manifest by it). Joins the caller's transaction when it already runs in this store's context.
+   */
+  async getLifecycleState(storeId: string): Promise<LifecycleState | null> {
+    return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.lifecycleState ?? null);
+  }
+
   /** The store's synced storefront hosts (empty when the store is unknown). Content checks open-link CTA URLs against them (Story 3.3). */
   async getSyncedDomains(storeId: string): Promise<string[]> {
     return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.syncedDomains ?? []);

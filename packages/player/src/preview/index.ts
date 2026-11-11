@@ -21,7 +21,7 @@ export function mountPreview(host: HTMLElement, options: PreviewOptions) {
   const viewWindow = host.ownerDocument.defaultView!;
   const viewer = mountViewer(
     host,
-    { v: 1, store_id: '00000000-0000-4000-8000-000000000000', items: [] },
+    { v: 1, store_id: '00000000-0000-4000-8000-000000000000', placements: [], items: [] },
     {
       platform: new MockStorefrontPlatform(),
       apiBase: api.href,

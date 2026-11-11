@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { GROUP_POLICY, QUEUE_GROUPS, queueOptions, queuesFor } from './queues.js';
+import { MANIFEST_COMPILE_QUEUE } from '../modules/publishing/manifest-inputs.js';
+import { GROUP_POLICY, QUEUES, QUEUE_GROUPS, queueOptions, queuesFor } from './queues.js';
 
 describe('queue policy', () => {
   it('defines exactly the realtime, media and batch groups', () => {
@@ -24,5 +25,10 @@ describe('queue policy', () => {
       { name: 'analytics.rollup', group: 'batch' as const },
     ];
     expect(queuesFor(['realtime', 'batch'], queues).map((q) => q.name)).toEqual(['integration.webhook', 'analytics.rollup']);
+  });
+
+  it('runs the store manifest compile in the realtime group (Story 4.4)', () => {
+    expect(QUEUES.filter((q) => q.name === MANIFEST_COMPILE_QUEUE)).toEqual([{ name: 'publishing.manifest.compile', group: 'realtime' }]);
+    expect(queuesFor(['realtime']).map((q) => q.name)).toContain(MANIFEST_COMPILE_QUEUE);
   });
 });

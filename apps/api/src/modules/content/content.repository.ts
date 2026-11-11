@@ -34,6 +34,26 @@ export class ContentRepository extends StoreScoped {
     return this.db.select().from(placements).where(and(eq(placements.storeId, this.storeId), inArray(placements.contentId, wanted)));
   }
 
+  /**
+   * Live `published` Stories with a Home placement (Story 4.4 store manifest candidates), newest first publication first,
+   * then id. Media and product eligibility are decided by the caller through their owners.
+   */
+  async publishedHomeStories(): Promise<ContentItemRow[]> {
+    return this.db
+      .select()
+      .from(contentItems)
+      .where(
+        and(
+          eq(contentItems.storeId, this.storeId),
+          isNull(contentItems.deletedAt),
+          eq(contentItems.status, 'published'),
+          eq(contentItems.format, 'story'),
+          sql`exists (select 1 from ${placements} where ${placements.storeId} = ${contentItems.storeId} and ${placements.contentId} = ${contentItems.id} and ${placements.type} = 'home')`,
+        ),
+      )
+      .orderBy(sql`${contentItems.firstPublishedAt} desc nulls last`, sql`${contentItems.id} desc`);
+  }
+
   async findById(id: string): Promise<ContentItemRow | undefined> {
     if (!UUID_RE.test(id)) return undefined;
     return (

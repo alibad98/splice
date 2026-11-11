@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as db from './index.js';
 
 describe('@slips/db', () => {
-  it('exports the integration, auth, catalog, content and media tables in the schema namespace', () => {
+  it('exports the integration, auth, catalog, content, media and publishing tables in the schema namespace', () => {
     expect(Object.keys(db.schema).sort()).toEqual(
       [
         'LIFECYCLE_STATES',
@@ -43,6 +43,7 @@ describe('@slips/db', () => {
         'storeLocator',
         'storePurgeSchedule',
         'storeSettings',
+        'storeManifests',
         'stores',
         'tokenAccessLog',
         'webhookInbox',

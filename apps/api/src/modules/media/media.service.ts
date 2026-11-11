@@ -150,6 +150,37 @@ export class MediaService {
     }));
   }
 
+  /**
+   * Public, immutable media URLs for a store manifest (Story 4.4), resolved in a batch by the media owner. Only `processed`
+   * assets with at least one playable rendition are returned (others are absent from the map), with the same profile selection as the preview. Every URL is
+   * `MEDIA_PUBLIC_BASE_URL/<rendition storage_key>`; the key holds the rendition's sha256, so the URL never changes
+   * meaning. Source objects, upload keys, import links and authenticated preview routes are never returned.
+   */
+  async getPublishedMediaByIds(storeId: string, ids: readonly string[]): Promise<Map<string, PublishedMedia>> {
+    if (ids.length === 0) return new Map();
+    const { assets, renditions } = await withStoreContext(this.pool, storeId, async () => ({
+      assets: await this.repo.assetsByIds(ids),
+      renditions: await this.repo.renditionsByAssetIds(ids),
+    }));
+    const base = this.config.publicBaseUrl.replace(/\/+$/, '');
+    const order = ['web', '480p', '720p', '1080p'];
+    return new Map(assets.filter((asset) => asset.status === 'processed').flatMap((asset) => {
+      const selected = renditions.filter((r) => r.assetId === asset.id &&
+        (asset.kind === 'image' ? r.profile === 'web' : ['480p', '720p', '1080p', 'poster'].includes(r.profile)));
+      const url = (key: string) => `${base}/${key.replace(/^\/+/, '')}`;
+      const poster = selected.find((r) => r.profile === (asset.kind === 'image' ? 'web' : 'poster'));
+      const playable = selected.filter((r) => r.profile !== 'poster').sort((a, b) => order.indexOf(a.profile) - order.indexOf(b.profile));
+      // Without a playable public rendition the asset can not be shown: leave it out, so it never counts as ready.
+      if (playable.length === 0) return [];
+      return [[asset.id, {
+        status: 'processed' as const,
+        source_url: playable[0] ? url(playable[0].storageKey) : null,
+        poster_url: poster ? url(poster.storageKey) : null,
+        renditions: playable.map((r) => ({ profile: r.profile, url: url(r.storageKey), content_type: r.contentType, width: r.width, height: r.height })),
+      }] as const];
+    }));
+  }
+
   /** Only selected safe profiles or the inspected, sanitized source can be streamed. */
   async getPreviewBytes(storeId: string, id: string, profile: string): Promise<{ stream: Readable; contentType: string; sizeBytes: number }> {
     const object = await withStoreContext(this.pool, storeId, async () => {
@@ -387,6 +418,11 @@ export interface PreviewMedia {
   source_url: string | null;
   poster_url: string | null;
   renditions: ManifestRendition[];
+}
+
+/** A `processed` asset as a store manifest shows it: public immutable rendition URLs only. */
+export interface PublishedMedia extends PreviewMedia {
+  status: 'processed';
 }
 
 export class MediaAssetNotFoundError extends Error {

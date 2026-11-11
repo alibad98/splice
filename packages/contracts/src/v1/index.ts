@@ -1,5 +1,5 @@
 export { HealthResponse } from './health.js';
-export { StoreManifest, ManifestItem, ManifestSlide, ManifestRendition } from './manifest.js';
+export { StoreManifest, ManifestItem, ManifestSlide, ManifestRendition, ManifestPlacement, MANIFEST_PLACEMENT_MAX_ITEMS } from './manifest.js';
 export { JobMeta } from './job-meta.js';
 export { EVENT_CATALOG, EVENT_NAME_PATTERN, EVENT_OWNERS, EVENT_QUEUE, EventEnvelope, PRODUCT_VISIBLE_FIELDS, isEventName } from './events.js';
 export type { EventDefinition, EventName, EventOwner, EventPayload } from './events.js';

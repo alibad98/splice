@@ -13,6 +13,7 @@ import { DevSallaCommercePlatform, SallaCommercePlatform, unconfiguredPlatform }
 import { sessionStoreData } from './modules/session/session.lifecycle.js';
 import { catalogStoreData } from './modules/catalog/catalog.lifecycle.js';
 import { contentStoreData } from './modules/content/content.lifecycle.js';
+import { publishingStoreData } from './modules/publishing/publishing.lifecycle.js';
 import { mediaStoreData } from './modules/media/media.lifecycle.js';
 import { S3ObjectStorage } from './adapters/storage/s3-storage.js';
 import { EicarMalwareScanner } from './adapters/scanner/eicar-scanner.js';
@@ -61,6 +62,7 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'S3_SECRET_KEY'
       | 'S3_FORCE_PATH_STYLE'
       | 'MEDIA_UPLOAD_RATE_LIMIT'
+      | 'MEDIA_PUBLIC_BASE_URL'
       | 'FFMPEG_PATH'
     >
   >;
@@ -86,6 +88,15 @@ function buildStorage(env: HttpEnv, telemetry: Telemetry): ObjectStorage {
     corsOrigins: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
     warn: (message, fields) => telemetry.log.warn(message, fields),
   });
+}
+
+/**
+ * Public base URL store manifests link media under (Story 4.4): `MEDIA_PUBLIC_BASE_URL` (required in production), else
+ * the bucket on the S3 endpoint (`${S3_ENDPOINT}/${S3_BUCKET}`, path-style; MinIO locally). Never ends with a slash.
+ */
+export function mediaPublicBaseUrl(env: Pick<HttpEnv, 'MEDIA_PUBLIC_BASE_URL' | 'S3_ENDPOINT' | 'S3_BUCKET'>): string {
+  const configured = env.MEDIA_PUBLIC_BASE_URL ?? `${(env.S3_ENDPOINT ?? 'http://localhost:9000').replace(/\/+$/, '')}/${env.S3_BUCKET ?? 'slips-media'}`;
+  return configured.replace(/\/+$/, '');
 }
 
 /** Development boot: create the media bucket when missing. A storage that is down only logs; uploads fail until it is up. */
@@ -166,10 +177,10 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     storage,
     // Development-only adapter: flags the EICAR test string. A real scanner is a deferred decision (no vendor chosen).
     scanner: overrides.scanner ?? new EicarMalwareScanner(),
-    media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60 },
+    media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60, publicBaseUrl: mediaPublicBaseUrl(env) },
     // External media links are fetched by the worker only (Story 3.7).
     ...(role === 'worker' ? { fetcher: overrides.fetcher ?? new SsrfSafeFetcher(), processor: overrides.processor ?? new FfmpegMediaProcessor(env.FFMPEG_PATH) } : {}),
-    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage)],
+    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage), publishingStoreData],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),

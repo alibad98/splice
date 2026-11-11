@@ -2,6 +2,7 @@
 // Default: 5 attempts with exponential backoff 30 s -> 15 min; media: 3 attempts.
 import { EVENT_QUEUE, MEDIA_IMPORT_QUEUE, MEDIA_INSPECT_QUEUE, MEDIA_PROCESS_QUEUE } from '@slips/contracts';
 import type { QueueOptions } from 'pg-boss';
+import { MANIFEST_COMPILE_QUEUE } from '../modules/publishing/manifest-inputs.js';
 
 export const QUEUE_GROUPS = ['realtime', 'media', 'batch'] as const;
 export type QueueGroup = (typeof QUEUE_GROUPS)[number];
@@ -54,6 +55,7 @@ export const QUEUES: readonly QueueDefinition[] = [
   { name: MEDIA_INSPECT_QUEUE, group: 'media' },
   { name: MEDIA_IMPORT_QUEUE, group: 'media' },
   { name: MEDIA_PROCESS_QUEUE, group: 'media' },
+  { name: MANIFEST_COMPILE_QUEUE, group: 'realtime' },
 ];
 
 export function queuesFor(groups: readonly QueueGroup[], queues: readonly QueueDefinition[] = QUEUES): QueueDefinition[] {

@@ -11,7 +11,7 @@ vi.mock('../../../lib/api/preview', () => ({ loadPreview: vi.fn() }));
 const client = {};
 vi.mock('../../session/SessionProvider', () => ({ useSession: () => ({ client }) }));
 const saved = { id: 'saved' } as ContentItem;
-const manifest = { v: 1 as const, store_id: 'store', items: [] };
+const manifest: StoreManifest = { v: 1, store_id: 'store', placements: [], items: [] };
 function tree(item: ContentItem | null = saved, locale: 'en' | 'ar' = 'en') { return <I18nProvider locale={locale} messages={getMessages(locale)}><LivePreviewPanel saved={item} /></I18nProvider>; }
 function ready(over: Partial<MessageEventInit> = {}) { const frame = screen.getByTitle('Saved content preview') as HTMLIFrameElement; act(() => window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, source: frame.contentWindow, data: { type: 'slips.preview.ready', v: 1 }, ...over }))); return frame; }
 beforeEach(() => { vi.useFakeTimers(); vi.mocked(loadPreview).mockReset(); });

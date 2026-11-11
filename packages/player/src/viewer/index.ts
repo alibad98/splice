@@ -110,6 +110,15 @@ export function formatPrice(
   });
   return formatter.format(minor / 10 ** digits);
 }
+/** True when the item has a CTA to show; a compile that dropped it (e.g. an off-domain link) leaves none. */
+export function hasCta(
+  item: StoreManifest['items'][number] | undefined,
+): item is StoreManifest['items'][number] & {
+  cta_label: string;
+  cta_action: NonNullable<StoreManifest['items'][number]['cta_action']>;
+} {
+  return !!item && item.cta_label !== null && item.cta_action !== null;
+}
 /** Shared viewer; effects belong exclusively to the supplied platform port. */
 export function mountViewer(
   host: HTMLElement,
@@ -150,7 +159,7 @@ export function mountViewer(
       product.availability !== 'out_of_stock' &&
       !product.has_required_options;
     const enabled =
-      item &&
+      hasCta(item) &&
       (item.cta_action === 'open_link'
         ? !!item.cta_url
         : item.cta_action === 'open_product'
@@ -312,7 +321,7 @@ export function mountViewer(
                 ),
               )
             : item && h('p', { class: 'availability' }, t.noProduct),
-          item &&
+          hasCta(item) &&
             h(
               'button',
               {

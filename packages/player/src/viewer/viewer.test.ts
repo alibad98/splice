@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { manifest } from '../../test/manifest.js';
-import { formatPrice, selectMedia } from './index.js';
+import { formatPrice, hasCta, selectMedia } from './index.js';
 it('chooses processed renditions and processing poster before inspected source', () => {
   const slide = manifest().items[0]!.slides[0]!;
   const base = 'https://api.example';
@@ -30,4 +30,10 @@ it('never renders uninspected importing/uploaded media', () => {
     s.status = status;
     expect(selectMedia(s, 'https://api.example')).toBeNull();
   }
+});
+it('shows a CTA button only when the compile kept the CTA', () => {
+  const item = manifest().items[0]!;
+  expect(hasCta(item)).toBe(true);
+  expect(hasCta({ ...item, cta_label: null, cta_action: null, cta_url: null })).toBe(false);
+  expect(hasCta(undefined)).toBe(false);
 });

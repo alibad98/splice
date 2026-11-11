@@ -102,6 +102,16 @@ export function isManifest(
     record(value) &&
     value.v === 1 &&
     uuid(value.store_id) &&
+    Array.isArray(value.placements) &&
+    Array.from(value.placements).every(
+      (p: unknown) =>
+        record(p) &&
+        p.type === 'home' &&
+        p.layout === 'ring' &&
+        Array.isArray(p.item_ids) &&
+        p.item_ids.length <= 10 &&
+        Array.from(p.item_ids).every(uuid),
+    ) &&
     Array.isArray(value.items) &&
     Array.from(value.items).every(
       (i: unknown) =>
@@ -109,10 +119,16 @@ export function isManifest(
         uuid(i.id) &&
         text(i.title, 80, 1) &&
         oneOf(i.format, ['story', 'reel']) &&
-        text(i.cta_label, 40, 1) &&
-        oneOf(i.cta_action, ['add_to_cart', 'open_product', 'open_link']) &&
-        (i.cta_url === null ||
-          (text(i.cta_url) && /^https?:/i.test(i.cta_url) && url(i.cta_url))) &&
+        // A compile may drop the CTA: label, action and URL are then all null.
+        ((i.cta_label === null &&
+          i.cta_action === null &&
+          i.cta_url === null) ||
+          (text(i.cta_label, 40, 1) &&
+            oneOf(i.cta_action, ['add_to_cart', 'open_product', 'open_link']) &&
+            (i.cta_url === null ||
+              (text(i.cta_url) &&
+                /^https?:/i.test(i.cta_url) &&
+                url(i.cta_url))))) &&
         oneOf(i.cta_style, [null, 'ink', 'light', 'outline']) &&
         product(i.product) &&
         Array.isArray(i.slides) &&

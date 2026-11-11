@@ -79,6 +79,52 @@ describe('preview trust boundary', () => {
       expect(isManifest(m, base)).toBe(false);
     }
   });
+  it('accepts a dropped CTA only when label, action and URL are all null', () => {
+    const dropped = manifest();
+    Object.assign(dropped.items[0]!, {
+      cta_label: null,
+      cta_action: null,
+      cta_url: null,
+    });
+    expect(isManifest(dropped, base)).toBe(true);
+    for (const partial of [
+      { cta_label: null },
+      { cta_action: null },
+      { cta_label: null, cta_action: null, cta_url: 'https://shop.example/a' },
+    ]) {
+      const m = manifest();
+      Object.assign(m.items[0]!, partial);
+      expect(isManifest(m, base)).toBe(false);
+    }
+  });
+  it('requires Home Ring placements with at most ten item ids', () => {
+    const ids = (n: number) =>
+      Array.from(
+        { length: n },
+        (_, i) => `11111111-1111-4111-8111-${String(i).padStart(12, '0')}`,
+      );
+    const withPlacements = (placements: unknown) => ({
+      ...manifest(),
+      placements,
+    });
+    expect(isManifest(withPlacements([]), base)).toBe(true);
+    expect(
+      isManifest(
+        withPlacements([{ type: 'home', layout: 'ring', item_ids: ids(10) }]),
+        base,
+      ),
+    ).toBe(true);
+    const without: Partial<ReturnType<typeof manifest>> = manifest();
+    delete without.placements;
+    expect(isManifest(without, base)).toBe(false);
+    for (const placement of [
+      { type: 'home', layout: 'ring', item_ids: ids(11) },
+      { type: 'product', layout: 'ring', item_ids: [] },
+      { type: 'home', layout: 'bar', item_ids: [] },
+      { type: 'home', layout: 'ring', item_ids: ['x'] },
+    ])
+      expect(isManifest(withPlacements([placement]), base)).toBe(false);
+  });
   it('handshakes only with exact parent and removes listener/unmounts on destroy', () => {
     const listeners = new Map<string, (event: MessageEvent) => void>();
     const parent = { postMessage: vi.fn() };

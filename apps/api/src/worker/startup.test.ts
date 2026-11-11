@@ -7,6 +7,7 @@ import { parseEnv } from '../config/env.js';
 import { startWorker } from './worker.js';
 import { WEBHOOK_SWEEP_QUEUE, SWEEP_CRON } from './integration-jobs.js';
 import { CATALOG_RECONCILE_SCHEDULE_QUEUE, RECONCILE_CRON } from '../modules/catalog/catalog-reconcile.js';
+import { MANIFEST_COMPILE_QUEUE, MANIFEST_INPUTS } from '../modules/publishing/manifest-inputs.js';
 
 const fakes = vi.hoisted(() => ({
   boss: {
@@ -46,6 +47,16 @@ describe('worker startup wiring', () => {
     for (const name of Object.keys(EVENT_CATALOG)) expect(registry.handlersFor(name).length, name).toBeGreaterThan(0);
     expect(fakes.boss.schedule).toHaveBeenCalledWith(WEBHOOK_SWEEP_QUEUE, SWEEP_CRON, { v: 1, trace_id: 'schedule' });
     expect(fakes.boss.schedule).toHaveBeenCalledWith(CATALOG_RECONCILE_SCHEDULE_QUEUE, RECONCILE_CRON, { v: 1, trace_id: 'schedule' });
+  });
+
+  it('registers a store manifest compile trigger for every MANIFEST_INPUTS event and works the compile queue (Story 4.4)', async () => {
+    const registry = new EventHandlerRegistry();
+    const env = parseEnv({ ROLE: 'worker', NODE_ENV: 'test', DATABASE_URL: 'postgres://test:test@127.0.0.1/test' });
+    await startWorker(env, undefined, undefined, registry);
+    for (const name of MANIFEST_INPUTS) expect(registry.handlersFor(name).map((h) => h.id), name).toContain(`publishing.manifest.compile.on.${name}`);
+    const triggers = Object.keys(EVENT_CATALOG).filter((name) => registry.handlersFor(name).some((h) => h.id.startsWith('publishing.manifest.compile.on.')));
+    expect(triggers.sort()).toEqual([...MANIFEST_INPUTS].sort());
+    expect(fakes.boss.work.mock.calls.map((call) => call[0])).toContain(MANIFEST_COMPILE_QUEUE);
   });
 
   it('does not register recurring jobs on a media-only worker', async () => {

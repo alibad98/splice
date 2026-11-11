@@ -169,6 +169,13 @@
       "when": 1762128000000,
       "tag": "0023_store_settings_layout",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1762214400000,
+      "tag": "0024_store_manifests",
+      "breakpoints": true
     }
   ]
 }

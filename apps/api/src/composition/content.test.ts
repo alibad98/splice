@@ -38,8 +38,11 @@ import { MediaService } from '../modules/media/media.service.js';
 import { SessionService } from '../modules/session/session.service.js';
 import { registerContentEventHandlers } from '../worker/content-jobs.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_content_comp:it_content_comp_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = process.env.CONTENT_TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
+const appUrl = new URL(ADMIN_URL);
+appUrl.username = 'slips_it_content_comp';
+appUrl.password = 'it_content_comp_pw';
+const APP_URL = appUrl.toString();
 const SCHEMA = 'pgboss_content_test';
 const UUID_V7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -892,6 +895,113 @@ describe('merchant content API & I/O matrix', () => {
         [contentId],
       )
     ).rows;
+
+  it.each(CONTENT_STATUSES)('Story 3.13: duplicate %s resets lifecycle metadata and emits one created event', async status => {
+    const { storeId, token } = await installedStore();
+    const source = await seedItemInStatus(storeId, status);
+    await admin.query('update content_items set auto_publish = true where id = $1', [source.id]);
+    const before = await rowById(source.id);
+    const sourceEvents = await eventsForContent(storeId, source.id);
+    const result = await request(token, 'POST', `/v1/content/${source.id}/duplicate`);
+    expect(result.res.status).toBe(201);
+    const copy = ContentItem.parse(result.body);
+    expect(copy.id).not.toBe(source.id);
+    expect(copy).toMatchObject({ title: source.title + ' (copy)', status: 'draft', auto_publish: false, archived_from: null, reactivate_to: null, first_published_at: null, slides: [] });
+    expect(await rowById(source.id)).toEqual(before);
+    expect(await eventsForContent(storeId, source.id)).toEqual(sourceEvents);
+    expect((await eventsForContent(storeId, copy.id)).map(event => event.name)).toEqual(['content.item.created']);
+  });
+
+  it('Story 3.13: duplicate retains hidden/deleted products and ordered pending/failed media; deleting the original keeps shared media', async () => {
+    const { storeId, token } = await installedStore();
+    const productId = await seedProduct(storeId);
+    const image = await seedAsset(storeId, 'image', 'processed');
+    const video = await seedAsset(storeId, 'video', 'scanned');
+    const removed = await seedAsset(storeId, 'image', 'processed');
+    const source = ContentItem.parse((await request(token, 'POST', '/v1/content', {
+      ...validCreateInput, product_id: productId, auto_publish: true,
+      cta_action: 'open_link', cta_url: 'https://shop.example.com/p', cta_style: 'light',
+      slides: [{ media_asset_id: video, alt_text: 'Video' }, { media_asset_id: image, alt_text: 'صورة المنتج' }, { media_asset_id: removed, alt_text: 'Removed' }],
+    })).body);
+    expect((await request(token, 'PATCH', `/v1/content/${source.id}`, { slides: [{ media_asset_id: video, alt_text: 'Video' }, { media_asset_id: image, alt_text: 'صورة المنتج' }] })).res.status).toBe(200);
+    await admin.query("update media_assets set status = 'failed', failure_reason = 'processing_failed' where id = $1", [image]);
+    await admin.query('update products set visible = false, deleted_at = now() where id = $1', [productId]);
+    // Put a surrogate pair precisely at the truncation boundary.
+    await admin.query('update content_items set title = $2 where id = $1', [source.id, 'x'.repeat(72) + '😀' + 'y'.repeat(6)]);
+    const before = await rowById(source.id);
+    const result = await request(token, 'POST', `/v1/content/${source.id}/duplicate`);
+    expect(result.res.status).toBe(201);
+    const copy = ContentItem.parse(result.body);
+    expect(copy.title).toBe('x'.repeat(72) + ' (copy)');
+    expect(copy.title.length).toBeLessThanOrEqual(80);
+    expect(copy).toMatchObject({ status: 'draft', auto_publish: false, product: { id: productId, deleted: true }, cta_action: 'open_link', cta_url: source.cta_url, cta_style: source.cta_style });
+    expect(copy.slides.map(slide => [slide.media_asset_id, slide.alt_text, slide.status])).toEqual([[video, 'Video', 'scanned'], [image, 'صورة المنتج', 'failed']]);
+    expect(copy.slides.every(slide => !source.slides.some(original => original.id === slide.id))).toBe(true);
+    expect(await rowById(source.id)).toEqual(before);
+    expect((await eventsForContent(storeId, copy.id)).map(event => event.name)).toEqual(['content.item.created']);
+    expect((await request(token, 'DELETE', `/v1/content/${source.id}`)).res.status).toBe(204);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${copy.id}`)).body).slides).toEqual(copy.slides);
+    expect((await admin.query('select id from media_assets where id = any($1::uuid[])', [[video, image]])).rows).toHaveLength(2);
+    for (const tab of ['all', 'published', 'scheduled', 'drafts']) {
+      const list = ContentListResponse.parse((await request(token, 'GET', `/v1/content?tab=${tab}`)).body);
+      expect(list.items.some(item => item.id === source.id)).toBe(false);
+    }
+  });
+
+  it('Story 3.13: invalid, missing, foreign and deleted duplicate sources return the existing 404 without writes', async () => {
+    const { storeId, token } = await installedStore();
+    const other = await installedStore();
+    const foreign = await seedItemInStatus(other.storeId, 'draft');
+    const deleted = await seedItemInStatus(storeId, 'draft');
+    await withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, deleted.id, 'delete'));
+    const before = await admin.query('select count(*)::int as count from content_items where store_id = $1', [storeId]);
+    for (const id of ['invalid', randomUUID(), foreign.id, deleted.id]) {
+      const result = await request(token, 'POST', `/v1/content/${id}/duplicate`);
+      expect(result.res.status).toBe(404);
+      expect(result.body).toMatchObject({ code: 'content_not_found' });
+    }
+    expect((await admin.query('select count(*)::int as count from content_items where store_id = $1', [storeId])).rows).toEqual(before.rows);
+  });
+
+  it('Story 3.13: duplication and its event roll back together if the transaction fails', async () => {
+    const { storeId, token } = await installedStore();
+    const productId = await seedProduct(storeId);
+    const image = await seedAsset(storeId, 'image', 'processed');
+    const source = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, product_id: productId, slides: [{ media_asset_id: image, alt_text: 'Photo' }] })).body);
+    let copyId = '';
+    await expect(withStoreContext(app, storeId, async tx => {
+      copyId = (await lifecycle.duplicate(tx, storeId, source.id)).id;
+      throw new Error('rollback duplicate');
+    })).rejects.toThrow('rollback duplicate');
+    expect(await rowById(copyId)).toBeUndefined();
+    expect(await slideRows(copyId)).toEqual([]);
+    expect((await admin.query('select id from content_product_links where content_id = $1', [copyId])).rows).toEqual([]);
+    expect(await eventsForContent(storeId, copyId)).toEqual([]);
+  });
+
+  it('Story 3.13: one Published PATCH commits combined fields, product and ordered slides with exactly one edited event; rejected edits commit nothing', async () => {
+    const { storeId, token } = await installedStore();
+    const source = await seedItemInStatus(storeId, 'published');
+    const productId = await seedProduct(storeId);
+    const image = await seedAsset(storeId, 'image', 'processed');
+    const video = await seedAsset(storeId, 'video', 'processed');
+    const patch = { title: 'Combined live edit', format: 'reel', cta_label: 'View', cta_action: 'open_link', cta_url: 'https://shop.example.com/p', cta_style: 'light', product_id: productId, slides: [{ media_asset_id: video, alt_text: null }, { media_asset_id: image, alt_text: 'Product photo' }] };
+    const beforeEvents = await eventsForContent(storeId, source.id);
+    const result = await request(token, 'PATCH', `/v1/content/${source.id}`, patch);
+    expect(result.res.status).toBe(200);
+    const saved = ContentItem.parse(result.body);
+    expect(saved).toMatchObject({ title: patch.title, format: patch.format, cta_label: patch.cta_label, cta_action: patch.cta_action, cta_url: patch.cta_url, cta_style: patch.cta_style, slides: patch.slides, status: 'published', product: { id: productId } });
+    const edited = (await eventsForContent(storeId, source.id)).slice(beforeEvents.length);
+    expect(edited.map(event => event.name)).toEqual(['content.item.edited']);
+    const row = await rowById(source.id);
+    const slides = await slideRows(source.id);
+    const bad = await request(token, 'PATCH', `/v1/content/${source.id}`, { title: 'Do not save', product_id: null, slides: [{ media_asset_id: image, alt_text: '' }] });
+    expect(bad.res.status).toBe(422);
+    expect(await rowById(source.id)).toEqual(row);
+    expect(await slideRows(source.id)).toEqual(slides);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${source.id}`)).body).product?.id).toBe(productId);
+    expect((await eventsForContent(storeId, source.id)).slice(beforeEvents.length)).toEqual(edited);
+  });
 
   it('Story 3.9: shared retry recovery and failed-slide replacements preserve lifecycle events and reasons', async () => {
     const { storeId, token } = await installedStore();

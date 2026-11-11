@@ -335,6 +335,16 @@ export const ROUTES: RouteDoc[] = [
   },
   {
     method: 'post',
+    path: '/v1/content/:id/duplicate',
+    tag: 'Content',
+    summary: 'Duplicate a content item',
+    description: 'Copies any non-deleted item into a fresh Draft with a title ending in literal " (copy)" within 80 characters. Copies the saved CTA, product link and ordered live slides with fresh IDs and shared media assets, including pending/failed media and hidden/deleted products. Resets auto-publication, publication and archive/reactivation metadata; copies no placements or schedule. Emits one content.item.created atomically. Unknown, malformed, deleted or other-store sources answer 404.',
+    auth: 'merchant',
+    success: { status: 201, description: 'Duplicated draft content item', body: ContentItem },
+    errors: [401, 403, 404],
+  },
+  {
+    method: 'post',
     path: '/v1/content/:id/retry',
     tag: 'Content',
     summary: 'Retry failed processing',

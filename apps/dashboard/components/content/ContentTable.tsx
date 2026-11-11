@@ -1,16 +1,15 @@
 'use client';
 
-import { useMemo } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ARCHIVABLE_STATUSES, type ContentFormat, type ContentItem, type ContentSort } from '@slips/contracts';
-import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, StatusChip, toast, type DataTableColumn } from '@slips/ui';
+import { Button, DataTable, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, StatusChip, type DataTableColumn } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
-import { directionOf } from '../../i18n/config';
+import { directionOf, isLocale, withLang } from '../../i18n/config';
 import type { Messages } from '../../i18n/messages';
 import { usePosterSrc } from '../../lib/api/media';
 import { fill } from '../products/format';
-import { useRetryContent } from '../../lib/api/content';
 import { ContentStatusReason, hasRetryableSlides } from './ContentStatusReason';
 import { ContentStatusChip } from './ContentStatusChip';
 import { columnToSort, sortToColumn } from './url-state';
@@ -39,9 +38,10 @@ const None = ({ m }: { m: M }) => <span className="text-muted-foreground">{m.non
 
 /** The title link, with a warning chip under it when the linked product was deleted in the store (Story 3.4). */
 function TitleCell({ row, m }: { row: ContentItem; m: M }) {
+  const lang = useSearchParams().get('lang');
   return (
     <span className="flex min-w-0 flex-col items-start gap-1">
-      <Link href={contentHref(row.id)} dir="auto" className="line-clamp-2 font-medium hover:underline">
+      <Link href={withLang(contentHref(row.id), isLocale(lang) ? lang : null)} dir="auto" className="line-clamp-2 font-medium hover:underline">
         {row.title}
       </Link>
       <ContentStatusReason item={row} />
@@ -55,10 +55,13 @@ function TitleCell({ row, m }: { row: ContentItem; m: M }) {
 }
 
 const canArchive = (item: ContentItem) => (ARCHIVABLE_STATUSES as readonly string[]).includes(item.status);
+const PendingActions = createContext<ReadonlySet<string>>(new Set());
 
-function RowMenu({ item, m, onArchive, onDelete }: { item: ContentItem; m: M; onArchive: (item: ContentItem) => void; onDelete: (item: ContentItem) => void }) {
+function RowMenu({ item, m, onArchive, onDelete, onDuplicate, onRestore, onRetry }: { item: ContentItem; m: M } & Actions) {
   const { locale } = useI18n();
-  const retry = useRetryContent();
+  const router = useRouter();
+  const lang = useSearchParams().get('lang');
+  const pending = useContext(PendingActions).has(item.id);
   return (
     <DropdownMenu dir={directionOf(locale)}>
       <DropdownMenuTrigger asChild>
@@ -71,14 +74,17 @@ function RowMenu({ item, m, onArchive, onDelete }: { item: ContentItem; m: M; on
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {hasRetryableSlides(item) ? <DropdownMenuItem disabled={retry.isPending} onSelect={() => retry.mutate(item.id, { onError: () => toast({ title: m.editor.changesFailed, tone: 'danger' }) })}>{m.actions.retry}</DropdownMenuItem> : null}
+        <DropdownMenuItem disabled={pending} onSelect={() => router.push(withLang(contentHref(item.id), isLocale(lang) ? lang : null))}>{m.menu.edit}</DropdownMenuItem>
+        <DropdownMenuItem disabled={pending} onSelect={() => onDuplicate(item)}>{m.menu.duplicate}</DropdownMenuItem>
+        {item.status === 'archived' ? <DropdownMenuItem disabled={pending} onSelect={() => onRestore(item)}>{m.menu.restore}</DropdownMenuItem> : null}
+        {hasRetryableSlides(item) ? <DropdownMenuItem disabled={pending} onSelect={() => onRetry(item)}>{m.actions.retry}</DropdownMenuItem> : null}
         {canArchive(item) ? (
-          <DropdownMenuItem onSelect={() => onArchive(item)}>
+          <DropdownMenuItem disabled={pending} onSelect={() => onArchive(item)}>
             <Icon name="archive" className="size-4" />
             {m.menu.archive}
           </DropdownMenuItem>
         ) : null}
-        <DropdownMenuItem tone="danger" onSelect={() => onDelete(item)}>
+        <DropdownMenuItem disabled={pending} tone="danger" onSelect={() => onDelete(item)}>
           {m.menu.delete}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -89,6 +95,9 @@ function RowMenu({ item, m, onArchive, onDelete }: { item: ContentItem; m: M; on
 interface Actions {
   onArchive: (item: ContentItem) => void;
   onDelete: (item: ContentItem) => void;
+  onDuplicate: (item: ContentItem) => void;
+  onRestore: (item: ContentItem) => void;
+  onRetry: (item: ContentItem) => void;
 }
 
 function contentColumns(m: M, actions: Actions): DataTableColumn<ContentItem>[] {
@@ -127,17 +136,21 @@ function ContentCard({ row, m, actions }: { row: ContentItem; m: M; actions: Act
 }
 
 interface Props extends Actions {
+  pendingIds: ReadonlySet<string>;
   rows: readonly ContentItem[];
   sort: ContentSort;
   onSortChange: (sort: ContentSort) => void;
 }
 
 /** The content table (cards below `md`). Clicking a row or pressing `Enter` on it opens the item. */
-export function ContentTable({ rows, sort, onSortChange, onArchive, onDelete }: Props) {
+export function ContentTable({ rows, sort, onSortChange, pendingIds, ...actions }: Props) {
   const router = useRouter();
+  const lang = useSearchParams().get('lang');
   const m = useI18n().messages.content;
-  const columns = useMemo(() => contentColumns(m, { onArchive, onDelete }), [m, onArchive, onDelete]);
+  const { onArchive, onDelete, onDuplicate, onRestore, onRetry } = actions;
+  const columns = useMemo(() => contentColumns(m, { onArchive, onDelete, onDuplicate, onRestore, onRetry }), [m, onArchive, onDelete, onDuplicate, onRestore, onRetry]);
   return (
+    <PendingActions.Provider value={pendingIds}>
     <DataTable
       label={m.tableLabel}
       columns={columns}
@@ -145,9 +158,10 @@ export function ContentTable({ rows, sort, onSortChange, onArchive, onDelete }: 
       getRowId={(r) => r.id}
       sort={sortToColumn(sort)}
       onSortChange={(next) => onSortChange(columnToSort(next.desc))}
-      onRowActivate={(row) => router.push(contentHref(row.id))}
+      onRowActivate={(row) => router.push(withLang(contentHref(row.id), isLocale(lang) ? lang : null))}
       rowClassName={(row) => (row.status === 'failed' ? 'bg-destructive/6 hover:bg-destructive/10' : undefined)}
-      renderCard={(row) => <ContentCard row={row} m={m} actions={{ onArchive, onDelete }} />}
+      renderCard={(row) => <ContentCard row={row} m={m} actions={actions} />}
     />
+    </PendingActions.Provider>
   );
 }

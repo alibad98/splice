@@ -371,6 +371,75 @@ describe('Content editor: draft autosave', () => {
 });
 
 describe('Content editor: explicit saves, read-only, errors and leaving', () => {
+  it('a remote archive still makes a dirty Published editor read-only', async () => {
+    const published = item({ status: 'published' });
+    handler = echo(published);
+    setup({ element: <ContentEditorPage id={ID} /> });
+    await until(() => expect(title().value).toBe(published.title));
+    type(title(), 'Unsaved local edit');
+    act(() => client.setQueryData(queryKeys.content.item(ID), { ...published, status: 'archived', archived_from: 'published', updated_at: '2026-11-05T11:00:00.000Z' }));
+    await until(() => expect(title().matches(':disabled')).toBe(true));
+    expect(screen.getByText(/This item is archived/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(writes()).toEqual([]);
+  });
+
+  it('Published combined edits stay local, send one PATCH, and survive a rejected save for retry', async () => {
+    const productId = crypto.randomUUID();
+    const assetA = crypto.randomUUID(), assetB = crypto.randomUUID();
+    const published = item({ status: 'published', product: { id: productId, name: 'Oud', image_url: null, price_minor: 1000, sale_price_minor: null, currency: 'SAR', availability: 'available', has_required_options: false, deleted: false }, slides: [
+      { id: crypto.randomUUID(), media_asset_id: assetA, kind: 'image', alt_text: 'Original photo', status: 'processed', failure_reason: null, source_url: null, poster_url: null },
+      { id: crypto.randomUUID(), media_asset_id: assetB, kind: 'video', alt_text: null, status: 'processed', failure_reason: null, source_url: null, poster_url: null },
+    ] });
+    let reject = true;
+    let latest = published;
+    let refetchedAfterRejection = false;
+    handler = call => {
+      if (call.method !== 'PATCH') {
+        if (latest !== published) refetchedAfterRejection = true;
+        return json(latest);
+      }
+      if (reject) {
+        latest = { ...published, title: 'Saved elsewhere', cta_label: 'Shop', product: { ...published.product!, deleted: true }, updated_at: '2026-11-05T11:00:00.000Z' };
+        return problem(422, { type: 'product-not-linkable', code: 'product_not_linkable' });
+      }
+      const patch = call.body as Record<string, unknown>;
+      latest = { ...latest, ...patch, slides: [{ ...published.slides[1]! }, { ...published.slides[0]!, alt_text: 'Changed photo' }], updated_at: '2026-11-05T12:00:00.000Z' };
+      return json(latest);
+    };
+    setup({ element: <ContentEditorPage id={ID} /> });
+    await until(() => expect(title().value).toBe(published.title));
+    type(title(), 'All live changes');
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Reel' }), { button: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    type(screen.getByRole('textbox', { name: 'Button text' }), 'Shop');
+    await chooseAction('Open link');
+    type(document.getElementById('content-cta-url')!, 'https://demo.salla.sa/p');
+    fireEvent.click(screen.getByRole('radio', { name: 'Outline' }));
+    type(document.getElementById(`slide-alt-${assetA}`)!, 'Changed photo');
+    fireEvent.click(document.querySelector('[data-move="later"]')!);
+    await advance(AUTOSAVE_DELAY_MS * 3);
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await until(() => expect(writes()).toHaveLength(1));
+    const expected = { title: 'All live changes', format: 'reel', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p', cta_style: 'outline', slides: [{ media_asset_id: assetB, alt_text: null }, { media_asset_id: assetA, alt_text: 'Changed photo' }] };
+    expect(writes()[0]!.body).toEqual(expected);
+    await until(() => expect(refetchedAfterRejection).toBe(true));
+    await until(() => expect(screen.getAllByText('The linked product was deleted in your store')).toHaveLength(2));
+    await until(() => expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(false));
+    expect(title().value).toBe('All live changes');
+    expect((document.getElementById(`slide-alt-${assetA}`) as HTMLInputElement).value).toBe('Changed photo');
+    expect(screen.getByTestId('linked-product').textContent).toContain('Oud');
+    reject = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await until(() => expect(writes()).toHaveLength(2));
+    // The newer saved label already matches the local label, proving retry uses the refreshed baseline.
+    const { cta_label: savedLabel, ...retryPatch } = expected;
+    expect(savedLabel).toBe('Shop');
+    expect(writes()[1]!.body).toEqual(retryPatch);
+    await until(() => expect(screen.getByText('Changes saved')).toBeTruthy());
+  });
+
   it('published: no autosave; "Save changes" PATCHes and shows the "Changes saved" toast', async () => {
     setup({ element: <ContentEditor item={item({ status: 'published' })} /> });
     expect(screen.getByText('Published')).toBeTruthy();

@@ -15,7 +15,8 @@ import { ContentView } from './ContentView';
 import { contentParams, toContentQuery } from './url-state';
 
 const push = vi.fn();
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn() }) }));
+const router = { push, replace: vi.fn(), prefetch: vi.fn() };
+vi.mock('next/navigation', () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(window.location.search) }));
 
 const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   v: 1,
@@ -59,7 +60,7 @@ function setup({ locale = 'en', search = '', lists = [], onUrlUpdate }: Setup = 
     if (data instanceof Error) client.getQueryCache().build(client, { queryKey: queryKeys.content.list(query) }).setState({ status: 'error', error: data, fetchStatus: 'idle' });
     else client.setQueryData(queryKeys.content.list(query), data);
   }
-  return render(
+  const rendered = render(
     <I18nProvider locale={locale} messages={getMessages(locale)}>
       <QueryClientProvider client={client}>
         <NuqsTestingAdapter hasMemory searchParams={search} {...(onUrlUpdate ? { onUrlUpdate } : {})}>
@@ -69,6 +70,7 @@ function setup({ locale = 'en', search = '', lists = [], onUrlUpdate }: Setup = 
       </QueryClientProvider>
     </I18nProvider>,
   );
+  return { ...rendered, client };
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -95,7 +97,11 @@ const openRowMenu = async (title: string) => {
   const trigger = screen.getByRole('table').querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${title}"]`)!;
   trigger.focus();
   fireEvent.keyDown(trigger, { key: 'Enter' });
-  return screen.findByRole('menu');
+  return waitFor(() => {
+    const menu = screen.getByRole('menu');
+    expect(menu.getAttribute('aria-labelledby')).toBe(trigger.id);
+    return menu;
+  });
 };
 
 describe('Videos & Stories page', () => {
@@ -486,6 +492,15 @@ describe('Videos & Stories page', () => {
               Object.assign(found, { status: found.archived_from, archived_from: null });
               return json(found);
             }
+            if (path.endsWith('/duplicate')) {
+              const copy = { ...found, id: crypto.randomUUID(), title: found.title + ' (copy)', status: 'draft' as const, archived_from: null };
+              items.push(copy);
+              return json(copy, 201);
+            }
+            if (path.endsWith('/restore')) {
+              Object.assign(found, { status: 'draft', archived_from: null });
+              return json(found);
+            }
             if (path.endsWith('/archive')) {
               Object.assign(found, { status: 'archived', archived_from: found.status });
               return json(found);
@@ -496,6 +511,78 @@ describe('Videos & Stories page', () => {
       };
       return { calls, drop: (id: string) => void (items = items.filter((i) => i.id !== id)) };
     };
+
+    it('Edit opens the saved item without activating its row', async () => {
+      const a = item();
+      live([a]);
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Edit' }));
+      expect(push).toHaveBeenCalledExactlyOnceWith(`/content/${a.id}`);
+    });
+
+    it('Duplicate copies an archived item and navigates only to the returned Draft', async () => {
+      const a = item({ status: 'archived', archived_from: 'published' });
+      const { calls } = live([a]);
+      const { client } = setup();
+      const productsKey = [...queryKeys.catalog.productsAll(), 'linked-counts'];
+      client.setQueryData(productsKey, { count: 1 });
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Duplicate' }));
+      expect(push).not.toHaveBeenCalled();
+      await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+      expect(push.mock.lastCall![0]).not.toBe(`/content/${a.id}`);
+      expect(calls).toContainEqual(['POST', `/v1/content/${a.id}/duplicate`]);
+      expect(client.getQueryState(productsKey)?.isInvalidated).toBe(true);
+      expect(toast.list().some(t => t.title === getMessages('en').content.duplicate.done)).toBe(true);
+    });
+
+    it('Restore returns an archived row to Draft and refreshes counts without navigation', async () => {
+      const a = item({ status: 'archived', archived_from: 'published' });
+      const { calls } = live([a]);
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Restore to Draft' }));
+      await waitFor(() => expect(screen.getByTestId('count-drafts').textContent).toBe('1'));
+      expect(calls).toContainEqual(['POST', `/v1/content/${a.id}/restore`]);
+      expect(push).not.toHaveBeenCalled();
+      expect(toast.list().some(t => t.title === getMessages('en').content.restore.done)).toBe(true);
+      expect(within(await openRowMenu(a.title)).queryByRole('menuitem', { name: 'Restore to Draft' })).toBeNull();
+    });
+
+    it.each(['Duplicate', 'Restore to Draft'])('%s failure shows localized recovery and refetches', async (action) => {
+      const a = item({ status: 'archived', archived_from: 'draft' });
+      const { calls, drop } = live([a]);
+      setup();
+      await screen.findByRole('table');
+      const menu = await openRowMenu(a.title);
+      drop(a.id);
+      const gets = calls.filter(([method]) => method === 'GET').length;
+      fireEvent.click(within(menu).getByRole('menuitem', { name: action }));
+      const message = action === 'Duplicate' ? getMessages('en').content.duplicate.failed : getMessages('en').content.restore.failed;
+      await waitFor(() => expect(toast.list().some(t => t.title === message && t.tone === 'danger')).toBe(true));
+      expect(calls.filter(([method]) => method === 'GET').length).toBeGreaterThan(gets);
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it('pending Duplicate disables every row action and sends only one request', async () => {
+      const a = item();
+      let finish!: (value: Response) => void;
+      const posts: string[] = [];
+      session = { state: { status: 'signed-in', connection: { state: 'connected' } }, client: { apiFetch: async (path, init) => {
+        if (init?.method === 'POST') { posts.push(path); return new Promise<Response>(resolve => { finish = resolve; }); }
+        return json(page([a]));
+      } } };
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Duplicate' }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      const menu = await openRowMenu(a.title);
+      for (const entry of within(menu).getAllByRole('menuitem')) expect(entry.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate' }));
+      expect(posts).toHaveLength(1);
+      await act(async () => finish(json(item({ title: a.title + ' (copy)' }), 201)));
+    });
 
     it('Archive moves the item to archived, counts refresh, and Undo restores the prior status and replaces the toast', async () => {
       const a = item({ title: 'Summer sale', status: 'published' });
@@ -542,7 +629,9 @@ describe('Videos & Stories page', () => {
       const a = item({ title: 'Eid perfume', status: 'published' });
       const b = item({ title: 'Keep me' });
       const { calls } = live([a, b]);
-      setup();
+      const { client } = setup();
+      const productsKey = [...queryKeys.catalog.productsAll(), 'linked-counts'];
+      client.setQueryData(productsKey, { count: 2 });
       await screen.findByRole('table');
       fireEvent.click(within(await openRowMenu('Eid perfume')).getByRole('menuitem', { name: 'Archive' }));
       await waitFor(() => expect(toast.list().some((t) => t.id === `content-archived-${a.id}` && t.open)).toBe(true));
@@ -556,6 +645,7 @@ describe('Videos & Stories page', () => {
       await waitFor(() => expect(calls).toContainEqual(['DELETE', `/v1/content/${a.id}`]));
       await waitFor(() => expect(screen.getByRole('table').textContent).not.toContain('Eid perfume'));
       expect(screen.getByRole('table').textContent).toContain('Keep me');
+      expect(client.getQueryState(productsKey)?.isInvalidated).toBe(true);
       expect(toast.list().find((t) => t.id === `content-archived-${a.id}`)?.open).toBe(false);
       expect(toast.list().some((t) => t.tone === 'success' && t.title === 'Deleted')).toBe(true);
     });
@@ -572,6 +662,19 @@ describe('Videos & Stories page', () => {
       fireEvent.click(within(menu).getByRole('menuitem', { name: 'Archive' }));
       await waitFor(() => expect(toast.list().some((t) => t.tone === 'danger')).toBe(true));
       await waitFor(() => expect(calls.filter(([m]) => m === 'GET').length).toBeGreaterThan(gets));
+    });
+
+    it('cancelling the named Delete confirmation leaves the item and makes no write', async () => {
+      const a = item({ title: 'Keep this story' });
+      const { calls } = live([a]);
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Delete' }));
+      const confirmation = await screen.findByRole('alertdialog');
+      fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      expect(calls.every(([method]) => method === 'GET')).toBe(true);
+      expect(screen.getByRole('table').textContent).toContain(a.title);
     });
 
     it('Delete on an item that 404s shows a danger toast and no success toast', async () => {
@@ -619,6 +722,34 @@ describe('URL state and API path', () => {
 
 
 describe('Story 3.9 list status reasons and Retry', () => {
+  it('Retry shares its pending guard across desktop and mobile menus', async () => {
+    const a = item({ status: 'failed', status_reason: { code: 'processing_failed', kind: 'video' }, slides: [{ id: crypto.randomUUID(), media_asset_id: crypto.randomUUID(), kind: 'video', status: 'failed', failure_reason: 'processing_failed', alt_text: null, source_url: null, poster_url: null }] });
+    let finish!: (response: Response) => void;
+    const posts: string[] = [];
+    session = { state: { status: 'signed-in', connection: { state: 'connected' } }, client: { apiFetch: async (path, init) => {
+      if (init?.method === 'POST') { posts.push(path); return new Promise<Response>(resolve => { finish = resolve; }); }
+      return json(page([a]));
+    } } };
+    setup();
+    await screen.findByRole('table');
+    fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Retry' }));
+    await waitFor(() => expect(posts).toEqual([`/v1/content/${a.id}/retry`]));
+    const triggers = document.querySelectorAll<HTMLButtonElement>(`button[aria-label="Actions for ${a.title}"]`);
+    expect(triggers).toHaveLength(2);
+    for (const trigger of triggers) {
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: 'Enter' });
+      const menu = await screen.findByRole('menu');
+      for (const action of within(menu).getAllByRole('menuitem')) expect(action.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Retry' }));
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate' }));
+      expect(posts).toHaveLength(1);
+      fireEvent.keyDown(menu, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    }
+    await act(async () => finish(json({ ...a, status: 'processing' })));
+  });
+
   it.each(['processing_failed', 'below_min_resolution'] as const)('shows Retry only for retryable failure %s', async (reason) => {
     const a = item({ status: 'failed', status_reason: { code: reason, kind: 'video' }, slides: [{ id: crypto.randomUUID(), media_asset_id: crypto.randomUUID(), kind: 'video', status: 'failed', failure_reason: reason, alt_text: null, source_url: null, poster_url: null }] });
     const calls: string[] = [];

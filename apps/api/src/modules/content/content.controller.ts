@@ -271,6 +271,16 @@ export class ContentController {
     return (await this.withProducts(storeId, [row]))[0]!;
   }
 
+  @Post('content/:id/duplicate')
+  @HttpCode(HttpStatus.CREATED)
+  async duplicate(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<ContentItem> {
+    const storeId = req.merchantSession!.storeId;
+    try {
+      const row = await withStoreContext(this.pool, storeId, tx => this.lifecycle.duplicate(tx, storeId, id));
+      return (await this.withProducts(storeId, [row]))[0]!;
+    } catch (err) { throw this.toHttpError(err); }
+  }
+
   @Post('content/:id/retry')
   @HttpCode(HttpStatus.OK)
   async retry(@Req() req: AuthenticatedRequest, @Param('id') id: string): Promise<ContentItem> {

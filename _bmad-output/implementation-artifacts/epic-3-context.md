@@ -4,7 +4,7 @@
 
 ## Goal
 
-The merchant creates Stories and Reels, uploads or imports their media, links a synced product and a call to action, previews the result with the real storefront player in preview mode, and manages each item through its full status lifecycle (create, edit, duplicate, archive, restore, delete). This epic produces safe, processed, shoppable content that Epic 4 places on the storefront and Epic 5 plays; it must be tenant-isolated, resistant to unsafe uploads, and clear about processing state and failures.
+Merchants create, upload, preview and manage Stories and Reels through their full lifecycle. Content must be safe, tenant-isolated and ready for later storefront publishing. Published changes remain under merchant control. The controlled-pilot proposal dated 2026-11-11 is unapproved; it does not change this epic or Story 3.13 acceptance criteria.
 
 ## Stories
 
@@ -24,47 +24,34 @@ The merchant creates Stories and Reels, uploads or imports their media, links a 
 
 ## Requirements & Constraints
 
-- Content has title, format (Story or Reel), linked product, CTA and multiple image/video slides (upload or external link). CTA = label + action (add to cart / open product / open link) + optional preset style. "Open link" accepts only URLs on the store's own synced domains, validated in the dashboard and again by the API.
-- Statuses: Draft, Processing, Failed, Scheduled, Published, Ended, Archived, Deactivated. There is no "Ready"; passing processing without auto-publish returns to Draft. Only Published items within schedule reach the storefront. Published and Scheduled count toward plan limits.
-- Tabs: All (every non-deleted status), Published, Scheduled, Drafts (Draft, Processing, Failed). Archived, Deactivated and Ended appear only under All with a chip.
-- Upload limits: video MP4/MOV/WebM, at most 200 MB, at most 90 s, shorter side at least 720; image JPG/PNG/WebP, at most 10 MB, shorter side at least 1080. Quality flags: below minimum resolution, no video track, corrupt, over duration. External links are fetched and processed like uploads, never hotlinked.
-- Security: content-sniffed file type, SVG rejected, image EXIF/GPS stripped, malware scan before publish, SSRF-safe external fetch, merchant text escaped and rendered `dir="auto"` (no XSS).
-- Failed media jobs retry automatically (media: 3 attempts), then show Failed with a friendly reason and a Retry action.
-- Performance and cost: 60 s video processed within 5 minutes P95 (excluding queue spikes), recorded as a metric. Upload-URL issuing is throttled per store, abuse metric recorded, stored bytes metered per store.
-- Auto-publish with no placement stays Draft with the reason "Add a placement to publish" (placements arrive in Epic 4).
-- Published items are edited live and saved explicitly (interim decision); only Drafts autosave.
-- Preview shows no real cart or analytics: cart success simulated, no events sent.
+- Items contain title, Story/Reel format, one linked product, CTA and ordered slides. CTA supports label, action and preset style; open-link URLs must belong to the store's synced domains, validated by client and API.
+- Statuses are Draft, Processing, Failed, Scheduled, Published, Ended, Archived and Deactivated. No Ready status. Only Published items within schedule reach storefronts; Published and Scheduled count toward plan limits. Drafts tab includes Draft/Processing/Failed; All includes every non-deleted status.
+- Drafts autosave after roughly one second. Published edits never autosave: explicit Save changes commits all edits together and emits one edited event. Warn before leaving with unsaved changes.
+- Duplicate makes a Draft copy with the same slides/product link, without placements or schedule. Archive supports persistent Undo to prior status; Restore returns Archived content to Draft. Delete requires confirmation naming the item and preserves an analytics tombstone. Shared media survives deletion of another referencing item; unreferenced assets may be cleaned later.
+- Videos: MP4/MOV/WebM, at most 200 MB and 90 seconds, shorter side at least 720px. Images: JPG/PNG/WebP, at most 10 MB, shorter side at least 1080px. When metadata is readable, reject low-resolution files before upload with actual/minimum dimensions, higher-resolution guidance and replacement action; retain accepted batch files. Never upscale or crop to bypass limits.
+- Sniff types, reject SVG/mismatches, strip image metadata, scan before publication and safely fetch external media into storage rather than hotlinking. Exhausted processing retries explain the reason and offer Retry. A 60-second 1080p video should process within five minutes P95, excluding queue spikes.
+- No placement means no publish, including auto-publish. Preview never sends analytics or real cart requests. Merchant text is escaped and direction-aware.
 
 ## Technical Decisions
 
-- **Ownership:** `content` owns `content_items`, `content_product_links`, `slides`; `media` owns `media_assets` and `renditions`. Only the owner writes; others use owner service reads, commands or domain events. No cascading FKs across modules; deletion is soft (tombstone kept for analytics). A test fails on tables without a declared owner.
-- **Tenant isolation:** non-null `store_id`, RLS with `FORCE`, `StoreScoped` repositories, one cross-tenant test per table; workers set store context per job.
-- **Status writes:** only `content` writes status. The transition table lives in `packages/contracts`; disallowed transitions return an RFC 9457 problem (type `invalid-transition`). `media` and later `billing` request changes via `content` commands. Each transition emits `content.item.<status-verb>` through the transactional outbox in the same transaction (events: `content.item.edited`, `content.item.deleted`, etc.). Handlers idempotent on event ID.
-- **Schedule/ordering fields:** `first_published_at` is stored on the item (used for placement ordering in Epic 4).
-- **Media pipeline:** direct-to-storage pre-signed uploads (store-scoped, store-prefixed, content-addressed immutable paths, 15 min expiry, size-limited). Asset states `uploaded -> scanned -> processed | failed`; only `processed` assets are publishable. `MalwareScanner` and `MediaProcessor` are ports (no vendor assumed; hosting deferred). Output: progressive MP4 at 480p/720p/1080p (where source allows) plus poster, no HLS; images get a web-optimized version. External fetch only in the worker via one SSRF-safe fetcher (blocks private/loopback/link-local/metadata IPs and redirects to them; size and timeout limits). Assets are removed only when unreferenced.
-- **Background work:** pg-boss, worker only; media queue is its own deployment; media retry 3 attempts with the one queue-policy file; job payloads Zod-versioned, carrying `trace_id` and `store_id`.
-- **Preview:** `GET /v1/preview/content/{id}` returns a `StoreManifest` v1 with only that item, built by a compile function in `publishing` that Epic 4 reuses for the CDN manifest. Requires the merchant session, never CDN-cached, other store's item returns 404; Processing slides fall back to posters or original upload. The dashboard embeds the real player build in an iframe with `MockStorefrontPlatform`; new manifests are posted to the iframe and re-render without reload.
-- **Player preview rendering:** Shadow DOM, system fonts, `--slips-*` properties only, direction from locale, 9:16.
-- **Contracts and API:** hand-written Zod v1 in `packages/contracts`; `/v1/<resource>` paths; problem+json errors with stable `type` slugs, no user text from the API; dashboard uses per-module TanStack Query hooks and nuqs URL state, RHF with contract Zod schemas.
-- **Money/time:** integer minor units plus currency; UTC timestamps; schedule display in store time zone.
+- Modular monolith with ports/adapters and explicit ownership. Content owns items, product links and slides; media owns assets/renditions. Other modules use owner services or transactional events. Avoid cascading foreign keys across modules.
+- Non-null store IDs, forced RLS and store-scoped repositories protect every tenant table; verify cross-tenant access. Workers establish store context per job.
+- Content alone writes lifecycle status against the contracts transition table. Invalid transitions produce a stable problem and no writes. Changes and outbox events commit together; handlers are idempotent. Soft deletion must not free media referenced elsewhere.
+- Presigned uploads are store-prefixed, content-addressed, size-limited and short-lived. Assets progress uploaded to scanned to processed/failed; only processed assets publish. External integrations remain behind storage, scanner and processor ports. Progressive MP4 renditions at supported 480p/720p/1080p plus posters; no HLS.
+- External fetch blocks private, loopback, link-local and metadata destinations, including redirects; bound bytes/time. Media jobs use their own worker queue, three automatic attempts, versioned payloads and trace/store IDs.
+- Preview is authenticated, never CDN-cached and returns 404 for another store's item. One compiler serves preview now and storefront later. Processing slides may use posters/source uploads in preview only. Embed the real player in an iframe with a mock platform; update manifests without reload. Player uses Shadow DOM, system fonts, 9:16 and its own custom properties.
+- Shared versioned Zod wire contracts and stable problem slugs govern APIs. Money uses integer minor units; timestamps are UTC with store-zone display.
 
 ## UX & Interaction Patterns
 
-- Content table: shadcn Table in Card, 56px rows with 9:16 thumb, status chip, row hover, click or `Enter` opens editor, row menu (Edit, Duplicate, Archive, Delete with confirm dialog naming the item), sortable headers, debounced search, tab/search/sort in the URL (`?tab=`). Card list on `sm`. Views and clicks show "—" until Epic 6.
-- Status chips (text label always, never colour alone): Processing pulsing dot (static under reduced motion), Failed with reason and 6% row tint, Scheduled with date, Archived with icon, Deactivated amber, Ended outline.
-- Editor: two columns (form start side, preview end side); single column with sticky preview button on `md`; stacked with preview toggle on `sm`. Drafts autosave after ~1 s with "Saved"; Published items use explicit "Save changes" and the "Changes saved" toast. Publish blocked without a placement with inline reason. Unsaved-changes confirm on leave. Errors on blur/submit with a summary linking to fields, announced via live region. Alt text required on image slides.
-- Uploader: dashed `input-border` drop zone, multi-file, client-side pre-check naming the violated limit, per-file progress, Processing with poster, Failed with reason and Retry.
-- Slide reorder: "Move earlier"/"Move later" buttons plus drag; logical order (RTL-safe), announces "Slide 2 of 3", focus stays on moved slide.
-- Product picker: keyboard-operable combobox with thumb, name, price, availability chip. Out-of-stock link allowed with warning; required-options product shows a "View options" note on CTA preview.
-- Live preview: 9:16 phone frame (radius lg, ink bezel), always-visible "Preview: no real cart or analytics", updates within 2 s of draft save, skeleton frame after 150 ms, "Preview didn't load. Try again." with Retry.
-- Archive toast: "Archived. Undo available", Undo never auto-dismisses and returns prior status; Archived items offer Restore (to Draft). Duplicate creates a Draft "(copy)" without placements or schedule.
-- Empty states: friendly-coach sentence with one amber "Create your first story" action; 6-row boneyard skeleton after 150 ms; inline Retry on API failure. Copy in `ar`/`en`, Arabic first; logical CSS properties only; WCAG 2.1 AA.
+- Reuse components/tokens. Arabic first, English supported, logical CSS, Western digits in both locales and merchant text with automatic direction. Follow dashboard WCAG AA, keyboard access, visible focus and reduced motion.
+- Content rows open by click/Enter; row actions support Edit, Duplicate, Archive/Delete or Restore. Tabs/search/sort persist in URL. Mobile uses cards; status labels never rely on color. Views/clicks remain unavailable until analytics exists.
+- Editor has form/end-side preview at desktop, sticky preview action at tablet and toggle on phones. Validation appears near fields with a linked, announced summary. Images require alt text; reorder uses logical earlier/later controls, announces position and retains focus.
+- Product picker is searchable and keyboard-operable. Out-of-stock linking is allowed with warning; required options explain the View options fallback. Skeletons appear after 150ms; failures have inline Retry.
+- Preview uses a phone frame and persistent simulated-cart/no-analytics notice; saved drafts update within two seconds. Archive Undo stays until dismissed; destructive confirmation names content. Copy is brief/helpful in both languages.
 
 ## Cross-Story Dependencies
 
-- 3.1 creates the state machine and events every other story relies on; 3.8 and 3.9 drive Processing, Failed and Draft only through `content` commands from 3.1.
-- 3.5 creates `media_assets` and the sniff/strip/scan path; 3.6 creates `slides` referencing them; 3.7 and 3.8 reuse that same path.
-- 3.9 depends on 3.8 outputs; its auto-publish eligibility check needs placements from Epic 4 until then it falls back to Draft.
-- 3.10 introduces the compile function that Epic 4 (Stories 4.x manifest publishing) reuses; 3.11 consumes its manifest shape; 3.12 composes 3.10 and 3.11 into the editor.
-- 3.4 consumes `catalog` (Epic 2) reads and the `catalog.product.deleted` event; it creates `content_product_links` and `getLinkCountsByProductIds`, which Epic 2's Products page uses for real linked-content counts. `content.item.edited` from 3.4 and 3.13 lets Epic 4 publishing drop or refresh items.
-- Epic 1 supplies the app shell, tokens, toast region, RLS and `StoreScoped` base, outbox transport and queue policy; Epic 4 adds placements and schedules; Epic 6 fills views/clicks; Epic 7 `billing` later requests Deactivated through `content` commands.
+- Lifecycle ownership/events underpin editing/media. Upload, slides, import, renditions and quality checks share one pipeline; processing results request transitions through content commands.
+- Product linking consumes catalog reads/deletion events and supplies linked-content counts. Edit/delete events let later publishing refresh eligibility.
+- Preview compiler, preview player and editor panel form one reusable chain. Epic 4 adds placements/layouts/scheduling/publishing; Epic 5 storefront runtime/cart; Epic 6 analytics; Epic 7 entitlements/operations. Do not introduce substitute implementations for future owners.

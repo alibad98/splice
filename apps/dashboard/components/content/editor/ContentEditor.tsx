@@ -78,8 +78,11 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
     const prev = savedRef.current;
     const item = incoming;
     if (!item || persisting.current || item.updated_at <= (prev?.updated_at ?? '')) return;
+    // A rejected live save must keep the merchant's whole pending edit available for correction/retry.
+    const preserveLocalFields = prev?.status === 'published' && item.status === 'published' && saveKey(getValues()) !== saveKey(fromItem(prev));
     savedRef.current = item;
     setSaved(item);
+    if (preserveLocalFields) return;
     const next = fromItem(item);
     // When only non-form fields changed (e.g. background status `processing -> draft` or `poster_url`), preserve any unsaved edits.
     if (prev && item.status !== 'archived' && saveKey(next) === saveKey(fromItem(prev))) return;
@@ -149,10 +152,10 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         return err;
       }
       if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_PRODUCT_NOT_LINKABLE) {
-        // The product went away between search and save: say so, put back the product the item links now (the refetch
-        // may not reset the form when nothing else changed), and reload the item.
+        // Reload a rejected link. Draft autosave returns to the saved product; explicit Published edits stay local
+        // so the merchant can correct the combined edit and retry.
         toast({ title: m.product.deleted.title, tone: 'danger' });
-        setValue('product_id', savedRef.current?.product?.id ?? null, { shouldDirty: true });
+        if (savedRef.current?.status !== 'published') setValue('product_id', savedRef.current?.product?.id ?? null, { shouldDirty: true });
         if (savedRef.current) void queryClient.invalidateQueries({ queryKey: queryKeys.content.item(savedRef.current.id) });
         return err;
       }

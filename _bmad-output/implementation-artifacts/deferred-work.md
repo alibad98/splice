@@ -167,3 +167,7 @@
 - source_spec: `spec-3-10-serve-a-preview-manifest-for-one-content-item.md`
   summary: Normalize generated OpenAPI paths to brace parameters and declare required path parameter schemas across all routes.
   evidence: Existing buildOpenApi uses paths[r.path] with Express colon segments and only generates query parameters; Swagger/generated clients cannot substitute the documented IDs. Story 3.10 inherits this pre-existing generator behavior.
+
+- source_spec: `spec-3-13-edit-duplicate-archive-restore-delete-content.md`
+  summary: Restore quantified upload/processing and cost-abuse constraints in the refreshed Epic 3 agent context.
+  evidence: Independent review B9/B10 found the context refresh omitted upload-URL throttling, abuse metrics, per-store stored-byte metering, the exact 15-minute presigned expiry and recording the processing P95 metric; authoritative planning requirements remain unchanged. Context-file corrections are deferred by the BMAD review routing rule.

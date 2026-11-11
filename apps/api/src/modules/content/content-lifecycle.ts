@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   CONTENT_TRANSITIONS,
+  CONTENT_TITLE_MAX,
   CTA_STYLES,
   ContentCreateInput,
   ContentFields,
@@ -158,6 +159,26 @@ export class ContentLifecycle {
       return this.apply(tx, storeId, id, 'start_processing', now);
     }
     return row!;
+  }
+
+  /** Copy saved references under the source lock; copying never starts media processing or publication. */
+  async duplicate(tx: TxQueryable, storeId: string, contentId: string, now: Date = new Date()): Promise<ContentItemRow> {
+    const source = await this.repo.lockById(contentId);
+    if (!source) throw new ContentNotFoundError(contentId);
+    const link = await this.repo.findLink(contentId);
+    const liveSlides = await this.repo.liveSlides([contentId]);
+    const suffix = ' (copy)';
+    // The contract measures UTF-16 length; stop at a code-point boundary within the remaining budget.
+    let title = '';
+    for (const character of source.title) {
+      if (title.length + character.length > CONTENT_TITLE_MAX - suffix.length) break;
+      title += character;
+    }
+    return this.create(tx, storeId, {
+      ...fieldsOf(source, link?.productId ?? null, liveSlides),
+      title: title + suffix,
+      auto_publish: false,
+    }, now, new Map(liveSlides.map(slide => [slide.mediaAssetId, slide.kind])));
   }
 
   /**

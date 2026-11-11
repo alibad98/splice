@@ -188,8 +188,19 @@ export const en = {
     },
     menu: {
       label: 'Actions for {title}',
+      edit: 'Edit',
+      duplicate: 'Duplicate',
+      restore: 'Restore to Draft',
       archive: 'Archive',
       delete: 'Delete',
+    },
+    duplicate: {
+      done: 'Draft copy created',
+      failed: "We couldn't duplicate this item. The list is up to date now.",
+    },
+    restore: {
+      done: 'Restored to Draft',
+      failed: "We couldn't restore this item. The list is up to date now.",
     },
     archive: {
       done: '“{title}” archived. Undo available',

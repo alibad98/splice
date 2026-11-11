@@ -50,6 +50,13 @@ function walk(node: unknown, visit: (key: string, value: unknown, parent: Json) 
 }
 
 describe('API docs', () => {
+  it('documents authenticated bodyless duplication returning a created ContentItem', () => {
+    const duplicate = op('/v1/content/:id/duplicate', 'post');
+    expect(duplicate.security).toEqual([{ bearerAuth: [] }, { cookieAuth: [] }]);
+    expect(duplicate.requestBody).toBeUndefined();
+    expect(jsonSchema(duplicate.responses['201']!).$ref).toBe('#/components/schemas/ContentItem');
+    expect(Object.keys(duplicate.responses).sort()).toEqual(['201', '401', '403', '404']);
+  });
   it('documents private preview manifests and authenticated inspected media bytes', () => {
     const preview = op('/v1/preview/content/:id', 'get');
     expect(jsonSchema(preview.responses['200']!).$ref).toBe('#/components/schemas/StoreManifest');

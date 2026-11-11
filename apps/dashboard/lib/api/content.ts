@@ -36,12 +36,15 @@ export function useContentList(query: ContentListQuery) {
 }
 
 /** A lifecycle mutation on one item; the list and counts are refetched afterwards, success or not (409/404 included). */
-function useContentMutation<R>(run: (client: NonNullable<ReturnType<typeof useClient>['client']>, id: string) => Promise<R>) {
+function useContentMutation<R>(run: (client: NonNullable<ReturnType<typeof useClient>['client']>, id: string) => Promise<R>, affectsLinks = false) {
   const { client } = useClient();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => (client ? run(client, id) : Promise.reject(new ApiError(0))),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.content.all }),
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.content.all }),
+      ...(affectsLinks ? [queryClient.invalidateQueries({ queryKey: queryKeys.catalog.productsAll() })] : []),
+    ]),
   });
 }
 
@@ -96,7 +99,9 @@ export function useUpdateContent() {
 
 export const useArchiveContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/archive`, ContentItem));
 export const useUndoArchiveContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/undo-archive`, ContentItem));
-export const useDeleteContent = () => useContentMutation((client, id) => deleteResource(client, itemPath(id)));
+export const useRestoreContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/restore`, ContentItem));
+export const useDuplicateContent = () => useContentMutation((client, id) => postJson(client, `${itemPath(id)}/duplicate`, ContentItem), true);
+export const useDeleteContent = () => useContentMutation((client, id) => deleteResource(client, itemPath(id)), true);
 
 export function useRetryContent() {
   const { client } = useClient();

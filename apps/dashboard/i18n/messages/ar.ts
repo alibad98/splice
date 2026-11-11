@@ -189,9 +189,20 @@ export const ar: Messages = {
       retry: 'حاول مرة أخرى',
     },
     menu: {
+      edit: 'عدّل',
+      duplicate: 'انسخ',
+      restore: 'استعد كمسودة',
       label: 'إجراءات {title}',
       archive: 'أرشف',
       delete: 'احذف',
+    },
+    duplicate: {
+      done: 'أنشأنا نسخة كمسودة',
+      failed: 'ما قدرنا ننسخ هذا المحتوى. القائمة محدّثة الآن.',
+    },
+    restore: {
+      done: 'استعدنا المحتوى كمسودة',
+      failed: 'ما قدرنا نستعيد هذا المحتوى. القائمة محدّثة الآن.',
     },
     archive: {
       done: 'أرشفنا «{title}». تقدر تتراجع',

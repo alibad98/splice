@@ -28,6 +28,10 @@ import {
   SLIDES_MAX,
   SLIDE_ALT_MAX,
   slideAltTextOk,
+  CONTENT_INVALID_LAYOUT,
+  CONTENT_UNSUPPORTED_FORMAT,
+  STORY_LAYOUTS_PILOT,
+  hasInvalidLayoutIssue,
 } from './content.js';
 import { EVENT_CATALOG } from './events.js';
 
@@ -55,6 +59,28 @@ describe('content contracts', () => {
     expect(ContentUpdateInput.parse({ placements: [{ type: 'home' }] })).toEqual({ placements: [{ type: 'home' }] });
     for (const placements of [[{ type: 'category' }], [{ type: 'product' }], [{ type: 'home', target_id: 'x' }], [{ type: 'home' }, { type: 'home' }]]) expect(ContentUpdateInput.safeParse({ placements }).success).toBe(false);
     expect(ContentFields.keyof().options).toContain('placements');
+  });
+  it('accepts an omitted or Ring layout on input, requires it on output and flags other layouts on the layout path (4.2 pilot)', () => {
+    expect(STORY_LAYOUTS_PILOT).toEqual(['ring']);
+    expect(CONTENT_INVALID_LAYOUT).toBe('content-invalid-layout');
+    expect(CONTENT_UNSUPPORTED_FORMAT).toBe('content-unsupported-format');
+    expect(ContentUpdateInput.parse({ placements: [{ type: 'home' }] }).placements).toEqual([{ type: 'home' }]);
+    expect(ContentUpdateInput.parse({ placements: [{ type: 'home', layout: 'ring' }] }).placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    for (const layout of ['bar', 'strip', 'carousel', 'Ring', '', 7, null]) {
+      const parsed = ContentUpdateInput.safeParse({ placements: [{ type: 'home', layout }] });
+      expect(parsed.success).toBe(false);
+      expect(hasInvalidLayoutIssue(parsed.error!.issues)).toBe(true);
+    }
+    const target = ContentUpdateInput.safeParse({ placements: [{ type: 'category' }] });
+    expect(hasInvalidLayoutIssue(target.error!.issues)).toBe(false);
+    expect(hasInvalidLayoutIssue(ContentUpdateInput.safeParse({ title: '' }).error!.issues)).toBe(false);
+    expect(hasInvalidLayoutIssue([])).toBe(false);
+    // Mixed bodies keep the generic invalid-body answer.
+    expect(hasInvalidLayoutIssue(ContentUpdateInput.safeParse({ title: '', placements: [{ type: 'home', layout: 'bar' }] }).error!.issues)).toBe(false);
+    expect(hasInvalidLayoutIssue(ContentUpdateInput.safeParse({ placements: [{ type: 'category', layout: 'bar' }] }).error!.issues)).toBe(false);
+    expect(ContentItem.parse({ ...item, placements: [{ type: 'home', layout: 'ring' }] }).placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    expect(ContentItem.safeParse({ ...item, placements: [{ type: 'home' }] }).success).toBe(false);
+    expect(ContentItem.safeParse({ ...item, placements: [{ type: 'home', layout: 'bar' }] }).success).toBe(false);
   });
   it('defines the 8 content statuses (no ready), formats, CTA actions and invalid-transition problem slug', () => {
     expect(CONTENT_STATUSES).toEqual(['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated']);
@@ -317,5 +343,6 @@ it('accepts auto_publish edits and validates derived media or placement status r
   expect(ContentUpdateInput.safeParse({ auto_publish: 'true' }).success).toBe(false);
   expect(ContentItem.parse({ ...item, status_reason: { code: 'below_min_resolution', kind: 'video' } }).status_reason).toEqual({ code: 'below_min_resolution', kind: 'video' });
   expect(ContentItem.parse({ ...item, status_reason: { code: 'no_placement' } }).status_reason).toEqual({ code: 'no_placement' });
+  expect(ContentItem.parse({ ...item, format: 'reel', status_reason: { code: 'unsupported_format' } }).status_reason).toEqual({ code: 'unsupported_format' });
   expect(ContentItem.safeParse({ ...item, status_reason: { code: 'unknown' } }).success).toBe(false);
 });

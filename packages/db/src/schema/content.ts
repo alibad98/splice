@@ -65,11 +65,12 @@ export const slides = pgTable('slides', {
   updatedAt: ts('updated_at').notNull().default(sql`now()`),
 });
 
-/** Home placements, owned and written by content. Unsupported targets remain outside the pilot. */
+/** Home placements, owned and written by content. Unsupported targets remain outside the pilot. `layout` is Ring only (Story 4.2 pilot, migration 0023). */
 export const placements = pgTable('placements', {
   id: uuid('id').primaryKey().defaultRandom(),
   storeId: uuid('store_id').notNull(),
   contentId: uuid('content_id').notNull(),
   type: text('type').$type<'home'>().notNull(),
+  layout: text('layout').$type<'ring'>().notNull().default('ring'),
   createdAt: ts('created_at').notNull().default(sql`now()`),
 });

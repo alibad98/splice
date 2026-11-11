@@ -13,8 +13,8 @@ import {
   type ContentCreateInput,
   type ContentItem,
   type ContentUpdateInput,
-  PlacementList,
-  type Placement,
+  Placement,
+  type StoryLayout,
 } from '@slips/contracts';
 
 /**
@@ -44,8 +44,15 @@ export interface EditorValues {
   product_id: string | null;
   /** The slides in order (Story 3.6), uploads in progress included. */
   slides: SlideValue[];
+  /** At most one Home placement, always with its layout (the pilot's fixed Story Ring, Story 4.2 slice). */
   placements: Placement[];
 }
+
+/** The pilot's only Story layout; Bar stays visible but unavailable (Story 4.2 pilot slice). */
+export const PILOT_STORY_LAYOUT: StoryLayout = 'ring';
+
+/** The Home placement as the editor writes it. */
+export const homePlacement = (layout: StoryLayout = PILOT_STORY_LAYOUT): Placement => ({ type: 'home', layout });
 
 /** Keys into `messages.content.editor.errors`; the schema reports these instead of text so errors follow the active language. */
 export type EditorErrorKey =
@@ -58,10 +65,11 @@ export type EditorErrorKey =
   | 'urlDomain'
   | 'urlNoDomain'
   | 'altRequired'
-  | 'altTooLong';
+  | 'altTooLong'
+  | 'layoutInvalid';
 
 /** Field order, for the error summary. `slides` expands to one entry per slide alt field. */
-export const EDITOR_FIELDS = ['title', 'format', 'slides', 'product_id', 'cta_label', 'cta_action', 'cta_url', 'cta_style'] as const satisfies readonly (keyof EditorValues)[];
+export const EDITOR_FIELDS = ['title', 'format', 'placements', 'slides', 'product_id', 'cta_label', 'cta_action', 'cta_url', 'cta_style'] as const satisfies readonly (keyof EditorValues)[];
 export type EditorField = (typeof EDITOR_FIELDS)[number];
 
 /** DOM ids of the fields, so the error summary can link to them. */
@@ -96,7 +104,7 @@ export function editorSchema(domains: readonly string[]) {
       cta_style: CtaStyle,
       product_id: z.uuid().nullable(),
       slides: z.array(SlideValueSchema),
-      placements: PlacementList,
+      placements: z.array(Placement).max(1),
     })
     .superRefine((v, ctx) => {
       // Image slides need alt text before any save, Drafts included (Story 3.6); rows still uploading are not sent yet.
@@ -143,7 +151,7 @@ export function fromItem(item: ContentItem): EditorValues {
     cta_style: item.cta_style ?? DEFAULT_CTA_STYLE,
     product_id: item.product?.id ?? null,
     slides: item.slides.map((s) => ({ key: s.id, media_asset_id: s.media_asset_id, kind: s.kind, alt_text: s.alt_text ?? '', source_url: s.source_url ?? null })),
-    placements: item.placements ?? [],
+    placements: (item.placements ?? []).map((p) => homePlacement(p.layout)),
   };
 }
 

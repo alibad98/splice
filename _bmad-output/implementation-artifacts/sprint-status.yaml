@@ -85,7 +85,7 @@ development_status:
 
   epic-4: in-progress
   4-1-choose-placements-and-targets-for-a-content-item: in-progress # Home pilot slice; full Category/Product acceptance remains open
-  4-2-pick-a-layout-per-placement-with-settings-defaults: backlog
+  4-2-pick-a-layout-per-placement-with-settings-defaults: in-progress # Ring pilot slice; full layouts/defaults remain open
   4-3-schedule-start-and-end-in-the-store-time-zone: backlog
   4-4-compile-the-per-store-manifest-of-eligible-content: backlog
   4-5-serve-the-manifest-from-the-cdn-and-purge-on-change: backlog

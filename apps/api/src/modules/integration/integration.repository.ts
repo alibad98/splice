@@ -1,10 +1,11 @@
 import { schema, StoreScoped, and, eq, gt, inArray, type LifecycleState, type StorePlatform } from '@slips/db';
 
-const { stores, merchantAccounts, platformTokens, tokenAccessLog, storeDataJobs } = schema;
+const { stores, merchantAccounts, platformTokens, tokenAccessLog, storeDataJobs, storeSettings } = schema;
 
 export type StoreRow = typeof stores.$inferSelect;
 export type JobRow = typeof storeDataJobs.$inferSelect;
 export type TokenRow = typeof platformTokens.$inferSelect;
+export type StoreSettingsRow = typeof storeSettings.$inferSelect;
 
 export interface TokenWrite {
   accessTokenEnc: string;
@@ -18,6 +19,11 @@ export interface TokenWrite {
 export class IntegrationRepository extends StoreScoped {
   async getStore(): Promise<StoreRow | undefined> {
     return (await this.db.select().from(stores).where(eq(stores.id, this.storeId)).limit(1))[0];
+  }
+
+  /** The store's display settings row (Story 4.2), or undefined when none was ever written (reads as the defaults). */
+  async getSettings(): Promise<StoreSettingsRow | undefined> {
+    return (await this.db.select().from(storeSettings).where(eq(storeSettings.storeId, this.storeId)).limit(1))[0];
   }
 
   async insertStore(row: { platform: StorePlatform; platformStoreId: string; name: string; syncedDomains: string[]; at?: Date }): Promise<void> {

@@ -9,6 +9,8 @@ import {
   CONTENT_PRODUCT_NOT_LINKABLE,
   CONTENT_SLIDE_ALT_REQUIRED,
   CONTENT_NO_PLACEMENT,
+  CONTENT_INVALID_LAYOUT,
+  CONTENT_UNSUPPORTED_FORMAT,
   MEDIA_NOT_ATTACHABLE,
   SLIDE_ALT_MAX,
   type ContentItem,
@@ -31,7 +33,7 @@ import { FormatTitleCard } from './FormatTitleCard';
 import { LivePreviewPanel } from './LivePreviewPanel';
 import { ProductCard } from './ProductCard';
 import { SlidesCard } from './SlidesCard';
-import { EDITOR_FIELDS, editorSchema, fieldId, fromItem, newItemValues, patchOf, saveKey, slideAltId, toInput, type EditorErrorKey, type EditorValues } from './form';
+import { EDITOR_FIELDS, editorSchema, fieldId, fromItem, homePlacement, newItemValues, patchOf, saveKey, slideAltId, toInput, type EditorErrorKey, type EditorValues } from './form';
 import { useAutosave } from './use-autosave';
 import { useLeaveGuard } from './use-leave-guard';
 import { useUploads } from './use-uploads';
@@ -65,7 +67,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
   const schema = useMemo(() => editorSchema(domains), [domains]);
   const [initialValues] = useState<EditorValues>(() => (item ? fromItem(item) : newItemValues(m.cta.picks.addToCart)));
   const form = useForm<EditorValues>({ resolver: zodResolver(schema), defaultValues: initialValues, mode: 'onTouched', reValidateMode: 'onChange' });
-  const { getValues, handleSubmit, reset, setError, setValue, trigger, watch } = form;
+  const { clearErrors, getValues, handleSubmit, reset, setError, setValue, trigger, watch } = form;
 
   // The API's latest answer for this item; null until a new item is first saved.
   const [saved, setSaved] = useState<ContentItem | null>(item ?? null);
@@ -146,6 +148,10 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         setError('cta_url', { type: 'server', message: 'urlDomain' satisfies EditorErrorKey }, { shouldFocus: true });
         return new FieldRejected();
       }
+      if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_INVALID_LAYOUT) {
+        setError('placements', { type: 'server', message: 'layoutInvalid' satisfies EditorErrorKey }, { shouldFocus: true });
+        return new FieldRejected();
+      }
       if (err instanceof ApiError && err.status === 422 && err.type === CONTENT_SLIDE_ALT_REQUIRED) {
         void trigger('slides');
         return new FieldRejected();
@@ -201,7 +207,8 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
 
   const autosave = useAutosave({ enabled: autosaves && !readOnly && !publishing, dirty, valid, changeKey: currentKey, run: persist });
 
-  const publishReason = !values.placements.length ? messages.content.statusReasons.no_placement : uploads.active || status === 'processing' || saved?.slides.some(s => s.status !== 'processed') ? m.publish.waitMedia : null;
+  // Pilot (Story 4.2 slice): Reels never go live; then the Home placement (4.1), then media readiness.
+  const publishReason = values.format === 'reel' ? messages.content.statusReasons.unsupported_format : !values.placements.length ? messages.content.statusReasons.no_placement : uploads.active || status === 'processing' || saved?.slides.some(s => s.status !== 'processed') ? m.publish.waitMedia : null;
   const onPublish = handleSubmit(async () => {
     if (publishReason || publishing) return;
     setPublishing(true);
@@ -215,7 +222,13 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
       setSaved(published);
       toast({ title: m.publish.done, tone: 'success' });
     } catch (err) {
-      setPublishError(err instanceof ApiError && err.type === CONTENT_NO_PLACEMENT ? messages.content.statusReasons.no_placement : m.publish.failed);
+      setPublishError(
+        err instanceof ApiError && err.type === CONTENT_UNSUPPORTED_FORMAT
+          ? messages.content.statusReasons.unsupported_format
+          : err instanceof ApiError && err.type === CONTENT_NO_PLACEMENT
+            ? messages.content.statusReasons.no_placement
+            : m.publish.failed,
+      );
     } finally {
       setPublishing(false);
     }
@@ -262,6 +275,11 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
 
   const [previewOpen, setPreviewOpen] = useState(false);
   const title = values.title;
+  // New items and Stories can not become Reels in the pilot; saved Reels keep the choice so their drafts stay editable.
+  const reelUnavailable = saved?.format !== 'reel';
+  const home = values.placements.find((p) => p.type === 'home');
+  const layoutError = errors.placements?.message as EditorErrorKey | undefined;
+  const choosesStatus = status === 'draft' || status === 'processing';
 
   return (
     <FormProvider {...form}>
@@ -277,7 +295,7 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
                 {title || m.untitled[values.format]}
               </h1>
               <ContentStatusChip status={status} labels={messages.content.statuses} />
-              {saved && saved.status_reason?.code !== 'no_placement' ? <ContentStatusReason item={saved} /> : null}
+              {saved && saved.status_reason?.code !== 'no_placement' && saved.status_reason?.code !== 'unsupported_format' ? <ContentStatusReason item={saved} /> : null}
             </div>
           </div>
           {readOnly ? null : (
@@ -286,13 +304,15 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
               <Button type="submit" form="content-editor-form" variant={autosaves ? 'secondary' : 'primary'} pending={autosaves ? autosave.saving : savingChanges} disabled={!autosaves && !dirty}>
                 {autosaves ? m.saveDraft : m.saveChanges}
               </Button>
-              {status === 'draft' || status === 'processing' ? <Button variant="primary" pending={publishing} unavailableReason={publishReason ?? undefined} onClick={() => void onPublish()}>{m.publish.now}</Button> : null}
+              {choosesStatus ? <Button variant="secondary" unavailableReason={m.publish.scheduleUnavailable}>{m.publish.schedule}</Button> : null}
+              {choosesStatus ? <Button variant="primary" pending={publishing} unavailableReason={publishReason ?? undefined} onClick={() => void onPublish()}>{m.publish.now}</Button> : null}
             </div>
           )}
         </header>
 
         {readOnly ? <Alert tone="info" description={m.archivedNote} /> : null}
-        {!readOnly && (status === 'draft' || status === 'processing') && publishReason ? <p aria-live="polite" className="text-small text-muted-foreground">{publishReason}</p> : null}
+        {!readOnly && choosesStatus && publishReason ? <p aria-live="polite" className="text-small text-muted-foreground">{publishReason}</p> : null}
+        {!readOnly && choosesStatus ? <p aria-hidden="true" className="text-small text-muted-foreground">{m.publish.scheduleUnavailable}</p> : null}
         {publishError ? <p role="alert" className="text-small text-destructive-text">{publishError}</p> : null}
         {saved?.status === 'failed' ? <div role="alert" className="flex items-center gap-3 rounded border border-destructive p-3">
           <span>{hasRetryableSlides(saved) ? m.slides.failures.processing_failed : m.replaceMedia}</span>
@@ -308,10 +328,11 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
           <form id="content-editor-form" noValidate onSubmit={(e) => void onSubmit(e)} className={cn('flex-col gap-6', previewOpen ? 'hidden lg:flex' : 'flex')}>
             <fieldset disabled={readOnly || publishing} className="flex min-w-0 flex-col gap-6">
-              <FormatTitleCard autoFocusTitle={!item} />
+              <FormatTitleCard autoFocusTitle={!item} reelUnavailable={reelUnavailable} />
               <section className="flex flex-col gap-3 rounded border border-border p-4" aria-labelledby="placement-heading">
                 <h2 id="placement-heading" className="text-h3">{m.placements.heading}</h2>
-                <label className="flex items-center gap-3"><input type="checkbox" checked={values.placements.some(p => p.type === 'home')} onChange={e => setValue('placements', e.target.checked ? [{ type: 'home' }] : [], { shouldDirty: true })} />{m.placements.home}</label>
+                <label className="flex items-center gap-3"><input type="checkbox" checked={Boolean(home)} onChange={e => { clearErrors('placements'); setValue('placements', e.target.checked ? [homePlacement()] : [], { shouldDirty: true }); }} />{m.placements.home}</label>
+                {home ? <LayoutChoice layout={home.layout} error={layoutError ? m.errors[layoutError] : undefined} onRing={() => { clearErrors('placements'); setValue('placements', [homePlacement('ring')], { shouldDirty: true }); }} /> : null}
                 <label className="flex items-center gap-3 text-muted-foreground"><input type="checkbox" disabled />{m.placements.category}</label>
                 <label className="flex items-center gap-3 text-muted-foreground"><input type="checkbox" disabled />{m.placements.product}</label>
                 <p className="text-small text-muted-foreground">{m.placements.pilot}</p>
@@ -337,6 +358,31 @@ export function ContentEditor({ item }: { item?: ContentItem }) {
         </div>
       </section>
     </FormProvider>
+  );
+}
+
+/**
+ * The Home layout (Story 4.2 pilot slice): the Story ring is the only choice and is selected; the Story bar stays visible,
+ * focusable and unavailable, with its localized reason inline. `error` is a rejected layout from the API.
+ */
+function LayoutChoice({ layout, error, onRing }: { layout: EditorValues['placements'][number]['layout']; error?: string; onRing: () => void }) {
+  const m = useI18n().messages.content.editor;
+  const headingId = 'content-layout-heading';
+  return (
+    <div className="flex flex-col gap-2 ps-7">
+      <span id={headingId} className="text-small font-semibold">{m.layout.heading}</span>
+      <div id={fieldId('placements')} role="radiogroup" aria-labelledby={headingId} aria-invalid={error ? true : undefined} tabIndex={-1} className="flex flex-wrap gap-2">
+        <Button size="sm" role="radio" aria-checked={layout === 'ring'} className={cn(layout === 'ring' && 'border-foreground bg-muted')} onClick={onRing}>
+          {layout === 'ring' ? <Icon name="check" className="size-3.5" /> : null}
+          {m.layout.ring}
+        </Button>
+        <Button size="sm" role="radio" aria-checked={false} unavailableReason={m.layout.barUnavailable}>
+          {m.layout.bar}
+        </Button>
+      </div>
+      <p aria-hidden="true" className="text-small text-muted-foreground">{m.layout.barUnavailable}</p>
+      {error ? <p role="alert" className="text-small text-destructive-text">{error}</p> : null}
+    </div>
   );
 }
 

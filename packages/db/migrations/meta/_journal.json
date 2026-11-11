@@ -162,6 +162,13 @@
       "when": 1762041600000,
       "tag": "0022_placements",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1762128000000,
+      "tag": "0023_store_settings_layout",
+      "breakpoints": true
     }
   ]
 }

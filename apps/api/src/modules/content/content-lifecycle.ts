@@ -14,19 +14,30 @@ import {
   type MediaKind,
   type SlideInput,
   type Placement,
+  type PlacementInput,
 } from '@slips/contracts';
 import { and, eq, inArray, requireStoreContext, schema } from '@slips/db';
 import { publishEvent, uuidv7, type EventSender, type TxQueryable } from '../../events/outbox.js';
 import { EVENT_SENDER } from '../../infra.module.js';
 import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
+import { IntegrationService } from '../integration/integration.service.js';
 import { MediaService } from '../media/media.service.js';
 import { ContentRepository, type ContentItemRow, type SlideRow } from './content.repository.js';
 
 const { contentItems, contentProductLinks, slides, placements } = schema;
 
+/** Why an item can not go live: Reels are not delivered in the Story-only pilot (4.2), no Home placement (4.1), or media not ready. */
+export type PublishIneligibleReason = 'unsupported_format' | 'no_placement' | 'media_not_ready';
+
+const PUBLISH_INELIGIBLE_MESSAGES: Readonly<Record<PublishIneligibleReason, string>> = {
+  unsupported_format: 'Reels can not be published during the Story pilot',
+  no_placement: 'Add a placement to publish',
+  media_not_ready: 'Wait for all media to pass processing before publishing',
+};
+
 export class PublishEligibilityError extends Error {
-  constructor(public readonly reason: 'no_placement' | 'media_not_ready') {
-    super(reason === 'no_placement' ? 'Add a placement to publish' : 'Wait for all media to pass processing before publishing');
+  constructor(public readonly reason: PublishIneligibleReason) {
+    super(PUBLISH_INELIGIBLE_MESSAGES[reason]);
     this.name = 'PublishEligibilityError';
   }
 }
@@ -126,12 +137,15 @@ export class ContentLifecycle {
     @Inject(EVENT_SENDER) private readonly events: EventSender,
     @Inject(TELEMETRY) private readonly telemetry: Telemetry,
     @Inject(MediaService) private readonly media?: MediaService,
+    /** Owner of the store display default (Story 4.2); without it an omitted layout falls back to Ring. */
+    @Inject(IntegrationService) private readonly integration?: Pick<IntegrationService, 'getDisplayDefaults'>,
   ) {}
 
   async create(tx: TxQueryable, storeId: string, input: ContentCreateInput, now: Date = new Date(), assetKinds: SlideAssetKinds = new Map()): Promise<ContentItemRow> {
     const parsed = ContentCreateInput.parse(input);
     const id = uuidv7(now.getTime());
     const slideList = normalizeSlides(parsed.slides ?? []);
+    const placementList = await this.resolvePlacements(storeId, parsed.placements ?? [], []);
     assetKinds = await this.attachmentAssets(storeId, slideList, assetKinds, []);
     this.checkSlides(slideList, assetKinds, []);
     const [row] = await requireStoreContext()
@@ -156,7 +170,7 @@ export class ContentLifecycle {
       })
       .returning();
     if (parsed.product_id) await this.writeLink(storeId, id, parsed.product_id, now);
-    if (parsed.placements?.length) await this.writePlacements(storeId, id, parsed.placements, now);
+    if (placementList.length) await this.writePlacements(storeId, id, placementList, now);
     if (slideList.length > 0) await this.writeSlides(storeId, id, slideList, now, assetKinds);
     await publishEvent(tx, this.events, this.telemetry, 'content.item.created', {
       v: 1,
@@ -214,7 +228,8 @@ export class ContentLifecycle {
     const link = await this.repo.findLink(contentId);
     const liveSlides = await this.repo.liveSlides([contentId]);
     const before = fieldsOf(row, link?.productId ?? null, liveSlides);
-    before.placements = (await this.repo.placements([contentId])).map(p => ({ type: p.type }));
+    const savedPlacements: Placement[] = (await this.repo.placements([contentId])).map(p => ({ type: p.type, layout: p.layout }));
+    before.placements = savedPlacements;
     const merged: ContentFields = { ...before, ...parsedPatch };
     if (parsedPatch.slides !== undefined) merged.slides = normalizeSlides(parsedPatch.slides);
     if (merged.cta_action !== 'open_link' && parsedPatch.cta_url === undefined) merged.cta_url = null;
@@ -226,13 +241,18 @@ export class ContentLifecycle {
       cta_style: checked.data.cta_style ?? null,
       product_id: checked.data.product_id ?? null,
       slides: checked.data.slides ?? [],
-      placements: checked.data.placements ?? [],
+      // An omitted layout keeps the saved one; a new placement takes the store display default (Story 4.2).
+      placements: await this.resolvePlacements(storeId, checked.data.placements ?? [], savedPlacements),
     };
 
     const same = (f: EditableField): boolean =>
       f === 'slides' || f === 'placements' ? JSON.stringify(before[f] ?? []) === JSON.stringify(next[f]) : (before[f] ?? null) === (next[f] ?? null);
     const changed = EDITABLE_FIELDS.filter((f: EditableField) => !same(f));
     if (changed.length === 0) return row;
+    // Story-only pilot (4.2 slice): a live item can never become a Reel. Refused before any write or event.
+    if (changed.includes('format') && next.format === 'reel' && (row.status === 'published' || row.status === 'scheduled')) {
+      throw new PublishEligibilityError('unsupported_format');
+    }
 
     if (changed.includes('slides')) {
       assetKinds = await this.attachmentAssets(storeId, next.slides, assetKinds, liveSlides);
@@ -367,7 +387,13 @@ export class ContentLifecycle {
     return this.apply(tx, storeId, contentId, 'start_processing');
   }
 
-  async publishEligibility(_tx: TxQueryable, storeId: string, itemId: string): Promise<{ eligible: true } | { eligible: false; reason: 'no_placement' | 'media_not_ready' }> {
+  /**
+   * Whether the item may enter Published or Scheduled. Runs under the caller's item lock (`apply`). Reels are refused
+   * first during the Story-only pilot (Story 4.2 slice), then a missing Home placement, then media not ready.
+   */
+  async publishEligibility(_tx: TxQueryable, storeId: string, itemId: string, item?: Pick<ContentItemRow, 'format'>): Promise<{ eligible: true } | { eligible: false; reason: PublishIneligibleReason }> {
+    const format = item?.format ?? (await this.repo.findById(itemId))?.format;
+    if (format === 'reel') return { eligible: false, reason: 'unsupported_format' };
     if (!(await this.repo.placements([itemId])).some(p => p.type === 'home')) return { eligible: false, reason: 'no_placement' };
     const liveSlides = await this.repo.liveSlides([itemId]);
     if (liveSlides.length) {
@@ -379,12 +405,32 @@ export class ContentLifecycle {
     return { eligible: true };
   }
 
+  /**
+   * Give every placement a layout (Story 4.2 pilot): the sent one, else the saved layout of the same placement, else the
+   * store display default read through the integration owner (Ring when no settings row or no integration service).
+   */
+  private async resolvePlacements(storeId: string, list: readonly PlacementInput[], saved: readonly Placement[]): Promise<Placement[]> {
+    let fallback: Placement['layout'] | undefined;
+    const out: Placement[] = [];
+    for (const p of list) {
+      let layout = p.layout ?? saved.find(s => s.type === p.type)?.layout;
+      if (!layout) layout = fallback ??= (await this.integration?.getDisplayDefaults(storeId))?.story_layout ?? 'ring';
+      out.push({ type: p.type, layout });
+    }
+    return out;
+  }
+
   private async writePlacements(storeId: string, contentId: string, list: readonly Placement[], now: Date): Promise<void> {
     const db = requireStoreContext().db;
     if (!list.length) {
       await db.delete(placements).where(and(eq(placements.storeId, storeId), eq(placements.contentId, contentId)));
-    } else {
-      await db.insert(placements).values({ id: uuidv7(now.getTime()), storeId, contentId, type: 'home', createdAt: now }).onConflictDoNothing();
+      return;
+    }
+    for (const p of list) {
+      await db
+        .insert(placements)
+        .values({ id: uuidv7(now.getTime()), storeId, contentId, type: p.type, layout: p.layout, createdAt: now })
+        .onConflictDoUpdate({ target: [placements.storeId, placements.contentId, placements.type], set: { layout: p.layout } });
     }
   }
 
@@ -514,11 +560,11 @@ export class ContentLifecycle {
     }
 
     if (action === 'finish_processing' && row.autoPublish) {
-      const eligibility = await this.publishEligibility(tx, storeId, contentId);
+      const eligibility = await this.publishEligibility(tx, storeId, contentId, row);
       if (eligibility.eligible) to = 'published';
     }
     if (to === 'published' || to === 'scheduled') {
-      const eligibility = await this.publishEligibility(tx, storeId, contentId);
+      const eligibility = await this.publishEligibility(tx, storeId, contentId, row);
       if (!eligibility.eligible) throw new PublishEligibilityError(eligibility.reason);
     }
 

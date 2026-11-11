@@ -118,6 +118,16 @@ describe('placements', () => {
     await expect(insert('category')).rejects.toMatchObject({ code: '23514' });
     await expect(insert('home', null)).rejects.toMatchObject({ code: '23502' });
   });
+
+  it('defaults layout to ring and rejects other or missing layouts (Story 4.2 pilot)', async () => {
+    const store = randomUUID();
+    const row = await admin.query<{ layout: string }>("insert into placements (store_id, content_id, type) values ($1, gen_random_uuid(), 'home') returning layout", [store]);
+    expect(row.rows[0]!.layout).toBe('ring');
+    for (const layout of ['bar', 'strip', 'carousel', 'Ring', '']) {
+      await expect(admin.query("insert into placements (store_id, content_id, type, layout) values ($1, gen_random_uuid(), 'home', $2)", [store, layout])).rejects.toMatchObject({ code: '23514' });
+    }
+    await expect(admin.query("insert into placements (store_id, content_id, type, layout) values ($1, gen_random_uuid(), 'home', null)", [store])).rejects.toMatchObject({ code: '23502' });
+  });
 });
 
 describe('slides', () => {

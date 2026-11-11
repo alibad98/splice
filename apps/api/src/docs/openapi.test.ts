@@ -74,6 +74,16 @@ describe('API docs', () => {
       expect(Object.keys(undo.responses)).toContain('422');
       expect(String(undo.description)).toContain('no-placement');
       expect(String(undo.description)).toContain('content-media-not-ready');
+      expect(String(undo.description)).toContain('content-unsupported-format');
+    });
+    it('documents the pilot layout rule and Reel refusal (Story 4.2 slice)', () => {
+      for (const [path, method] of [['/v1/content', 'post'], ['/v1/content/:id', 'patch']] as const) {
+        const operation = op(path, method);
+        expect(Object.keys(operation.responses)).toContain('422');
+        expect(String(operation.description)).toContain('content-invalid-layout');
+      }
+      expect(String(op('/v1/content/:id/publish', 'post').description)).toContain('content-unsupported-format');
+      expect(String(op('/v1/content/:id', 'patch').description)).toContain('content-unsupported-format');
     });
   it('documents private preview manifests and authenticated inspected media bytes', () => {
     const preview = op('/v1/preview/content/:id', 'get');

@@ -25,6 +25,9 @@ import {
   CONTENT_INVALID_TRANSITION,
   CONTENT_NO_PLACEMENT,
   CONTENT_MEDIA_NOT_READY,
+  CONTENT_UNSUPPORTED_FORMAT,
+  CONTENT_INVALID_LAYOUT,
+  hasInvalidLayoutIssue,
   ContentCreateInput,
   ContentListQuery,
   ContentUpdateInput,
@@ -97,7 +100,7 @@ export const toContentItem = (row: ContentItemRow, product: ContentProductSummar
   // A style outside the preset list (none are written since Story 3.3) reads as the default.
   cta_style: (CTA_STYLES as readonly (string | null)[]).includes(row.ctaStyle) ? (row.ctaStyle as CtaStyle) : null,
   status: row.status,
-  status_reason: row.status === 'failed' ? (() => { const failed = slides.find(s => s.status === 'failed'); return failed?.failure_reason ? { code: failed.failure_reason, kind: failed.kind } : null; })() : row.status === 'draft' && row.autoPublish && !placements.length ? { code: 'no_placement' } : null,
+  status_reason: row.status === 'failed' ? (() => { const failed = slides.find(s => s.status === 'failed'); return failed?.failure_reason ? { code: failed.failure_reason, kind: failed.kind } : null; })() : row.status === 'draft' && row.autoPublish ? (row.format === 'reel' ? { code: 'unsupported_format' } : !placements.length ? { code: 'no_placement' } : null) : null,
   archived_from: row.archivedFrom,
   reactivate_to: row.reactivateTo,
   auto_publish: row.autoPublish,
@@ -108,6 +111,17 @@ export const toContentItem = (row: ContentItemRow, product: ContentProductSummar
   created_at: row.createdAt.toISOString(),
   updated_at: row.updatedAt.toISOString(),
 });
+
+/**
+ * A body that fails the contract: 422 `content-invalid-layout` when a placement names a layout the pilot does not
+ * deliver (Story 4.2 slice; nothing is written), otherwise 400 `invalid_body`.
+ */
+const invalidBody = (issues: readonly { path: readonly PropertyKey[] }[]): HttpException =>
+  hasInvalidLayoutIssue(issues)
+    ? new HttpException({ message: 'The layout is not available for this placement', code: 'invalid_layout', type: CONTENT_INVALID_LAYOUT }, HttpStatus.UNPROCESSABLE_ENTITY)
+    : new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
+
+const PUBLISH_INELIGIBLE_TYPES = { unsupported_format: CONTENT_UNSUPPORTED_FORMAT, no_placement: CONTENT_NO_PLACEMENT, media_not_ready: CONTENT_MEDIA_NOT_READY } as const;
 
 /** Merchant content item lifecycle endpoints (Story 3.1). Store comes from the merchant session only. */
 @Controller('v1')
@@ -126,7 +140,7 @@ export class ContentController {
   @HttpCode(HttpStatus.CREATED)
   async create(@Req() req: AuthenticatedRequest, @Body() raw: unknown): Promise<ContentItem> {
     const parsed = ContentCreateInput.safeParse(raw);
-    if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
+    if (!parsed.success) throw invalidBody(parsed.error.issues);
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
     await this.assertLinkable(storeId, parsed.data.product_id);
@@ -151,7 +165,7 @@ export class ContentController {
   @Patch('content/:id')
   async update(@Req() req: AuthenticatedRequest, @Param('id') id: string, @Body() raw: unknown): Promise<ContentItem> {
     const parsed = ContentUpdateInput.safeParse(raw);
-    if (!parsed.success) throw new BadRequestException({ message: 'The content item body is not valid', code: 'invalid_body' });
+    if (!parsed.success) throw invalidBody(parsed.error.issues);
     const storeId = req.merchantSession!.storeId;
     await this.assertStoreDomain(storeId, parsed.data.cta_url);
     if (parsed.data.product_id != null && UUID_RE.test(id)) {
@@ -226,7 +240,7 @@ export class ContentController {
     rows: readonly ContentItemRow[],
     links: ReadonlyMap<string, string>,
     slides: readonly SlideRow[],
-    placements: readonly { contentId: string; type: 'home' }[],
+    placements: readonly { contentId: string; type: 'home'; layout: Placement['layout'] }[],
   ): Promise<ContentItem[]> {
     const [products, assets] = await Promise.all([
       this.catalog.getProductsByIds(storeId, [...new Set(links.values())]),
@@ -240,7 +254,7 @@ export class ContentController {
     }
     return rows.map((row) => {
       const product = products.get(links.get(row.id) ?? '');
-      return toContentItem(row, product ? toProductSummary(product) : null, byItem.get(row.id) ?? [], placements.filter(p => p.contentId === row.id).map(p => ({ type: p.type })));
+      return toContentItem(row, product ? toProductSummary(product) : null, byItem.get(row.id) ?? [], placements.filter(p => p.contentId === row.id).map(p => ({ type: p.type, layout: p.layout })));
     });
   }
 
@@ -339,7 +353,7 @@ export class ContentController {
 
   private toHttpError(err: unknown): unknown {
     if (err instanceof PublishEligibilityError) {
-      return new HttpException({ message: err.message, code: err.reason, type: err.reason === 'no_placement' ? CONTENT_NO_PLACEMENT : CONTENT_MEDIA_NOT_READY }, HttpStatus.UNPROCESSABLE_ENTITY);
+      return new HttpException({ message: err.message, code: err.reason, type: PUBLISH_INELIGIBLE_TYPES[err.reason] }, HttpStatus.UNPROCESSABLE_ENTITY);
     }
     if (err instanceof ContentNotFoundError) {
       return new NotFoundException({ message: 'Content item not found', code: 'content_not_found' });

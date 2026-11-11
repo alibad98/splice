@@ -199,3 +199,7 @@ Original entries above retain their historical findings. Current disposition and
 - source_spec: `spec-4-1-placements-and-targets.md`
   summary: Strengthen inherited resolution browser and worker-startup verification.
   evidence: B8/B10 propose a real-browser valid replacement after invalid media and exact startup handler identities/counts plus recurring registration counts. Existing tests cover invalid replacement feedback and at least one handler per event; no new Home implementation defect was demonstrated.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-2-ring-layout-pilot-slice.md`
+  summary: Verify that the API (DI-built) and worker `ContentLifecycle` instances actually read the store display default from `IntegrationService.getDisplayDefaults` when a placement layout is omitted.
+  evidence: Review V1/B13 (2026-11-11). Ring is both the only allowed default and the fallback, so the current API settings-row test passes even when the integration dependency is not wired. Settle it once a second layout (Bar) exists by storing a non-Ring default and asserting a new Home placement inherits it through the HTTP and worker paths.

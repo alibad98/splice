@@ -10,8 +10,10 @@ import {
   CONTENT_ACTIONS,
   CONTENT_EVENT_NAMES,
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CONTENT_INVALID_LAYOUT,
   CONTENT_INVALID_TRANSITION,
   CONTENT_PRODUCT_NOT_LINKABLE,
+  CONTENT_UNSUPPORTED_FORMAT,
   CONTENT_SLIDE_ALT_REQUIRED,
   CONTENT_STATUSES,
   MEDIA_NOT_ATTACHABLE,
@@ -159,6 +161,57 @@ describe('ContentLifecycle exhaustive (status, action) transition matrix', () =>
     await expect(withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, 'undo_archive'))).rejects.toBeInstanceOf(PublishEligibilityError);
     expect(await rowById(item.id)).toEqual(before);
     expect(await eventsForContent(storeId, item.id)).toEqual(events);
+  });
+
+  it.each([
+    ['draft', 'publish'], ['draft', 'schedule'], ['scheduled', 'go_live'],
+    ['deactivated', 'reactivate'], ['archived', 'undo_archive'],
+  ] as const)('Reel admission (4.2 pilot): %s + %s refuses atomically with unsupported_format, even with Home and processed media', async (status, action) => {
+    const storeId = randomUUID();
+    const item = await seedItemInStatus(storeId, status);
+    // Live items can not be edited into Reels; set the format directly to reach the admission check.
+    await admin.query("update content_items set format = 'reel' where id = $1", [item.id]);
+    const before = await rowById(item.id);
+    const events = await eventsForContent(storeId, item.id);
+    await expect(withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, action))).rejects.toMatchObject({ name: 'PublishEligibilityError', reason: 'unsupported_format' });
+    expect(await rowById(item.id)).toEqual(before);
+    expect(await eventsForContent(storeId, item.id)).toEqual(events);
+  });
+
+  it('Reel admission (4.2 pilot): Undo and reactivate into Scheduled or Published refuse a Reel, a Story still returns', async () => {
+    const storeId = randomUUID();
+    for (const target of ['scheduled', 'published'] as const) {
+      const item = await seedItemInStatus(storeId, target);
+      await withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, 'deactivate'));
+      await admin.query("update content_items set format = 'reel' where id = $1", [item.id]);
+      const before = await rowById(item.id);
+      const events = await eventsForContent(storeId, item.id);
+      await expect(withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, 'reactivate'))).rejects.toMatchObject({ reason: 'unsupported_format' });
+      expect(await rowById(item.id)).toEqual(before);
+      expect(await eventsForContent(storeId, item.id)).toEqual(events);
+      await withStoreContext(app, storeId, tx => lifecycle.edit(tx, storeId, item.id, { format: 'story' }));
+      expect((await withStoreContext(app, storeId, tx => lifecycle.apply(tx, storeId, item.id, 'reactivate'))).status).toBe(target);
+    }
+  });
+
+  it('Layout default (4.2 pilot): an omitted layout reads the integration default once; a sent or saved layout never does', async () => {
+    const storeId = randomUUID();
+    const defaults = { getDisplayDefaults: vi.fn(async () => ({ story_layout: 'ring' as const })) };
+    const withDefaults = new ContentLifecycle(boss, telemetry, undefined, defaults);
+    const created = await withStoreContext(app, storeId, tx => withDefaults.create(tx, storeId, validCreateInput));
+    expect(defaults.getDisplayDefaults).toHaveBeenCalledTimes(1);
+    expect(defaults.getDisplayDefaults).toHaveBeenCalledWith(storeId);
+    expect((await admin.query('select layout from placements where content_id = $1', [created.id])).rows).toEqual([{ layout: 'ring' }]);
+    await withStoreContext(app, storeId, tx => withDefaults.create(tx, storeId, { ...validCreateInput, placements: [{ type: 'home', layout: 'ring' }] }));
+    const events = await eventsForContent(storeId, created.id);
+    await withStoreContext(app, storeId, tx => withDefaults.edit(tx, storeId, created.id, { placements: [{ type: 'home' }] }));
+    await withStoreContext(app, storeId, tx => withDefaults.edit(tx, storeId, created.id, { placements: [{ type: 'home', layout: 'ring' }] }));
+    expect(defaults.getDisplayDefaults).toHaveBeenCalledTimes(1);
+    // Re-sending the saved Home (with or without its layout) is no change: nothing written, no event.
+    expect(await eventsForContent(storeId, created.id)).toEqual(events);
+    // Without an integration owner (e.g. the worker before wiring) the fallback is Ring.
+    const plain = await withStoreContext(app, storeId, tx => lifecycle.create(tx, storeId, validCreateInput));
+    expect((await admin.query('select layout from placements where content_id = $1', [plain.id])).rows).toEqual([{ layout: 'ring' }]);
   });
 
   const pairs: Array<[ContentStatus, ContentAction]> = CONTENT_STATUSES.flatMap((status) =>
@@ -615,9 +668,11 @@ describe('merchant content API & I/O matrix', () => {
     const a = await installedStore();
     const b = await installedStore();
     const published = await seedItemInStatus(a.storeId, 'published');
-    const ok = await request(a.token, 'PATCH', `/v1/content/${published.id}`, { title: 'Live edit', format: 'reel' });
+    // A legacy live Reel (set directly) can still be edited back to Story.
+    await admin.query("update content_items set format = 'reel' where id = $1", [published.id]);
+    const ok = await request(a.token, 'PATCH', `/v1/content/${published.id}`, { title: 'Live edit', format: 'story' });
     expect(ok.res.status).toBe(200);
-    expect(ContentItem.parse(ok.body)).toMatchObject({ status: 'published', title: 'Live edit', format: 'reel' });
+    expect(ContentItem.parse(ok.body)).toMatchObject({ status: 'published', title: 'Live edit', format: 'story' });
     expect((await eventsForContent(a.storeId, published.id)).at(-1)!.payload).toMatchObject({ status: 'published', changed: ['title', 'format'] });
 
     const archived = await seedItemInStatus(a.storeId, 'archived');
@@ -1029,10 +1084,11 @@ describe('merchant content API & I/O matrix', () => {
   it('Story 3.13: one Published PATCH commits combined fields, product and ordered slides with exactly one edited event; rejected edits commit nothing', async () => {
     const { storeId, token } = await installedStore();
     const source = await seedItemInStatus(storeId, 'published');
+    await admin.query("update content_items set format = 'reel' where id = $1", [source.id]);
     const productId = await seedProduct(storeId);
     const image = await seedAsset(storeId, 'image', 'processed');
     const video = await seedAsset(storeId, 'video', 'processed');
-    const patch = { title: 'Combined live edit', format: 'reel', cta_label: 'View', cta_action: 'open_link', cta_url: 'https://shop.example.com/p', cta_style: 'light', product_id: productId, slides: [{ media_asset_id: video, alt_text: null }, { media_asset_id: image, alt_text: 'Product photo' }] };
+    const patch = { title: 'Combined live edit', format: 'story', cta_label: 'View', cta_action: 'open_link', cta_url: 'https://shop.example.com/p', cta_style: 'light', product_id: productId, slides: [{ media_asset_id: video, alt_text: null }, { media_asset_id: image, alt_text: 'Product photo' }] };
     const beforeEvents = await eventsForContent(storeId, source.id);
     const result = await request(token, 'PATCH', `/v1/content/${source.id}`, patch);
     expect(result.res.status).toBe(200);
@@ -1136,10 +1192,10 @@ describe('merchant content API & I/O matrix', () => {
     expect((await request(other.token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'home' }] })).res.status).toBe(404);
     expect((await request(other.token, 'GET', `/v1/content/${item.id}`)).res.status).toBe(404);
     expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'home' }] })).res.status).toBe(200);
-    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body).placements).toEqual([{ type: 'home' }]);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${item.id}`)).body).placements).toEqual([{ type: 'home', layout: 'ring' }]);
     const unplaced = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
     const listed = ContentListResponse.parse((await request(token, 'GET', '/v1/content')).body);
-    expect(listed.items.find(row => row.id === item.id)?.placements).toEqual([{ type: 'home' }]);
+    expect(listed.items.find(row => row.id === item.id)?.placements).toEqual([{ type: 'home', layout: 'ring' }]);
     expect(listed.items.find(row => row.id === unplaced.id)?.placements).toEqual([]);
     expect(ContentItem.parse((await request(token, 'POST', `/v1/content/${item.id}/publish`)).body).status).toBe('published');
     const count = (await eventsForContent(storeId, item.id)).length;
@@ -1173,6 +1229,122 @@ describe('merchant content API & I/O matrix', () => {
       expect(refused.res.status).toBe(422); expect(refused.body).toMatchObject({ code: 'media_not_ready' });
       expect(await rowById(item.id)).toEqual(before); expect(await eventsForContent(storeId, item.id)).toEqual(events);
     }
+  });
+
+  it('Ring layout (4.2 pilot): new Home is Ring with and without a settings row, legacy rows read as Ring, other layouts 422 without mutation', async () => {
+    const { storeId, token } = await installedStore();
+    const other = await installedStore();
+    const created = await request(token, 'POST', '/v1/content', validCreateInput);
+    expect(created.res.status).toBe(201);
+    const item = ContentItem.parse(created.body);
+    expect(item.placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    expect((await admin.query('select layout from placements where content_id = $1', [item.id])).rows).toEqual([{ layout: 'ring' }]);
+    // A stored display default is inherited by new placements; another store's row is never read.
+    await admin.query("insert into store_settings (store_id, story_layout) values ($1, 'ring')", [storeId]);
+    const inherited = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
+    expect(ContentItem.parse((await request(token, 'PATCH', `/v1/content/${inherited.id}`, { placements: [{ type: 'home' }] })).body).placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    expect((await request(other.token, 'GET', `/v1/content/${inherited.id}`)).res.status).toBe(404);
+    // A Home row written before migration 0023 (no layout sent) reads back as Ring.
+    const legacy = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
+    await admin.query("insert into placements (store_id, content_id, type) values ($1, $2, 'home')", [storeId, legacy.id]);
+    const listed = ContentListResponse.parse((await request(token, 'GET', '/v1/content')).body);
+    expect(listed.items.find(row => row.id === legacy.id)?.placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    expect(ContentItem.parse((await request(token, 'GET', `/v1/content/${legacy.id}`)).body).placements).toEqual([{ type: 'home', layout: 'ring' }]);
+
+    const items = await admin.query('select count(*)::int as n from content_items where store_id = $1', [storeId]);
+    for (const layout of ['bar', 'strip', 'carousel', 'unknown', 3]) {
+      const create = await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [{ type: 'home', layout }] });
+      expect(create.res.status).toBe(422);
+      expect(create.res.headers.get('content-type')).toContain('application/problem+json');
+      expect(create.body).toMatchObject({ type: CONTENT_INVALID_LAYOUT, code: 'invalid_layout', status: 422 });
+    }
+    expect((await admin.query('select count(*)::int as n from content_items where store_id = $1', [storeId])).rows).toEqual(items.rows);
+    const unplaced = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
+    for (const target of [item, unplaced]) {
+      const row = await rowById(target.id);
+      const events = await eventsForContent(storeId, target.id);
+      const placementsBefore = (await admin.query('select * from placements where content_id = $1', [target.id])).rows;
+      const patch = await request(token, 'PATCH', `/v1/content/${target.id}`, { title: 'Not saved', placements: [{ type: 'home', layout: 'bar' }] });
+      expect(patch.res.status).toBe(422);
+      expect(patch.body).toMatchObject({ type: CONTENT_INVALID_LAYOUT, code: 'invalid_layout' });
+      expect(await rowById(target.id)).toEqual(row);
+      expect(await eventsForContent(storeId, target.id)).toEqual(events);
+      expect((await admin.query('select * from placements where content_id = $1', [target.id])).rows).toEqual(placementsBefore);
+    }
+    // Other invalid placement shapes keep their 400.
+    expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'category', layout: 'ring' }] })).res.status).toBe(400);
+  });
+
+  it('Ring layout (4.2 pilot): Published items save layout explicitly with one edited event, and export carries the layout', async () => {
+    const { storeId, token } = await installedStore();
+    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', { ...validCreateInput, placements: [] })).body);
+    expect((await request(token, 'PATCH', `/v1/content/${item.id}`, { placements: [{ type: 'home', layout: 'ring' }] })).res.status).toBe(200);
+    expect(ContentItem.parse((await request(token, 'POST', `/v1/content/${item.id}/publish`)).body)).toMatchObject({ status: 'published', placements: [{ type: 'home', layout: 'ring' }] });
+    const count = (await eventsForContent(storeId, item.id)).length;
+    const same = await request(token, 'PATCH', `/v1/content/${item.id}`, { title: 'Ring title', placements: [{ type: 'home', layout: 'ring' }] });
+    expect(ContentItem.parse(same.body)).toMatchObject({ status: 'published', title: 'Ring title', placements: [{ type: 'home', layout: 'ring' }] });
+    const after = await eventsForContent(storeId, item.id);
+    expect(after).toHaveLength(count + 1);
+    expect(after.at(-1)).toMatchObject({ name: 'content.item.edited', payload: { status: 'published', changed: ['title'] } });
+    const exported = (await withStoreContext(app, storeId, tx => contentStoreData.export!({ storeId, installEpoch: 1, tx }))) as { placements: Array<Record<string, unknown>> };
+    expect(exported.placements).toEqual([expect.objectContaining({ content_id: item.id, type: 'home', layout: 'ring' })]);
+  });
+
+  it('Reel admission (4.2 pilot): Reel drafts are created and edited, publish answers 422 unsupported-format, QC auto-publish stays Draft with the reason', async () => {
+    const { storeId, token } = await installedStore();
+    const asset = await seedAsset(storeId, 'video', 'scanned');
+    const created = await request(token, 'POST', '/v1/content', { ...validCreateInput, format: 'reel', auto_publish: true, slides: [{ media_asset_id: asset, alt_text: null }] });
+    expect(created.res.status).toBe(201);
+    const reel = ContentItem.parse(created.body);
+    expect(reel).toMatchObject({ format: 'reel', status: 'processing', placements: [{ type: 'home', layout: 'ring' }] });
+    expect((await request(token, 'PATCH', `/v1/content/${reel.id}`, { title: 'Reel draft edit' })).res.status).toBe(200);
+    const commands = nest.get(ContentLifecycle); const media = nest.get(MediaService);
+    const resolve = async (ids: readonly string[]) => new Map([...(await media.getAssetsByIds(storeId, ids))].map(([id, a]) => [id, a.status]));
+    await admin.query("update media_assets set status = 'processed' where id = $1", [asset]);
+    await withStoreContext(app, storeId, tx => commands.syncSlideProcessing(tx, storeId, asset, resolve));
+    const finished = ContentItem.parse((await request(token, 'GET', `/v1/content/${reel.id}`)).body);
+    expect(finished).toMatchObject({ status: 'draft', auto_publish: true, first_published_at: null, status_reason: { code: 'unsupported_format' } });
+    expect((await eventsForContent(storeId, reel.id)).filter(e => e.name === 'content.item.published')).toEqual([]);
+    const before = await rowById(reel.id); const events = await eventsForContent(storeId, reel.id);
+    const refused = await request(token, 'POST', `/v1/content/${reel.id}/publish`);
+    expect(refused.res.status).toBe(422);
+    expect(refused.body).toMatchObject({ type: CONTENT_UNSUPPORTED_FORMAT, code: 'unsupported_format' });
+    expect(await rowById(reel.id)).toEqual(before); expect(await eventsForContent(storeId, reel.id)).toEqual(events);
+    // The same item as a Story publishes.
+    expect((await request(token, 'PATCH', `/v1/content/${reel.id}`, { format: 'story' })).res.status).toBe(200);
+    expect(ContentItem.parse((await request(token, 'POST', `/v1/content/${reel.id}/publish`)).body).status).toBe('published');
+  });
+
+  it('Reel edit (4.2 pilot): a Published or Scheduled Story can not become a Reel; a Draft can', async () => {
+    const { storeId, token } = await installedStore();
+    for (const status of ['published', 'scheduled'] as const) {
+      const live = await seedItemInStatus(storeId, status);
+      const row = await rowById(live.id); const events = await eventsForContent(storeId, live.id);
+      const refused = await request(token, 'PATCH', `/v1/content/${live.id}`, { title: 'Not saved', format: 'reel' });
+      expect(refused.res.status).toBe(422);
+      expect(refused.res.headers.get('content-type')).toContain('application/problem+json');
+      expect(refused.body).toMatchObject({ type: CONTENT_UNSUPPORTED_FORMAT, code: 'unsupported_format' });
+      expect(await rowById(live.id)).toEqual(row);
+      expect(await eventsForContent(storeId, live.id)).toEqual(events);
+    }
+    const draft = await seedItemInStatus(storeId, 'draft');
+    const ok = await request(token, 'PATCH', `/v1/content/${draft.id}`, { format: 'reel' });
+    expect(ok.res.status).toBe(200);
+    expect(ContentItem.parse(ok.body)).toMatchObject({ status: 'draft', format: 'reel' });
+  });
+
+  it('Mixed invalid bodies (4.2 pilot): a layout issue next to another issue stays 400 invalid_body', async () => {
+    const { storeId, token } = await installedStore();
+    const item = ContentItem.parse((await request(token, 'POST', '/v1/content', validCreateInput)).body);
+    for (const body of [{ title: '', placements: [{ type: 'home', layout: 'bar' }] }, { placements: [{ type: 'category', layout: 'bar' }] }]) {
+      const patch = await request(token, 'PATCH', `/v1/content/${item.id}`, body);
+      expect(patch.res.status).toBe(400);
+      expect(patch.body).toMatchObject({ code: 'invalid_body' });
+      const create = await request(token, 'POST', '/v1/content', { ...validCreateInput, ...body });
+      expect(create.res.status).toBe(400);
+      expect(create.body).toMatchObject({ code: 'invalid_body' });
+    }
+    expect((await admin.query('select count(*)::int as n from content_items where store_id = $1', [storeId])).rows).toEqual([{ n: 1 }]);
   });
 
   it('Slides (Story 3.7): an importing asset is attachable; the slide carries its source_url (null for uploads), also once the import failed', async () => {
@@ -1564,6 +1736,7 @@ describe('worker content event handlers & store data lifecycle', () => {
     };
     expect(exported.content_items).toHaveLength(4);
     expect((exported as unknown as { placements: unknown[] }).placements).toHaveLength(4);
+    expect((exported as unknown as { placements: Array<Record<string, unknown>> }).placements.every(p => p.layout === 'ring')).toBe(true);
     expect((exported as unknown as { content_product_links: Array<Record<string, unknown>> }).content_product_links).toEqual([
       expect.objectContaining({ content_id: linked.id, slide_id: null }),
     ]);

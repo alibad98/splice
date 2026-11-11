@@ -5,7 +5,7 @@ import pg from 'pg';
 import { PgBoss } from 'pg-boss';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { EVENT_QUEUE } from '@slips/contracts';
-import { ensureTestAppRole, runMigrations } from '@slips/db';
+import { ensureTestAppRole, runMigrations, withStoreContext } from '@slips/db';
 import { EnvelopeTokenCipher } from '../adapters/crypto/envelope-cipher.js';
 import { SendOnlyEventSender } from '../adapters/pgboss/send-only-producer.js';
 import { grantEventPublishing } from '../events/queue-grants.js';
@@ -17,6 +17,7 @@ import { PlatformAuthRejectedError, PlatformUnavailableError, type CommercePlatf
 import { StoreDisconnectedError, StoreNotConnectedError } from '../modules/integration/errors.js';
 import { createInstallState } from '../modules/integration/install-state.js';
 import { IntegrationService } from '../modules/integration/integration.service.js';
+import { integrationStoreData } from '../modules/integration/integration.lifecycle.js';
 import { ownerInviteListener } from '../modules/auth/owner-invite.js';
 import type { OtpEmailPayload } from '../ports/mailer.js';
 import type { SessionConfig } from '../infra.module.js';
@@ -352,6 +353,34 @@ describe('getAccessToken', () => {
     const out = lines.join('\n');
     expect(out).not.toMatch(/AT-|RT-/);
     expect(out).toContain('store install completed');
+  });
+});
+
+describe('display defaults (Story 4.2 pilot slice)', () => {
+  it('reads Ring without a settings row, the stored default with one, and never another store\'s row', async () => {
+    const svc = service(new FakePlatform());
+    const a = randomUUID();
+    const b = randomUUID();
+    expect(await svc.getDisplayDefaults(a)).toEqual({ story_layout: 'ring' });
+    await admin.query('insert into store_settings (store_id, story_layout) values ($1, $2)', [b, 'ring']);
+    expect(await svc.getDisplayDefaults(b)).toEqual({ story_layout: 'ring' });
+    // Inside store A's context, B's settings row is invisible and can not be changed (forced RLS).
+    await withStoreContext(app, a, async (ctx) => {
+      expect((await ctx.query('select 1 from store_settings where store_id = $1', [b])).rowCount).toBe(0);
+      expect((await ctx.query('update store_settings set updated_at = now() where store_id = $1', [b])).rowCount).toBe(0);
+      expect(await svc.getDisplayDefaults(a)).toEqual({ story_layout: 'ring' });
+    });
+    await expect(withStoreContext(app, a, async () => svc.getDisplayDefaults(b))).rejects.toThrow('different store');
+  });
+
+  it('exports the settings row with the store data and the purge removes it', async () => {
+    const storeId = randomUUID();
+    await admin.query('insert into store_settings (store_id) values ($1)', [storeId]);
+    const exported = (await withStoreContext(app, storeId, (tx) => integrationStoreData.export!({ storeId, installEpoch: 1, tx }))) as { store_settings: Array<Record<string, unknown>> };
+    expect(exported.store_settings).toEqual([expect.objectContaining({ story_layout: 'ring' })]);
+    expect(JSON.stringify(exported)).not.toContain('token');
+    await withStoreContext(app, storeId, (tx) => integrationStoreData.purge({ storeId, installEpoch: 1, tx, batchLimit: 100 }));
+    expect((await admin.query('select 1 from store_settings where store_id = $1', [storeId])).rowCount).toBe(0);
   });
 });
 

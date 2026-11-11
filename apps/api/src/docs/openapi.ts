@@ -1,7 +1,9 @@
 import {
   AUTH_PROBLEM_CODES,
   CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CONTENT_INVALID_LAYOUT,
   CONTENT_INVALID_TRANSITION,
+  CONTENT_UNSUPPORTED_FORMAT,
   CONTENT_PRODUCT_NOT_LINKABLE,
   CONTENT_SLIDE_ALT_REQUIRED,
   ContentProductSummary,
@@ -194,6 +196,7 @@ export interface RouteDoc {
 
 const MB = 1024 * 1024;
 
+const PLACEMENTS_DOC = `\`placements\` holds at most one Home placement (\`{ type: 'home', layout? }\`). The controlled pilot delivers the fixed Story Ring only: an omitted \`layout\` keeps the saved layout, or takes the store display default (Ring when the store has no settings). Any other or unknown \`layout\` answers 422 with problem \`type\` \`${CONTENT_INVALID_LAYOUT}\` (code \`invalid_layout\`) and nothing is written.`;
 const SLIDES_DOC = `\`slides\` (at most ${SLIDES_MAX}, unique \`media_asset_id\`s) replaces the item's slide list in order: removed slides are soft-deleted and a re-added asset revives its slide. Each asset must be a non-failed media asset of the store, else 422 with problem \`type\` \`${MEDIA_NOT_ATTACHABLE}\`; image slides need \`alt_text\` (1-${SLIDE_ALT_MAX} characters), else 422 \`${CONTENT_SLIDE_ALT_REQUIRED}\`.`;
 
 const productExample = {
@@ -306,7 +309,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content',
     tag: 'Content',
     summary: 'Create a content item',
-    description: `Creates a draft Story or Reel with its title, format and CTA, and emits \`content.item.created\` in the same transaction. Invalid bodies answer 400 \`invalid_body\`. An open-link \`cta_url\` must be http(s) on one of the store's synced domains (or a subdomain of one), else 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`. An optional \`product_id\` links one catalog product; one the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. ${SLIDES_DOC}`,
+    description: `Creates a draft Story or Reel with its title, format and CTA, and emits \`content.item.created\` in the same transaction. Invalid bodies answer 400 \`invalid_body\`. An open-link \`cta_url\` must be http(s) on one of the store's synced domains (or a subdomain of one), else 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`. An optional \`product_id\` links one catalog product; one the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. ${SLIDES_DOC} ${PLACEMENTS_DOC}`,
     auth: 'merchant',
     body: ContentCreateInput,
     success: { status: 201, description: 'Created draft content item', body: ContentItem },
@@ -317,7 +320,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content/:id',
     tag: 'Content',
     summary: 'Edit a content item',
-    description: `Changes the title, format, CTA, linked product (\`product_id\`, one per item; \`null\` unlinks) and slides of a live item of the store, keeps its status, and emits \`content.item.edited\` in the same transaction (nothing is written when no field changes). Moving \`cta_action\` off \`open_link\` clears \`cta_url\`. Invalid bodies, or a merged item that breaks the open-link rule, answer 400 \`invalid_body\`; archived items answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`; an off-domain \`cta_url\` answers 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`; a \`product_id\` the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. ${SLIDES_DOC} A slide the item already has stays even if its asset failed since. Unknown, deleted or other-store items answer 404.`,
+    description: `Changes the title, format, CTA, linked product (\`product_id\`, one per item; \`null\` unlinks) and slides of a live item of the store, keeps its status, and emits \`content.item.edited\` in the same transaction (nothing is written when no field changes). Moving \`cta_action\` off \`open_link\` clears \`cta_url\`. Invalid bodies, or a merged item that breaks the open-link rule, answer 400 \`invalid_body\`; archived items answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`; an off-domain \`cta_url\` answers 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`; a \`product_id\` the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. ${SLIDES_DOC} A slide the item already has stays even if its asset failed since. ${PLACEMENTS_DOC} A layout change is one \`placements\` change in the single \`content.item.edited\` event. Changing a Published or Scheduled item's \`format\` to \`reel\` answers 422 with problem \`type\` \`${CONTENT_UNSUPPORTED_FORMAT}\` (code \`unsupported_format\`) and nothing is written. Unknown, deleted or other-store items answer 404.`,
     auth: 'merchant',
     body: ContentUpdateInput,
     success: { status: 200, description: 'Edited content item', body: ContentItem },
@@ -358,7 +361,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content/:id/publish',
     tag: 'Content',
     summary: 'Publish a content item now',
-    description: 'Publishes a Draft under its item lock. Requires a saved Home placement and all attached media to be processed. Refuses atomically with 422 no-placement (code no_placement) or content-media-not-ready (code media_not_ready). Unsupported placement types and targets are rejected by create/edit. Sets first_published_at once and emits content.item.published in the same transaction.',
+    description: `Publishes a Draft under its item lock. Requires a Story (Reels are not delivered in the pilot), a saved Home placement and all attached media to be processed. Refuses atomically with 422 ${CONTENT_UNSUPPORTED_FORMAT} (code unsupported_format), no-placement (code no_placement) or content-media-not-ready (code media_not_ready). Unsupported placement types and targets are rejected by create/edit. Sets first_published_at once and emits content.item.published in the same transaction.`,
     auth: 'merchant',
     success: { status: 200, description: 'Published content item', body: ContentItem },
     errors: [401, 403, 404, 409, 422],
@@ -378,7 +381,7 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content/:id/undo-archive',
     tag: 'Content',
     summary: 'Undo archive on a content item',
-    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`. Returning to Published or Scheduled requires a saved Home placement and processed media; admission failures answer 422 with type no-placement (code no_placement) or content-media-not-ready (code media_not_ready), without changing the item or emitting an event.`,
+    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`. Returning to Published or Scheduled requires a Story, a saved Home placement and processed media; admission failures answer 422 with type \`${CONTENT_UNSUPPORTED_FORMAT}\` (code unsupported_format), no-placement (code no_placement) or content-media-not-ready (code media_not_ready), without changing the item or emitting an event.`,
     auth: 'merchant',
     success: { status: 200, description: 'Unarchived content item', body: ContentItem },
     errors: [401, 403, 404, 409, 422],

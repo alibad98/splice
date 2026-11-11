@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CONTENT_NO_PLACEMENT, type ContentItem, type ContentProductSummary, type ProductRow } from '@slips/contracts';
+import { CONTENT_INVALID_LAYOUT, CONTENT_NO_PLACEMENT, CONTENT_UNSUPPORTED_FORMAT, type ContentItem, type ContentProductSummary, type ProductRow } from '@slips/contracts';
 import { DialogHost, dialog, toast, Toaster } from '@slips/ui';
 import { I18nProvider } from '../../../i18n/provider';
 import { getMessages } from '../../../i18n/messages';
@@ -155,7 +155,7 @@ afterEach(() => {
 describe('Content editor: new item', () => {
   it.each(['en', 'ar'] as const)('%s: publication errors preserve Draft values and allow a successful retry', async locale => {
     const m = getMessages(locale).content;
-    let current = item({ placements: [{ type: 'home' }] });
+    let current = item({ placements: [{ type: 'home', layout: 'ring' }] });
     let attempts = 0;
     handler = ({ method, path, body }) => {
       if (method === 'PATCH') current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
@@ -198,12 +198,12 @@ describe('Content editor: new item', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
     await advance(AUTOSAVE_DELAY_MS + 40);
     expect(screen.queryByText('Add a placement to publish this content.')).toBeNull();
-    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { placements: [{ type: 'home' }] } })]);
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { placements: [{ type: 'home', layout: 'ring' }] } })]);
     expect((screen.getByRole('checkbox', { name: 'Category page' }) as HTMLInputElement).disabled).toBe(true);
   });
 
   it('Publish waits for an in-flight autosave and then saves the latest combined values', async () => {
-    const initial = item({ placements: [{ type: 'home' }] });
+    const initial = item({ placements: [{ type: 'home', layout: 'ring' }] });
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     let current = initial; let patches = 0;
@@ -225,7 +225,7 @@ describe('Content editor: new item', () => {
     expect(writes().map(c => c.path.endsWith('/publish') ? 'publish' : (c.body as { title: string }).title)).toEqual(['First', 'Latest', 'publish']);
   });
 
-  it('focuses the title; a format-only change saves nothing; a typed title creates the Draft once after 1 s and swaps the URL without a remount', async () => {
+  it('focuses the title; the unavailable Reel choice changes nothing; a typed title creates the Draft once after 1 s and swaps the URL without a remount', async () => {
     setup({ element: <ContentEditor /> });
     expect(document.activeElement).toBe(title());
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('New story');
@@ -234,6 +234,7 @@ describe('Content editor: new item', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
     await advance(AUTOSAVE_DELAY_MS * 2);
     expect(writes()).toEqual([]);
+    expect(screen.getByRole('tab', { name: 'Story' }).getAttribute('aria-selected')).toBe('true');
 
     const input = title();
     type(input, 'Autumn perfumes');
@@ -243,7 +244,7 @@ describe('Content editor: new item', () => {
     expect(writes()[0]).toEqual({
       method: 'POST',
       path: '/v1/content',
-      body: { auto_publish: false, title: 'Autumn perfumes', format: 'reel', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [], placements: [] },
+      body: { auto_publish: false, title: 'Autumn perfumes', format: 'story', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [], placements: [] },
     });
     await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
     expect(window.location.pathname).toBe(`/content/${ID}`);
@@ -254,6 +255,114 @@ describe('Content editor: new item', () => {
     type(input, 'Autumn perfumes 2');
     await until(() => expect(writes()).toHaveLength(2));
     expect(writes()[1]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Autumn perfumes 2' } });
+  });
+
+  it.each(['en', 'ar'] as const)('%s: pilot choices are visible, focusable and unavailable with a localized inline reason (Story 4.2 slice)', async locale => {
+    const m = getMessages(locale).content;
+    setup({ locale, element: <ContentEditor /> });
+    // Reel format: focusable, aria-disabled, described by the visible reason; choosing it keeps Story.
+    const reel = screen.getByRole('tab', { name: m.formats.reel });
+    expect(reel.getAttribute('aria-disabled')).toBe('true');
+    expect(reel.hasAttribute('disabled')).toBe(false);
+    const reelReason = document.getElementById(reel.getAttribute('aria-describedby')!)!;
+    expect(reelReason.textContent).toBe(m.editor.formatTitle.reelUnavailable);
+    expect(reelReason.hidden).toBe(false);
+    reel.focus(); fireEvent.mouseDown(reel, { button: 0 }); fireEvent.click(reel); fireEvent.keyDown(reel, { key: 'Enter' });
+    expect(document.activeElement).toBe(reel);
+    expect(screen.getByRole('tab', { name: m.formats.story }).getAttribute('aria-selected')).toBe('true');
+    // Schedule: next to Publish now, focusable and unavailable with its reason announced and shown inline.
+    const schedule = screen.getByRole('button', { name: m.editor.publish.schedule });
+    expect(schedule.getAttribute('aria-disabled')).toBe('true');
+    expect(schedule.hasAttribute('disabled')).toBe(false);
+    expect(document.getElementById(schedule.getAttribute('aria-describedby')!)!.textContent).toBe(m.editor.publish.scheduleUnavailable);
+    expect(screen.getAllByText(m.editor.publish.scheduleUnavailable).some(node => !node.hidden)).toBe(true);
+    schedule.focus(); fireEvent.click(schedule);
+    expect(document.activeElement).toBe(schedule);
+    // Layout: only under Home; Ring is selected, Bar is focusable and unavailable with its reason.
+    expect(screen.queryByRole('radiogroup', { name: m.editor.layout.heading })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: m.editor.placements.home }));
+    const group = screen.getByRole('radiogroup', { name: m.editor.layout.heading });
+    const ring = within(group).getByRole('radio', { name: m.editor.layout.ring });
+    const bar = within(group).getByRole('radio', { name: m.editor.layout.bar });
+    expect(ring.getAttribute('aria-checked')).toBe('true');
+    expect(bar.getAttribute('aria-checked')).toBe('false');
+    expect(bar.getAttribute('aria-disabled')).toBe('true');
+    expect(bar.hasAttribute('disabled')).toBe(false);
+    expect(document.getElementById(bar.getAttribute('aria-describedby')!)!.textContent).toBe(m.editor.layout.barUnavailable);
+    expect(screen.getAllByText(m.editor.layout.barUnavailable).some(node => !node.hidden)).toBe(true);
+    bar.focus(); fireEvent.click(bar);
+    expect(document.activeElement).toBe(bar);
+    expect(ring.getAttribute('aria-checked')).toBe('true');
+    expect(writes()).toEqual([]);
+  });
+
+  it('saves Home with the Ring layout and a reload hydrates it; a 422 invalid layout shows the localized field error', async () => {
+    let current = item();
+    let rejectLayout = true;
+    handler = ({ method, body }) => {
+      if (method === 'PATCH') {
+        if (rejectLayout) return problem(422, { type: CONTENT_INVALID_LAYOUT, code: 'invalid_layout' });
+        current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
+      }
+      return json(current);
+    };
+    setup({ element: <ContentEditor item={current} /> });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { placements: [{ type: 'home', layout: 'ring' }] } })]);
+    await until(() => expect(screen.getByText(getMessages('en').content.editor.errors.layoutInvalid)).toBeTruthy());
+    expect(screen.getByRole('radiogroup', { name: 'Home layout' }).getAttribute('aria-invalid')).toBe('true');
+    const layoutAlert = getMessages('en').content.editor.errors.layoutInvalid;
+    // Choosing Ring clears the server error.
+    fireEvent.click(screen.getByRole('radio', { name: 'Story ring' }));
+    expect(screen.queryByText(layoutAlert)).toBeNull();
+    expect(screen.getByRole('radiogroup', { name: 'Home layout' }).getAttribute('aria-invalid')).toBeNull();
+    // Unchecking Home clears it too.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    await until(() => expect(screen.getByText(layoutAlert)).toBeTruthy());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    expect(screen.queryByText(layoutAlert)).toBeNull();
+    cleanup(); calls = [];
+    rejectLayout = false;
+    current = item({ placements: [{ type: 'home', layout: 'ring' }] });
+    setup({ element: <ContentEditor item={current} /> });
+    expect((screen.getByRole('checkbox', { name: 'Home' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('radio', { name: 'Story ring' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Story ring' }));
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+  });
+
+  it.each(['en', 'ar'] as const)('%s: an existing Reel draft stays editable, Publish is unavailable with the unsupported_format reason, and a 422 answer shows it', async locale => {
+    const m = getMessages(locale).content;
+    let current = item({ format: 'reel', placements: [{ type: 'home', layout: 'ring' }], auto_publish: true, status_reason: { code: 'unsupported_format' } });
+    handler = ({ method, body }) => {
+      if (method === 'PATCH') current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
+      return json(current);
+    };
+    setup({ locale, element: <ContentEditor item={current} /> });
+    const reel = screen.getByRole('tab', { name: m.formats.reel });
+    expect(reel.getAttribute('aria-selected')).toBe('true');
+    expect(reel.getAttribute('aria-disabled')).toBeNull();
+    const publish = screen.getByRole('button', { name: m.editor.publish.now });
+    expect(publish.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(publish.getAttribute('aria-describedby')!)!.textContent).toBe(m.statusReasons.unsupported_format);
+    expect(screen.getAllByText(m.statusReasons.unsupported_format).filter(node => !node.hidden)).toHaveLength(1);
+    fireEvent.click(publish);
+    expect(calls.some(c => c.path.endsWith('/publish'))).toBe(false);
+    type(screen.getByRole('textbox', { name: m.editor.formatTitle.title }), 'Reel edit');
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { title: 'Reel edit' } })]);
+  });
+
+  it('a 422 unsupported-format publish answer shows the localized reason', async () => {
+    const current = item({ placements: [{ type: 'home', layout: 'ring' }] });
+    handler = ({ path }) => path.endsWith('/publish') ? problem(422, { type: CONTENT_UNSUPPORTED_FORMAT, code: 'unsupported_format' }) : json(current);
+    setup({ element: <ContentEditor item={current} /> });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish now' }));
+    await until(() => expect(screen.getByRole('alert').textContent).toBe(getMessages('en').content.statusReasons.unsupported_format));
   });
 
   it('uses the UI language for the default button text', async () => {
@@ -460,7 +569,7 @@ describe('Content editor: explicit saves, read-only, errors and leaving', () => 
   it('Published combined edits stay local, send one PATCH, and survive a rejected save for retry', async () => {
     const productId = crypto.randomUUID();
     const assetA = crypto.randomUUID(), assetB = crypto.randomUUID();
-    const published = item({ status: 'published', product: { id: productId, name: 'Oud', image_url: null, price_minor: 1000, sale_price_minor: null, currency: 'SAR', availability: 'available', has_required_options: false, deleted: false }, slides: [
+    const published = item({ status: 'published', format: 'reel', product: { id: productId, name: 'Oud', image_url: null, price_minor: 1000, sale_price_minor: null, currency: 'SAR', availability: 'available', has_required_options: false, deleted: false }, slides: [
       { id: crypto.randomUUID(), media_asset_id: assetA, kind: 'image', alt_text: 'Original photo', status: 'processed', failure_reason: null, source_url: null, poster_url: null },
       { id: crypto.randomUUID(), media_asset_id: assetB, kind: 'video', alt_text: null, status: 'processed', failure_reason: null, source_url: null, poster_url: null },
     ] });
@@ -484,8 +593,8 @@ describe('Content editor: explicit saves, read-only, errors and leaving', () => 
     await until(() => expect(title().value).toBe(published.title));
     type(title(), 'All live changes');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Reel' }), { button: 0 });
-    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Story' }), { button: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Story' }));
     type(screen.getByRole('textbox', { name: 'Button text' }), 'Shop');
     await chooseAction('Open link');
     type(document.getElementById('content-cta-url')!, 'https://demo.salla.sa/p');
@@ -496,7 +605,7 @@ describe('Content editor: explicit saves, read-only, errors and leaving', () => 
     expect(writes()).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
     await until(() => expect(writes()).toHaveLength(1));
-    const expected = { title: 'All live changes', format: 'reel', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p', cta_style: 'outline', slides: [{ media_asset_id: assetB, alt_text: null }, { media_asset_id: assetA, alt_text: 'Changed photo' }], placements: [{ type: 'home' }] };
+    const expected = { title: 'All live changes', format: 'story', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p', cta_style: 'outline', slides: [{ media_asset_id: assetB, alt_text: null }, { media_asset_id: assetA, alt_text: 'Changed photo' }], placements: [{ type: 'home', layout: 'ring' }] };
     expect(writes()[0]!.body).toEqual(expected);
     await until(() => expect(refetchedAfterRejection).toBe(true));
     await until(() => expect(screen.getAllByText('The linked product was deleted in your store')).toHaveLength(2));

@@ -280,6 +280,7 @@ describe('purge', () => {
     const s = await installStore();
     fake.rows.set(s.storeId, 1200);
     await admin.query(`insert into token_access_log (store_id, purpose, outcome) values ($1, 'use', 'ok')`, [s.storeId]);
+    await admin.query(`insert into store_settings (store_id) values ($1)`, [s.storeId]);
     await send(hook('app.uninstalled', s.merchant));
     return s;
   }
@@ -295,7 +296,7 @@ describe('purge', () => {
     expect(fake.purgeCalls).toBe(3);
     expect(fake.rows.get(storeId)).toBe(0);
     expect(await storeRow(storeId)).toMatchObject({ lifecycle_state: 'purged', install_epoch: 1, name: 'purged' });
-    for (const t of ['platform_tokens', 'merchant_accounts', 'token_access_log', 'merchant_sessions']) expect((await admin.query(`select 1 from ${t} where store_id = $1`, [storeId])).rowCount).toBe(0);
+    for (const t of ['platform_tokens', 'merchant_accounts', 'token_access_log', 'merchant_sessions', 'store_settings']) expect((await admin.query(`select 1 from ${t} where store_id = $1`, [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from webhook_inbox where platform_store_id = $1', [merchant])).rowCount).toBe(0);
     expect((await admin.query('select 1 from store_purge_schedule where id = $1', [storeId])).rowCount).toBe(0);
     const audit = (await admin.query('select action, details from lifecycle_audit where platform_store_id = $1 order by at', [merchant])).rows;

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { ConnectionStatus } from '@slips/contracts';
+import { ConnectionStatus, type StoryLayout } from '@slips/contracts';
 import { runOutsideStoreContext, withStoreContext, type LifecycleState } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL, EVENT_SENDER, INTEGRATION_CONFIG, type IntegrationConfig } from '../../infra.module.js';
@@ -312,6 +312,15 @@ export class IntegrationService {
   /** The store's synced storefront hosts (empty when the store is unknown). Content checks open-link CTA URLs against them (Story 3.3). */
   async getSyncedDomains(storeId: string): Promise<string[]> {
     return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.syncedDomains ?? []);
+  }
+
+  /**
+   * The store's display defaults (Story 4.2 pilot slice). A store without a settings row reads as Ring; no backfill is
+   * needed. Content resolves an omitted placement layout through this method only and never reads `store_settings`.
+   * Joins the caller's transaction when it already runs in this store's context.
+   */
+  async getDisplayDefaults(storeId: string): Promise<{ story_layout: StoryLayout }> {
+    return withStoreContext(this.pool, storeId, async () => ({ story_layout: (await this.repo.getSettings())?.storyLayout ?? 'ring' }));
   }
 
   /** What the dashboard connection chip shows for a store. */

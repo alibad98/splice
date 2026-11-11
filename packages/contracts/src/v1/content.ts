@@ -115,11 +115,31 @@ export function canTransition(from: ContentStatus | null, action: ContentAction)
 export const CONTENT_INVALID_TRANSITION = 'invalid-transition';
 export const CONTENT_NO_PLACEMENT = 'no-placement';
 export const CONTENT_MEDIA_NOT_READY = 'content-media-not-ready';
+/** Problem `type` when a Reel is sent to Published or Scheduled during the Story-only pilot (422, Story 4.2 pilot slice). */
+export const CONTENT_UNSUPPORTED_FORMAT = 'content-unsupported-format';
+/** Problem `type` when a placement names a layout the pilot does not deliver (422, Story 4.2 pilot slice). */
+export const CONTENT_INVALID_LAYOUT = 'content-invalid-layout';
 
-/** The controlled pilot supports Home only; targets are deliberately not accepted. */
-export const Placement = z.strictObject({ type: z.literal('home') });
+/** Story layouts the controlled pilot delivers: the fixed Ring only. Bar and Reel layouts remain full Story 4.2 work. */
+export const STORY_LAYOUTS_PILOT = ['ring'] as const;
+export const StoryLayout = z.enum(STORY_LAYOUTS_PILOT);
+export type StoryLayout = z.infer<typeof StoryLayout>;
+
+/** A saved placement as the API returns it: Home only (targets are deliberately not accepted), always with its layout. */
+export const Placement = z.strictObject({ type: z.literal('home'), layout: StoryLayout });
 export type Placement = z.infer<typeof Placement>;
-export const PlacementList = z.array(Placement).max(1);
+/** A placement as the editor sends it. An omitted `layout` keeps the saved one, or takes the store display default (Ring). */
+export const PlacementInput = z.strictObject({ type: z.literal('home'), layout: StoryLayout.optional() });
+export type PlacementInput = z.infer<typeof PlacementInput>;
+export const PlacementList = z.array(PlacementInput).max(1);
+
+/**
+ * True when every issue of a failed content body parse is on a placement `layout` (`placements.<n>.layout`). The API
+ * answers those with 422 `content-invalid-layout`; a body with any other issue stays a generic 400 invalid body.
+ */
+export const hasInvalidLayoutIssue = (issues: readonly { path: readonly PropertyKey[] }[]): boolean =>
+  issues.length > 0 &&
+  issues.every((issue) => issue.path.length === 3 && issue.path[0] === 'placements' && typeof issue.path[1] === 'number' && issue.path[2] === 'layout');
 
 /** Problem `type` when an open-link CTA URL is not on one of the store's synced domains (422). */
 export const CONTENT_CTA_URL_NOT_STORE_DOMAIN = 'cta-url-not-store-domain';
@@ -259,7 +279,7 @@ export const ContentSlide = z.object({
 });
 export type ContentSlide = z.infer<typeof ContentSlide>;
 
-export const CONTENT_STATUS_REASONS = [...MediaFailureReason.options, 'no_placement'] as const;
+export const CONTENT_STATUS_REASONS = [...MediaFailureReason.options, 'no_placement', 'unsupported_format'] as const;
 export const ContentStatusReason = z.object({ code: z.enum(CONTENT_STATUS_REASONS), kind: MediaKind.optional() });
 export type ContentStatusReason = z.infer<typeof ContentStatusReason>;
 
@@ -283,7 +303,7 @@ export const ContentItem = z.object({
   product: ContentProductSummary.nullable(),
   /** The live slides in order (Story 3.6). */
   slides: z.array(ContentSlide),
-  placements: PlacementList.default([]),
+  placements: z.array(Placement).max(1).default([]),
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 });

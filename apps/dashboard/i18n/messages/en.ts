@@ -156,6 +156,7 @@ export const en = {
     actions: { retry: 'Retry' },
     statusReasons: {
       no_placement: 'Add a placement to publish',
+      unsupported_format: 'Reels can’t be published in this pilot. Switch the format to Story to publish.',
       image: 'This image did not finish processing:',
       video: 'This video did not finish processing:',
     },
@@ -221,7 +222,8 @@ export const en = {
     create: 'New story',
     editor: {
       placements: { heading: 'Placements', home: 'Home', category: 'Category page', product: 'Product page', pilot: 'This pilot supports Home. Category and Product pages are not available yet.' },
-      publish: { now: 'Publish now', done: 'Published', failed: "We couldn't publish this item. Try again.", waitMedia: 'Wait for all media to finish processing before publishing.' },
+      layout: { heading: 'Home layout', ring: 'Story ring', bar: 'Story bar', barUnavailable: 'The Story bar is not available in this pilot. Home shows the Story ring.' },
+      publish: { now: 'Publish now', done: 'Published', failed: "We couldn't publish this item. Try again.", waitMedia: 'Wait for all media to finish processing before publishing.', schedule: 'Schedule', scheduleUnavailable: 'Scheduling is not available in this pilot. Publish now instead.' },
       autoPublish: { label: 'Publish automatically after processing', hint: 'Add a placement to publish this content.' },
       replaceMedia: 'Replace the failed media to continue.',
       untitled: { story: 'New story', reel: 'New reel' },
@@ -236,7 +238,7 @@ export const en = {
       changesFailed: "We couldn't save your changes. Try again.",
       staleItem: 'This item changed somewhere else. We loaded the latest version.',
       archivedNote: 'This item is archived, so it is read-only. Restore it from the list to edit it.',
-      formatTitle: { heading: 'Format and title', format: 'Format', title: 'Title', titlePlaceholder: 'e.g. New autumn perfumes' },
+      formatTitle: { heading: 'Format and title', format: 'Format', title: 'Title', titlePlaceholder: 'e.g. New autumn perfumes', reelUnavailable: 'New Reels are not available in this pilot. Create a Story instead.' },
       cta: {
         heading: 'Call to action',
         label: 'Button text',
@@ -357,6 +359,7 @@ export const en = {
         urlNoDomain: "Your store has no synced domain yet, so links can't be checked. Choose another action.",
         altRequired: 'Describe the image in slide {n}',
         altTooLong: 'Keep the alt text of slide {n} to {max} characters or fewer',
+        layoutInvalid: 'Choose the Story ring. Other layouts are not available in this pilot.',
       },
       leave: {
         title: 'Leave without saving?',

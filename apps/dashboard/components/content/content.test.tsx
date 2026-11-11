@@ -111,7 +111,7 @@ const openRowMenu = async (title: string) => {
 describe('Videos & Stories page', () => {
   it.each(['en', 'ar'] as const)('renders Home in the %s desktop row and mobile card, leaving unplaced items empty', locale => {
     const m = getMessages(locale).content;
-    const home = item({ title: 'With Home', placements: [{ type: 'home' }] });
+    const home = item({ title: 'With Home', placements: [{ type: 'home', layout: 'ring' }] });
     const unplaced = item({ title: 'No placement', placements: [] });
     setup({ locale, lists: [[DEFAULT, page([home, unplaced])]] });
     const table = screen.getByRole('table');
@@ -124,6 +124,16 @@ describe('Videos & Stories page', () => {
     const unplacedCard = within(cards).getByRole('link', { name: unplaced.title }).closest('li')!;
     expect(within(homeCard).getByText(m.editor.placements.home)).toBeTruthy();
     expect(within(unplacedCard).queryByText(m.editor.placements.home)).toBeNull();
+  });
+
+  it.each(['en', 'ar'] as const)('shows the %s unsupported_format reason for a Reel draft in the desktop row and mobile card (4.2 pilot)', locale => {
+    const m = getMessages(locale).content;
+    const reel = item({ title: 'Reel draft', format: 'reel', auto_publish: true, status_reason: { code: 'unsupported_format' }, placements: [{ type: 'home', layout: 'ring' }] });
+    setup({ locale, lists: [[DEFAULT, page([reel])]] });
+    const row = screen.getByRole('table').querySelector(`tr[data-row-id="${reel.id}"]`)! as HTMLElement;
+    expect(within(row).getByText(m.statusReasons.unsupported_format)).toBeTruthy();
+    const card = within(screen.getByRole('list', { name: m.tableLabel })).getByRole('link', { name: reel.title }).closest('li')!;
+    expect(within(card).getByText(m.statusReasons.unsupported_format)).toBeTruthy();
   });
 
   it('renders thumb, title (dir=auto), format, "—" placement, chip, "—" views/clicks and the tab counts', () => {

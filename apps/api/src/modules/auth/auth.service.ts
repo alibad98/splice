@@ -49,13 +49,13 @@ export class AuthService {
 
   /** What the shell needs about the signed-in merchant. */
   async describe(session: MerchantSession): Promise<{ info: SessionInfo; connection: ConnectionStatus }> {
-    const connection = await this.integration.getConnection(session.storeId);
+    const [connection, domains] = await Promise.all([this.integration.getConnection(session.storeId), this.integration.getSyncedDomains(session.storeId)]);
     const direct = session.mode === 'direct';
     const openUrl = direct ? this.platform.embedded.openUrl() : undefined;
     const info: SessionInfo = {
       v: 1,
       mode: session.mode,
-      store: { name: connection.store_name ?? '' },
+      store: { name: connection.store_name ?? '', domains },
       connection,
       expires_at: session.expiresAt.toISOString(),
       ...(direct ? { csrf_token: this.sessions.csrfToken(session.id) } : {}),

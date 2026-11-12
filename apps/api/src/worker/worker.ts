@@ -1,3 +1,5 @@
+import { unconfiguredCdnPurger } from '../ports/cdn-purger.js';
+import { ManifestDelivery, MANIFEST_DELIVERY_QUEUE, pollManifestDeliveryStats } from '../modules/publishing/manifest-delivery.js';
 import { createServer, type Server } from 'node:http';
 import pg from 'pg';
 import { PgBoss } from 'pg-boss';
@@ -12,10 +14,20 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SWEEP_CRON, WEBHOOK_SWEEP_QUEUE, integrationJobHandlers, registerIntegrationEventHandlers } from './integration-jobs.js';
 import { catalogJobHandlers, registerCatalogEventHandlers } from './catalog-jobs.js';
 import { registerContentEventHandlers } from './content-jobs.js';
+import { mediaJobHandlers, registerMediaEventHandlers } from './media-jobs.js';
+import { publishingJobHandlers, registerPublishingEventHandlers } from './publishing-jobs.js';
+import { CatalogService } from '../modules/catalog/catalog.service.js';
+import { ContentService } from '../modules/content/content.service.js';
+import { StoreManifestCompiler } from '../modules/publishing/store-manifest.js';
+import { MediaImporter } from '../modules/media/media-import.js';
+import { MediaInspector } from '../modules/media/media-inspect.js';
+import { MediaProcessorRunner } from '../modules/media/media-process.js';
+import { MediaService } from '../modules/media/media.service.js';
+import { ContentLifecycle } from '../modules/content/content-lifecycle.js';
 import { CatalogSync } from '../modules/catalog/catalog-sync.js';
 import { CATALOG_RECONCILE_SCHEDULE_QUEUE, CatalogReconcile, RECONCILE_CRON } from '../modules/catalog/catalog-reconcile.js';
 import { registerProductWebhooks } from '../modules/catalog/product-webhooks.js';
-import { buildInfra } from '../http.js';
+import { buildInfra, ensureDevBucket } from '../http.js';
 import type { Env } from '../config/env.js';
 import type { DatabaseProbe } from '../ports/database-probe.js';
 import { Metric, type Telemetry } from '../ports/telemetry.js';
@@ -117,20 +129,37 @@ export async function startWorker(
   const integration = new IntegrationService(pool, infra.platform, infra.cipher, telemetry, boss, infra.integration, infra.lifecycles, infra.installListeners);
   registerIntegrationEventHandlers(events, telemetry);
   registerCatalogEventHandlers(events, boss, telemetry);
-  registerContentEventHandlers(events, telemetry);
+  const mediaService = new MediaService(pool, infra.storage, boss, telemetry, infra.media);
+  registerContentEventHandlers(events, telemetry, new ContentLifecycle(boss, telemetry, mediaService, integration), mediaService);
+  const inspector = new MediaInspector(infra.storage, infra.scanner, boss, telemetry);
+  registerMediaEventHandlers(events, boss, telemetry, inspector);
+  // External links are fetched and renditions are processed here only, never in the API (Stories 3.7, 3.8).
+  if (!infra.fetcher) throw new Error('the worker needs the external fetcher');
+  if (!infra.processor) throw new Error('the worker needs the media processor');
+  const importer = new MediaImporter(infra.fetcher, infra.storage, boss, telemetry);
+  const processorRunner = new MediaProcessorRunner(infra.storage, infra.processor, boss, telemetry, pool);
   const catalogSync = new CatalogSync(pool, infra.platform, integration, telemetry, boss);
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...handlers };
+  // Store manifests (Story 4.4): MANIFEST_INPUTS events enqueue a compile in their delivery transaction.
+  registerPublishingEventHandlers(events, boss, telemetry);
+  const manifestCompiler = new StoreManifestCompiler(pool, new ContentService(pool), new CatalogService(pool, boss, telemetry), mediaService, integration, telemetry, boss);
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer, processorRunner), ...publishingJobHandlers(pool, manifestCompiler, new ManifestDelivery(pool, integration, infra.storage, infra.cdnPurger ?? unconfiguredCdnPurger, boss, telemetry)), ...handlers };
   let stopPoller = () => {};
+  let deliveryStatsTimer: ReturnType<typeof setInterval> | undefined;
   try {
+    if (env.NODE_ENV === 'development') await ensureDevBucket(infra.storage, telemetry);
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
     await registerQueues(boss, telemetry, selected, allHandlers);
-    await grantEventPublishing(pool, telemetry, EVENT_QUEUE);
+    await grantEventPublishing(pool, telemetry, [EVENT_QUEUE, MANIFEST_DELIVERY_QUEUE]);
     if (selected.some((q) => q.name === WEBHOOK_SWEEP_QUEUE)) await boss.schedule(WEBHOOK_SWEEP_QUEUE, SWEEP_CRON, { v: 1, trace_id: 'schedule' });
     if (selected.some((q) => q.name === CATALOG_RECONCILE_SCHEDULE_QUEUE)) await boss.schedule(CATALOG_RECONCILE_SCHEDULE_QUEUE, RECONCILE_CRON, { v: 1, trace_id: 'schedule' });
+    if (selected.some((q) => q.name === MANIFEST_DELIVERY_QUEUE)) {
+      const poll = () => pollManifestDeliveryStats(pool, telemetry).catch((err: unknown) => telemetry.captureError(err, { task: 'manifest-delivery-stats' }));
+      void poll(); deliveryStatsTimer = setInterval(() => void poll(), 30000); deliveryStatsTimer.unref();
+    }
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),
@@ -139,6 +168,7 @@ export async function startWorker(
       infra.probe,
     );
   } catch (err) {
+    if (deliveryStatsTimer) clearInterval(deliveryStatsTimer);
     server.close();
     await boss.stop({ graceful: false }).catch(() => undefined);
     await pool.end().catch(() => undefined);
@@ -151,6 +181,7 @@ export async function startWorker(
   const shutdown = async () => {
     try {
       stopPoller();
+      if (deliveryStatsTimer) clearInterval(deliveryStatsTimer);
       server.close();
       await boss.stop({ graceful: true });
       await pool.end();

@@ -28,6 +28,29 @@ export const Metric = {
   QueueDepth: 'slips_queue_depth',
   /** Gauge, label `queue`: age in seconds of the oldest ready job. */
   QueueOldestAgeSeconds: 'slips_queue_oldest_age_seconds',
+  /** Counter: upload-URL requests refused by the per-store media upload throttle (abuse signal, Story 3.5). */
+  MediaUploadThrottled: 'slips_media_upload_throttled_total',
+  /** Counter: bytes of media stored, added when an asset is scanned or renditions are stored (per-store metering is `MediaService.storedBytes`). */
+  MediaStoredBytes: 'slips_media_stored_bytes_total',
+  /** Histogram: duration in seconds of `media.asset.process` jobs, label `kind` (`image` | `video`) (Story 3.8). */
+  MediaProcessingDuration: 'slips_media_processing_duration_seconds',
+  /** Counter, label `outcome` (`compiled` | `emptied` | `skipped_disconnected` | `removed`): store manifest compiles (Story 4.4). */
+  ManifestOriginFailures: 'slips_manifest_origin_failures_total',
+  ManifestDeliveryPending: 'slips_manifest_delivery_pending',
+  ManifestDeliveryFailed: 'slips_manifest_delivery_failed',
+  ManifestDeliveryOldestAge: 'slips_manifest_delivery_oldest_age_seconds',
+  ManifestDeliveryLag: 'slips_manifest_delivery_lag_seconds',
+  ManifestDeliveryFailures: 'slips_manifest_delivery_failures_total',
+  ManifestPurges: 'slips_manifest_purges_total',
+  ManifestCompiles: 'slips_manifest_compiles_total',
+  /** Histogram: seconds from the triggering event's `occurred_at` to a committed compile that wrote a manifest (`compiled` | `emptied`, Story 4.4). */
+  ManifestCompileLag: 'slips_manifest_compile_lag_seconds',
+  /** Histogram: gzip size of a compiled store manifest in kilobytes (Story 4.4). */
+  ManifestSizeGzipKilobytes: 'slips_manifest_size_gzip_kilobytes',
+  /** Counter: compiled store manifests above the 15 KB gzip budget (warning, Story 4.4). */
+  ManifestOversize: 'slips_manifest_oversize_total',
+  /** Counter: open-link CTAs dropped at compile because the URL is no longer on a synced store domain (Story 4.4). */
+  ManifestCtaDropped: 'slips_manifest_cta_dropped_total',
   /** Gauge: 1 while the worker's last DB check succeeded (worker liveness). */
   WorkerUp: 'slips_worker_up',
 } as const;

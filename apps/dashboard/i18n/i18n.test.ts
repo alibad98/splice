@@ -49,3 +49,26 @@ describe('locale precedence', () => {
     expect(withLang('/a', null)).toBe('/a');
   });
 });
+
+
+import { getMessages } from './messages';
+it.each(['ar', 'en'] as const)('has localized quality, retry and auto-publish copy in %s', locale => {
+  const m = getMessages(locale).content;
+  for (const code of ['below_min_resolution', 'over_duration', 'no_video_track'] as const) expect(m.editor.slides.failures[code].length).toBeGreaterThan(0);
+  expect(m.statusReasons.no_placement.length).toBeGreaterThan(0);
+  expect(m.actions.retry.length).toBeGreaterThan(0);
+  expect(m.editor.autoPublish.label.length).toBeGreaterThan(0);
+  if (locale === 'ar') {
+    const addedCopy = [
+      ...Object.values(m.statusReasons),
+      ...Object.values(m.editor.autoPublish),
+      m.editor.replaceMedia,
+      m.actions.retry,
+      ...(['below_min_resolution', 'over_duration', 'no_video_track'] as const).map(code => m.editor.slides.failures[code]),
+    ];
+    for (const text of addedCopy) {
+      expect(text).not.toMatch(/^[?\s\d\p{P}]+$/u);
+      expect(text).toMatch(/\p{Script=Arabic}/u);
+    }
+  }
+});

@@ -1,6 +1,6 @@
 # Slips (سليبس) Product Requirements Document (PRD)
 
-**Version:** 0.4 | **Date:** 10 Oct 2026 | **Scope:** MVP (Phase 1) in detail; Phases 2-3 as epic outlines
+**Version:** 0.5 | **Date:** 11 Nov 2026 | **Scope:** controlled pilot milestone, full MVP (Phase 1), Phases 2-3 as epic outlines
 **Companion documents:** `docs/prd-addendum.md` (technical detail, architect notes, rejected alternatives), `docs/tech-stack.md` (chosen stack), `docs/Slips_SRS_v0.1.md` (detailed reference)
 
 > **Precedence.** For the MVP, this PRD is the single source of truth; where it differs from the SRS, the PRD wins. The SRS remains the detailed reference for later phases. SRS requirement IDs are cited in brackets (for example [FR-CON-05]) so readers can trace each requirement back.
@@ -13,6 +13,7 @@
 ### Change log
 | Version | Date | Description | Author |
 |---|---|---|---|
+| 0.5 | 11 Nov 2026 | Owner-approved controlled pilot before full MVP; original requirements and E1-E5 retained | Product owner (with Codex) |
 | 0.1 | 10 Oct 2026 | Initial BMAD PRD derived from SRS v0.1 | Product owner |
 | 0.2 | 10 Oct 2026 | Applied validation findings and owner decisions C1, C4, C6, C8 | Product owner (with PM agent) |
 | 0.3 | 10 Oct 2026 | Q-07 resolved (multi-platform later, adapter boundary); interim answers for Q-10, Q-12 to Q-17; journeys and uninstall target kept | Product owner (with PM agent) |
@@ -28,12 +29,16 @@
 3. Show merchants **attributed orders and revenue** under a strict, conservative definition (§1.5, FR13), so the app proves its own ROI in numbers merchants can check against their Salla orders.
 4. Keep the storefront player **lightweight**: initial payload ≤ 50 KB gzip (~20 KB core), and **no layout shift caused by Slips** on pages where content is shown; when no content is eligible, Slips reserves no space (NFR1).
 5. Support **Arabic (RTL) and English (LTR)** throughout.
-6. Reach a pilot-ready MVP by **[TBD: product owner, Q-19]** and use the pilot to validate willingness to pay before funding Phases 2-3.
+6. First run the approved free controlled pilot to validate publication, playback and cart usability. Reach the full MVP by **[TBD: product owner, Q-19]**; validate willingness to pay separately before funding Phases 2-3.
 
 ### 1.2 Background
 Salla merchants rely heavily on mobile shoppers, and short-form video drives purchase decisions. The main competitor on the Salla App Store, Na3na3, offers shoppable video (Reels) only (source: Salla App Store listing reviewed for SRS §8, Oct 2026). For the MVP, Slips differentiates on three things it can deliver at launch: **Stories as well as Reels**, **scheduling and page-level visibility rules**, and **attribution to real orders and revenue**. AI-generated Reels and audience insights are later-phase differentiators (Epics 8-9) and are not part of the MVP pitch.
 
 ### 1.3 Success Metrics & MVP Exit Criteria
+
+**Earlier milestone: controlled pilot (approved by Ali, 11 November 2026).** Start with one explicitly enrolled live merchant; expand to at most three only after the first acceptance run. The pilot is free and manually onboarded. It proves Home placement, Story ring, publish-now, accessible playback and real simple-product cart usability. Required options use View options to the product page. Reels storefront delivery, category/product placements, scheduling, extra layouts, billing automation and analytics/attributed ROI are deferred to the full MVP; retain completed creation/media/preview capabilities. Do not add shopper tracking or claim attribution in this milestone.
+
+Ali owns pilot acceptance and the remaining merchant, provider/region and named support decisions. Set numeric upload/storage/cost caps before enrollment. Require production readiness, applicable Salla/cart/theme gates, withdrawal within one minute, security/data-rights procedures and a deployed acceptance run. Disable enrollment/player for cross-store exposure, broken cart/theme, high/critical security issues, excessive resource use or inability to withdraw content. See [pilot readiness](../_bmad-output/implementation-artifacts/pilot-readiness.md) for evidence and open decisions. This milestone does not establish willingness to pay or satisfy E1-E5 automatically.
 
 The MVP is "done" and Phase 2 full development may start only when **all** exit criteria are met.
 
@@ -102,6 +107,8 @@ These definitions apply to every screen, story and test. Screens that show a met
 
 ### 1.6 User Journeys [ASSUMPTION: protagonists and details to be confirmed by the product owner]
 
+**Approved pilot journey.** Install through Easy Mode, sign in through verified embedded or direct re-entry, sync products, create a Story, upload/process media, link one product, preview, choose Home and publish now. A shopper opens the Home Story ring and adds an available simple product to the real Salla cart. Products requiring options link to their product page. Archive/delete withdraws content within one minute. Verify Arabic/English, keyboard operation and guest/signed-in carts. Show pilot availability and support honestly; hide unsupported storefront choices and analytics, with no fabricated performance values. UJ1-UJ3 below describe the broader MVP; pilot publication still requires media QC and a valid placement.
+
 **UJ1. Noura onboards and publishes her first Story.** Noura owns an abaya store on Salla. She installs Slips from the Salla App Store and lands in the dashboard already connected ("Connected to Salla: Noura Abayas"). An onboarding checklist shows four steps: store connected ✓, products synced ✓ (done automatically), injector installed, first content created. She creates a Story, uploads three clips from her phone, links a best-selling abaya, keeps the "Add to cart" CTA and sets the placement to Home. The live preview shows what shoppers will see. She turns on auto-publish; a few minutes later the clips pass processing and the Story goes live. She opens Store Preview, then her real storefront, and sees the story ring on her home page.
 
 **UJ2. Faisal buys from a Reel on his phone.** Faisal browses Noura's store on Android Chrome. Below the hero banner a Reels carousel appears without pushing the page around. He taps a Reel; it opens full screen and plays muted. He unmutes, watches, and taps "Add to cart" on the product card. A confirmation appears and he keeps swiping. Two days later he returns to the store and checks out. Because the abaya was added from inside Slips and the order came within 7 days, that line item is credited to the Reel.
@@ -118,7 +125,7 @@ These definitions apply to every screen, story and test. Screens that show a met
 - **FR2** Handle app install and uninstall events. On uninstall: the storefront stops showing Slips content (the content API returns an empty result for that store key), billing-related processing stops, and the retention policy applies (30-day grace period during which a reinstall restores content and settings, then permanent deletion; NFR10). [FR-AUTH-05, NFR-DATA-01]
 - **FR3** Sync products (name, image, category, price including sale price, availability, and whether the product has required options/variants) from Salla via webhooks plus a manual sync; show the last sync time. Availability has three states: Available, Low, Out of stock (Low = 5 or fewer in stock [ASSUMPTION, Q-15]). [FR-PRD-01, 02, 03, 06]
 - **FR4** Create Stories and Reels with title, format, linked product, CTA, and multiple images/videos by upload or external link. The CTA has a label (for example "Order now"), an action (add to cart / open product / open link) and an optional style from a preset list. "Open link" accepts only URLs on the store's own domain [ASSUMPTION; protects against phishing and open redirects]. [FR-CON-04 to 07, 13]
-- **FR5** Validate uploads (type, size, duration, resolution), transcode videos into multiple renditions (for example 1080p/720p/480p), generate posters, and run a quality check; optional auto-publish after a pass. MVP upload limits are global, not per plan; interim limits [ASSUMPTION, Q-13]: video MP4/MOV/WebM, ≤ 200 MB, ≤ 90 seconds, minimum 720p shorter side; images JPG/PNG/WebP, ≤ 10 MB, minimum 1080 px shorter side. Quality check flags: below minimum resolution, no video track, corrupt file, duration over limit. External links are always fetched and processed like uploads; Slips never hotlinks third-party media [ASSUMPTION]. [FR-CON-08 to 10; changed: per-plan limits deferred]
+- **FR5** Validate uploads (type, size, duration, resolution), transcode videos into multiple renditions (for example 1080p/720p/480p), generate posters, and run a quality check; optional auto-publish after a pass. MVP upload limits are global, not per plan; interim limits [ASSUMPTION, Q-13]: video MP4/MOV/WebM, ≤ 200 MB, ≤ 90 seconds, minimum 720p shorter side; images JPG/PNG/WebP, ≤ 10 MB, minimum 1080 px shorter side. Quality check flags: below minimum resolution, no video track, corrupt file, duration over limit. When browser metadata is readable, reject low-resolution files before upload with their actual dimensions, the minimum for both sides, higher-resolution-original guidance and a replacement picker action. Keep accepted files from the same batch. Do not automatically crop or upscale to satisfy resolution validation. External links are always fetched and processed like uploads; Slips never hotlinks third-party media [ASSUMPTION]. [FR-CON-08 to 10; changed: per-plan limits deferred; upload feedback clarified 2026-11-11]
 - **FR6** List content with status filters (All, Published, Scheduled, Drafts) and counts; edit, duplicate, archive, delete. Status rules follow FR22. [FR-CON-01, 02, 11]
 - **FR7** Live vertical preview while editing content, rendered by the same player that runs on the storefront (preview mode, cart actions simulated). [FR-CON-12]
 - **FR8** Define placements (home, category, product page; optional target ID), layout per placement (FR29), and scheduled start and optional end. Content without a placement cannot be published. Schedules use the store's time zone (from Salla if available, otherwise Asia/Riyadh with a merchant setting; confirmed at the Epic 1 gate). [FR-VIS-01 to 04, FR-CON-17]

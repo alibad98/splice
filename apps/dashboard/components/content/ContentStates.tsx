@@ -9,7 +9,7 @@ import { fill } from '../products/format';
 
 export { useDelayed } from '../products/ProductStates';
 
-/** Where "Create your first story" goes until Story 3.3 builds the editor. */
+/** The editor for a new item (Story 3.3). */
 export const NEW_CONTENT_HREF = '/content/new';
 
 // Six 56px table rows. Full-width bones, so the skeleton reads the same in RTL and LTR.

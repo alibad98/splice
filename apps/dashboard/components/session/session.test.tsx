@@ -7,7 +7,7 @@ import { SessionProvider, type InitialSession } from './SessionProvider';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/', useSearchParams: () => new URLSearchParams('') }));
 
-const info = { v: 1 as const, mode: 'direct' as const, store: { name: 'Demo Store' }, connection: { v: 1 as const, state: 'connected' as const, store_name: 'Demo Store' }, expires_at: '2030-01-01T00:00:00.000Z', csrf_token: 'c', open_in_platform_url: 'https://s.example/embedded/app/a' };
+const info = { v: 1 as const, mode: 'direct' as const, store: { name: 'Demo Store', domains: [] }, connection: { v: 1 as const, state: 'connected' as const, store_name: 'Demo Store' }, expires_at: '2030-01-01T00:00:00.000Z', csrf_token: 'c', open_in_platform_url: 'https://s.example/embedded/app/a' };
 
 const render = (locale: 'ar' | 'en', initial: InitialSession, framed = false) =>
   renderToStaticMarkup(

@@ -36,6 +36,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: pnpm turbo run lint typecheck test build
 
   player-cls:
@@ -53,6 +54,8 @@ jobs:
       - run: pnpm turbo run build --filter=@slips/player...
       - run: pnpm --filter @slips/player exec playwright install --with-deps chromium
       - run: pnpm --filter @slips/player test:e2e
+      - run: pnpm turbo run build --filter=@slips/dashboard...
+      - run: pnpm --filter @slips/dashboard test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

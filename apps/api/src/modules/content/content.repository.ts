@@ -1,9 +1,11 @@
 import { TAB_STATUSES, type ContentSort, type ContentStatus, type ContentTabCounts } from '@slips/contracts';
 import { schema, StoreScoped, and, eq, inArray, isNull, sql } from '@slips/db';
 
-const { contentItems } = schema;
+const { contentItems, contentProductLinks, slides, placements } = schema;
 
 export type ContentItemRow = typeof contentItems.$inferSelect;
+export type ContentProductLinkRow = typeof contentProductLinks.$inferSelect;
+export type SlideRow = typeof slides.$inferSelect;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,6 +28,32 @@ const inList = (statuses: readonly ContentStatus[]) =>
 
 /** Data access for `content_items` reads and row locks; runs only inside `withStoreContext` (StoreScoped). Status writes go through `ContentLifecycle` only. */
 export class ContentRepository extends StoreScoped {
+  async placements(contentIds: readonly string[]) {
+    const wanted = [...new Set(contentIds)].filter(id => UUID_RE.test(id));
+    if (!wanted.length) return [];
+    return this.db.select().from(placements).where(and(eq(placements.storeId, this.storeId), inArray(placements.contentId, wanted)));
+  }
+
+  /**
+   * Live `published` Stories with a Home placement (Story 4.4 store manifest candidates), newest first publication first,
+   * then id. Media and product eligibility are decided by the caller through their owners.
+   */
+  async publishedHomeStories(): Promise<ContentItemRow[]> {
+    return this.db
+      .select()
+      .from(contentItems)
+      .where(
+        and(
+          eq(contentItems.storeId, this.storeId),
+          isNull(contentItems.deletedAt),
+          eq(contentItems.status, 'published'),
+          eq(contentItems.format, 'story'),
+          sql`exists (select 1 from ${placements} where ${placements.storeId} = ${contentItems.storeId} and ${placements.contentId} = ${contentItems.id} and ${placements.type} = 'home')`,
+        ),
+      )
+      .orderBy(sql`${contentItems.firstPublishedAt} desc nulls last`, sql`${contentItems.id} desc`);
+  }
+
   async findById(id: string): Promise<ContentItemRow | undefined> {
     if (!UUID_RE.test(id)) return undefined;
     return (
@@ -81,5 +109,81 @@ export class ContentRepository extends StoreScoped {
       .from(contentItems)
       .where(and(eq(contentItems.storeId, this.storeId), isNull(contentItems.deletedAt)));
     return row ?? { all: 0, published: 0, scheduled: 0, drafts: 0 };
+  }
+
+  /** The link row of one item (Story 3.4), whether or not it currently names a product. */
+  async findLink(contentId: string): Promise<ContentProductLinkRow | undefined> {
+    return (
+      await this.db
+        .select()
+        .from(contentProductLinks)
+        .where(and(eq(contentProductLinks.storeId, this.storeId), eq(contentProductLinks.contentId, contentId)))
+        .limit(1)
+    )[0];
+  }
+
+  /** The live slides of the items, in one read, ordered by item then position (Story 3.6). */
+  async liveSlides(contentIds: readonly string[]): Promise<SlideRow[]> {
+    const wanted = [...new Set(contentIds)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return [];
+    return this.db
+      .select()
+      .from(slides)
+      .where(and(eq(slides.storeId, this.storeId), inArray(slides.contentId, wanted), isNull(slides.deletedAt)))
+      .orderBy(slides.contentId, slides.position, slides.id);
+  }
+
+  /** Every slide row of one item, soft-deleted ones included (newest first), so a re-added asset revives its slide. */
+  async allSlides(contentId: string): Promise<SlideRow[]> {
+    if (!UUID_RE.test(contentId)) return [];
+    return this.db
+      .select()
+      .from(slides)
+      .where(and(eq(slides.storeId, this.storeId), eq(slides.contentId, contentId)))
+      .orderBy(sql`${slides.deletedAt} desc nulls first`, sql`${slides.updatedAt} desc`);
+  }
+
+  /** content id -> linked product id, for the items that have one, in one read. */
+  async linkedProductIds(contentIds: readonly string[]): Promise<Map<string, string>> {
+    if (contentIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ contentId: contentProductLinks.contentId, productId: contentProductLinks.productId })
+      .from(contentProductLinks)
+      .where(and(eq(contentProductLinks.storeId, this.storeId), inArray(contentProductLinks.contentId, [...contentIds])));
+    return new Map(rows.flatMap((r) => (r.productId ? [[r.contentId, r.productId] as const] : [])));
+  }
+
+  /** Live (non-deleted) items linked to a product, with their status. */
+  async liveItemsLinkedTo(productId: string): Promise<Array<{ id: string; status: ContentStatus }>> {
+    return this.db
+      .select({ id: contentItems.id, status: contentItems.status })
+      .from(contentProductLinks)
+      .innerJoin(contentItems, and(eq(contentItems.storeId, contentProductLinks.storeId), eq(contentItems.id, contentProductLinks.contentId)))
+      .where(and(eq(contentProductLinks.storeId, this.storeId), eq(contentProductLinks.productId, productId), isNull(contentItems.deletedAt)))
+      .orderBy(contentItems.id);
+  }
+
+  /** Live (non-deleted) items that have a live (non-deleted) slide referencing `mediaAssetId`, with their status (Story 3.8). */
+  async liveItemsWithSlideAsset(mediaAssetId: string): Promise<Array<{ id: string; status: ContentStatus }>> {
+    if (!UUID_RE.test(mediaAssetId)) return [];
+    return this.db
+      .select({ id: contentItems.id, status: contentItems.status })
+      .from(slides)
+      .innerJoin(contentItems, and(eq(contentItems.storeId, slides.storeId), eq(contentItems.id, slides.contentId)))
+      .where(and(eq(slides.storeId, this.storeId), eq(slides.mediaAssetId, mediaAssetId), isNull(slides.deletedAt), isNull(contentItems.deletedAt)))
+      .orderBy(contentItems.id);
+  }
+
+  /** product id -> number of live (non-deleted) items linked to it, in one grouped query; products without links are absent. */
+  async linkCountsByProductIds(productIds: readonly string[]): Promise<Map<string, number>> {
+    const wanted = [...new Set(productIds)].filter((id) => UUID_RE.test(id));
+    if (wanted.length === 0) return new Map();
+    const rows = await this.db
+      .select({ productId: contentProductLinks.productId, count: sql<number>`count(*)::int` })
+      .from(contentProductLinks)
+      .innerJoin(contentItems, and(eq(contentItems.storeId, contentProductLinks.storeId), eq(contentItems.id, contentProductLinks.contentId)))
+      .where(and(eq(contentProductLinks.storeId, this.storeId), inArray(contentProductLinks.productId, wanted), isNull(contentItems.deletedAt)))
+      .groupBy(contentProductLinks.productId);
+    return new Map(rows.flatMap((r) => (r.productId ? [[r.productId, r.count] as const] : [])));
   }
 }

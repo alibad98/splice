@@ -13,6 +13,7 @@ const row = {
   currency: 'SAR',
   tax_inclusive: true,
   availability: 'low',
+  has_required_options: false,
   linked_content_count: 0,
   attributed_orders: null,
 };
@@ -40,6 +41,12 @@ describe('catalog contracts', () => {
     expect(page.items[0]!.sale_price_minor).toBe(12000);
     expect(ProductListResponse.safeParse({ items: [{ ...row, availability: 'many' }], total: 1, page: 1, page_size: 50 }).success).toBe(false);
     expect(ProductListResponse.safeParse({ items: [{ ...row, price_minor: 1.5 }], total: 1, page: 1, page_size: 50 }).success).toBe(false);
+  });
+  it('requires has_required_options on a product row (Story 3.4)', () => {
+    const withoutFlag: Record<string, unknown> = { ...row };
+    delete withoutFlag.has_required_options;
+    expect(ProductListResponse.safeParse({ items: [withoutFlag], total: 1, page: 1, page_size: 10 }).success).toBe(false);
+    expect(ProductListResponse.parse({ items: [{ ...row, has_required_options: true }], total: 1, page: 1, page_size: 10 }).items[0]!.has_required_options).toBe(true);
   });
   it('parses sync status including never', () => {
     expect(CatalogSyncStatus.parse({ status: 'never', reason: null, last_synced_at: null })).toMatchObject({ v: 1, run_id: null });

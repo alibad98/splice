@@ -1,5 +1,7 @@
 # Slips UX
 
+Approved controlled pilot (2026-11-11): expose Home/Story/Ring/publish-now for storefront delivery, hide unsupported placement/layout/schedule choices and analytics or label them unavailable. Preserve existing creation/media/preview capabilities. Retained Reel editing must explain that pilot storefront publishing is unavailable. Show a pilot notice and the real support contact once selected, never invented metrics. Keep explicit Save changes for Published edits, Arabic/English, Western digits, RTL/LTR and accessible player controls. Full MVP behavior below remains the later target. Evidence is tracked in [pilot readiness](../_bmad-output/implementation-artifacts/pilot-readiness.md).
+
 The UX spec for the Slips MVP lives in [`_bmad-output/planning-artifacts/ux-designs/ux-splice-2026-10-10/`](../_bmad-output/planning-artifacts/ux-designs/ux-splice-2026-10-10/):
 
 - **DESIGN.md**: the visual identity ("Studio · Coral"). Hot coral `#FF4A3D` with ink text, an amber accent and warm ink neutrals, light and dark. Plus Jakarta Sans and IBM Plex Sans Arabic. Tokens, components, and contrast rules.

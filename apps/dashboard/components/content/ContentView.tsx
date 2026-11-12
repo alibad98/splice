@@ -1,14 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { CONTENT_PAGE_SIZES, CONTENT_SEARCH_MAX, CONTENT_SORTS, type ContentItem, type ContentSort, type ContentTab } from '@slips/contracts';
 import { Card, Field, Input, Pagination, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, dialog, toast } from '@slips/ui';
 import { useI18n } from '../../i18n/provider';
-import { directionOf } from '../../i18n/config';
-import { useArchiveContent, useContentList, useDeleteContent, useUndoArchiveContent } from '../../lib/api/content';
+import { directionOf, isLocale, withLang } from '../../i18n/config';
+import { useArchiveContent, useContentList, useDeleteContent, useDuplicateContent, useRestoreContent, useRetryContent, useUndoArchiveContent } from '../../lib/api/content';
 import { fill } from '../products/format';
-import { ContentError, ContentSkeleton, EmptyContent, FilteredEmpty, useDelayed } from './ContentStates';
-import { ContentTable } from './ContentTable';
+import { ContentError, ContentSkeleton, EmptyContent, FilteredEmpty, NEW_CONTENT_HREF, useDelayed } from './ContentStates';
+import { ContentTable, contentHref } from './ContentTable';
 import { ContentTabs } from './ContentTabs';
 import { toContentQuery, useContentParams } from './url-state';
 
@@ -73,6 +75,46 @@ export function ContentView() {
   const { mutateAsync: archive } = useArchiveContent();
   const { mutateAsync: undoArchive } = useUndoArchiveContent();
   const { mutateAsync: remove } = useDeleteContent();
+  const { mutateAsync: duplicate } = useDuplicateContent();
+  const { mutateAsync: restore } = useRestoreContent();
+  const { mutateAsync: retry } = useRetryContent();
+  const router = useRouter();
+  const lang = useSearchParams().get('lang');
+  const inFlight = useRef(new Set<string>());
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
+  const run = useCallback(async (id: string, action: () => Promise<void>) => {
+    if (inFlight.current.has(id)) return;
+    inFlight.current.add(id);
+    setPendingIds(new Set(inFlight.current));
+    try { await action(); } finally {
+      inFlight.current.delete(id);
+      setPendingIds(new Set(inFlight.current));
+    }
+  }, []);
+  const onDuplicate = useCallback((item: ContentItem) => {
+    void run(item.id, async () => {
+      try {
+        const copy = await duplicate(item.id);
+        toast({ title: m.duplicate.done, tone: 'success' });
+        router.push(withLang(contentHref(copy.id), isLocale(lang) ? lang : null));
+      } catch { toast({ title: m.duplicate.failed, tone: 'danger' }); }
+    });
+  }, [run, duplicate, m, router, lang]);
+  const onRetry = useCallback((item: ContentItem) => {
+    void run(item.id, async () => {
+      try { await retry(item.id); }
+      catch { toast({ title: m.editor.changesFailed, tone: 'danger' }); }
+    });
+  }, [run, retry, m]);
+  const onRestore = useCallback((item: ContentItem) => {
+    void run(item.id, async () => {
+      try {
+        await restore(item.id);
+        toast.dismiss(`content-archived-${item.id}`);
+        toast({ title: m.restore.done, tone: 'success' });
+      } catch { toast({ title: m.restore.failed, tone: 'danger' }); }
+    });
+  }, [run, restore, m]);
 
   // Search pauses replace the current entry; tab, sort and page push one. Tab and search changes go back to page 1.
   const onSearch = useCallback((q: string) => void setParams({ q: q || null, page: null }, { history: 'replace' }), [setParams]);
@@ -83,24 +125,27 @@ export function ContentView() {
   const onArchive = useCallback(
     (item: ContentItem) => {
       const toastId = `content-archived-${item.id}`;
-      archive(item.id)
-        .then(() =>
+      void run(item.id, async () => {
+        try {
+          await archive(item.id);
           toast({
             id: toastId,
             title: fill(m.archive.done, { title: item.title }),
             // An action toast never auto-dismisses.
             action: {
               label: m.archive.undo,
-              onClick: () =>
-                void undoArchive(item.id)
-                  .then(() => toast({ id: toastId, title: m.archive.undone, tone: 'success' }))
-                  .catch(() => toast({ id: toastId, title: m.archive.undoFailed, tone: 'danger' })),
+              onClick: () => void run(item.id, async () => {
+                try {
+                  await undoArchive(item.id);
+                  toast({ id: toastId, title: m.archive.undone, tone: 'success' });
+                } catch { toast({ id: toastId, title: m.archive.undoFailed, tone: 'danger' }); }
+              }),
             },
-          }),
-        )
-        .catch(() => toast({ title: m.archive.failed, tone: 'danger' }));
+          });
+        } catch { toast({ title: m.archive.failed, tone: 'danger' }); }
+      });
     },
-    [archive, undoArchive, m],
+    [archive, undoArchive, m, run],
   );
 
   const onDelete = useCallback(
@@ -111,7 +156,7 @@ export function ContentView() {
         description: m.delete.body,
         confirmLabel: m.delete.confirm,
         cancelLabel: m.delete.cancel,
-        onConfirm: async () => {
+        onConfirm: () => run(item.id, async () => {
           try {
             await remove(item.id);
             toast.dismiss(`content-archived-${item.id}`);
@@ -120,10 +165,10 @@ export function ContentView() {
             // 404/409: the item changed elsewhere; the list is refetched either way.
             toast({ title: m.delete.failed, tone: 'danger' });
           }
-        },
+        }),
       });
     },
-    [remove, m],
+    [remove, m, run],
   );
 
   const data = list.data;
@@ -163,7 +208,7 @@ export function ContentView() {
     body = (
       <>
         {err}
-        <ContentTable rows={items} sort={query.sort} onSortChange={onSort} onArchive={onArchive} onDelete={onDelete} />
+        <ContentTable rows={items} sort={query.sort} onSortChange={onSort} onArchive={onArchive} onDelete={onDelete} onDuplicate={onDuplicate} onRestore={onRestore} onRetry={onRetry} pendingIds={pendingIds} />
         <Pagination
           page={page}
           pageSize={page_size}
@@ -180,9 +225,16 @@ export function ContentView() {
 
   return (
     <section className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-h1">{m.title}</h1>
-        <p className="text-body text-muted-foreground">{m.intro}</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-h1">{m.title}</h1>
+          <p className="text-body text-muted-foreground">{m.intro}</p>
+        </div>
+        {data && data.counts.all > 0 ? (
+          <Link href={NEW_CONTENT_HREF} className="inline-flex min-h-11 items-center justify-center self-start rounded-pill bg-accent px-6 font-semibold text-accent-foreground hover:brightness-108 sm:self-auto">
+            {m.create}
+          </Link>
+        ) : null}
       </header>
       <Card>
         <ContentFilters q={params.q} sort={query.sort} onSearch={onSearch} onSort={onSort} />

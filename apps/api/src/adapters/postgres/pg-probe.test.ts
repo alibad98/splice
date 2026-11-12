@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PgDatabaseProbe } from './pg-probe.js';
 
 // Local test database / CI service container (see .github/workflows/ci.yml).
-const LIVE = 'postgres://slips:slips@127.0.0.1:5433/slips';
+const LIVE = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 
 describe('PgDatabaseProbe', () => {
   it('is reachable against a live database', async () => {

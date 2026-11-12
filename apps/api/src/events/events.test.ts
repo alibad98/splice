@@ -11,7 +11,7 @@ import { registerQueues } from '../worker/worker.js';
 import { EventHandlerRegistry, eventDispatcher } from './dispatcher.js';
 import { publishEvent, uuidv7 } from './outbox.js';
 
-const URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
+const URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_events_test';
 const STORE = '11111111-1111-4111-8111-111111111111';
 const telemetry = new PinoTelemetry({ role: 'worker', level: 'silent' });

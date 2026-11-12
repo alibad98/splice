@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Controller, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Query, Req, Res, forwardRef } from '@nestjs/common';
 import { CATALOG_SYNC_RATE_LIMITED, ProductListQuery, type CatalogSyncStatus, type CategoryListResponse, type ProductListResponse } from '@slips/contracts';
 import type { Response } from 'express';
 import type { AuthenticatedRequest } from '../session/access.guard.js';
@@ -12,7 +12,7 @@ const syncStatus = (s: CatalogSyncView): CatalogSyncStatus => ({ v: 1, status: s
 export class CatalogController {
   constructor(
     @Inject(CatalogService) private readonly catalog: CatalogService,
-    @Inject(ContentService) private readonly content: ContentService,
+    @Inject(forwardRef(() => ContentService)) private readonly content: ContentService,
   ) {}
 
   @Get('products')
@@ -41,6 +41,7 @@ export class CatalogController {
         currency: r.currency,
         tax_inclusive: r.taxInclusive,
         availability: r.availability,
+        has_required_options: r.hasRequiredOptions,
         linked_content_count: links.get(r.id) ?? 0,
         attributed_orders: null,
       })),

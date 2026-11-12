@@ -23,8 +23,8 @@ import { MAX_ATTEMPTS } from '../modules/integration/webhook-inbox.js';
 import { PlatformUnavailableError, type CanonicalProduct, type CommercePlatform } from '../ports/commerce-platform.js';
 import { Metric } from '../ports/telemetry.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_prodhook:it_prodhook_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_prodhook:it_prodhook_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_prodhook_test';
 const SECRET = 'whsec-prodhook-test';
 const lines: string[] = [];

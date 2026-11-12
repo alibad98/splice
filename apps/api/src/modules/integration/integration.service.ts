@@ -1,6 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { ConnectionStatus } from '@slips/contracts';
-import { runOutsideStoreContext, withStoreContext, type LifecycleState } from '@slips/db';
+import { ConnectionStatus, type StoryLayout } from '@slips/contracts';
+import { requireStoreContext, runOutsideStoreContext, withStoreContext, type LifecycleState } from '@slips/db';
 import type { Pool } from 'pg';
 import { DB_POOL, EVENT_SENDER, INTEGRATION_CONFIG, type IntegrationConfig } from '../../infra.module.js';
 import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
@@ -231,6 +231,7 @@ export class IntegrationService {
         }
         if (err instanceof PlatformAuthRejectedError) {
           const store = (await this.repo.getStore())!;
+          await lockStore(requireStoreContext());
           await this.repo.markDisconnected();
           await this.repo.logAccess('refresh', 'rejected');
           await publishEvent(ctx, this.events, this.telemetry, 'integration.store.disconnected', { v: 1, store_id: storeId, install_epoch: store.installEpoch, reason: 'refresh_rejected' });
@@ -307,6 +308,36 @@ export class IntegrationService {
 
   async isStoreActiveById(storeId: string): Promise<boolean> {
     return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.lifecycleState === 'active');
+  }
+
+  /**
+   * The store's lifecycle state, or `null` for an unknown store (Story 4.4: the manifest compile keeps, empties or writes
+   * the manifest by it). Joins the caller's transaction when it already runs in this store's context.
+   */
+  /** Publishing identity, available even while disconnected or purged. */
+  async getManifestIdentity(storeId: string): Promise<{ platformStoreId: string; installEpoch: number; lifecycleState: LifecycleState } | null> {
+    return withStoreContext(this.pool, storeId, async () => {
+      const store = await this.repo.getStore();
+      return store ? { platformStoreId: store.platformStoreId, installEpoch: store.installEpoch, lifecycleState: store.lifecycleState } : null;
+    });
+  }
+
+  async getLifecycleState(storeId: string): Promise<LifecycleState | null> {
+    return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.lifecycleState ?? null);
+  }
+
+  /** The store's synced storefront hosts (empty when the store is unknown). Content checks open-link CTA URLs against them (Story 3.3). */
+  async getSyncedDomains(storeId: string): Promise<string[]> {
+    return withStoreContext(this.pool, storeId, async () => (await this.repo.getStore())?.syncedDomains ?? []);
+  }
+
+  /**
+   * The store's display defaults (Story 4.2 pilot slice). A store without a settings row reads as Ring; no backfill is
+   * needed. Content resolves an omitted placement layout through this method only and never reads `store_settings`.
+   * Joins the caller's transaction when it already runs in this store's context.
+   */
+  async getDisplayDefaults(storeId: string): Promise<{ story_layout: StoryLayout }> {
+    return withStoreContext(this.pool, storeId, async () => ({ story_layout: (await this.repo.getSettings())?.storyLayout ?? 'ring' }));
   }
 
   /** What the dashboard connection chip shows for a store. */

@@ -1,0 +1,955 @@
+// @vitest-environment jsdom
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { CONTENT_INVALID_LAYOUT, CONTENT_NO_PLACEMENT, CONTENT_UNSUPPORTED_FORMAT, type ContentItem, type ContentProductSummary, type ProductRow } from '@slips/contracts';
+import { DialogHost, dialog, toast, Toaster } from '@slips/ui';
+import { I18nProvider } from '../../../i18n/provider';
+import { getMessages } from '../../../i18n/messages';
+import type { Locale } from '../../../i18n/config';
+import { queryKeys } from '../../../lib/api/query-keys';
+import { ContentEditor } from './ContentEditor';
+import { ContentEditorPage } from './ContentEditorPage';
+import { AUTOSAVE_DELAY_MS } from './use-autosave';
+
+vi.mock('./LivePreviewPanel', () => ({ LivePreviewPanel: () => <div data-testid="preview-frame"><iframe title="Saved content preview" src="/player-preview/index.html" /><p>Preview: no real cart or analytics</p></div> }));
+
+const push = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+type Call = { method: string; path: string; body: unknown };
+type Handler = (call: Call) => Response | Promise<Response>;
+let calls: Call[] = [];
+let handler: Handler;
+let session: { client: { apiFetch: (path: string, init?: RequestInit) => Promise<Response> }; state: Record<string, unknown> } | null = null;
+vi.mock('../../session/SessionProvider', () => ({ useSession: () => session }));
+
+const ID = '019a473a-0000-7000-8000-000000000001';
+const item = (over: Partial<ContentItem> = {}): ContentItem => ({
+  v: 1,
+  id: ID,
+  title: 'Autumn perfumes',
+  format: 'story',
+  cta_label: 'Add to cart',
+  cta_action: 'add_to_cart',
+  cta_url: null,
+  cta_style: null,
+  status: 'draft',
+  archived_from: null,
+  reactivate_to: null,
+  status_reason: null,
+  auto_publish: false,
+  first_published_at: null,
+  product: null,
+  slides: [],
+  placements: [],
+  created_at: '2026-11-05T10:00:00.000Z',
+  updated_at: '2026-11-05T10:00:00.000Z',
+  ...over,
+});
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const problem = (status: number, extra: Record<string, unknown> = {}) =>
+  new Response(JSON.stringify({ type: 'about:blank', status, ...extra }), { status, headers: { 'content-type': 'application/problem+json' } });
+
+/** Echo server: POST creates, PATCH merges into the last known item. */
+function echo(start: ContentItem = item()): Handler {
+  let current = start;
+  let n = 0;
+  return ({ method, body }) => {
+    if (method === 'POST') {
+      current = { ...item(), ...(body as object), id: ID, status: 'draft', updated_at: `2026-11-05T10:00:0${++n}.000Z` };
+      return json(current, 201);
+    }
+    if (method === 'PATCH') {
+      current = { ...current, ...(body as object), updated_at: `2026-11-05T10:01:0${++n}.000Z` };
+      return json(current);
+    }
+    return json(current);
+  };
+}
+
+let client: QueryClient;
+
+function setup({ locale = 'en', element, domains = ['demo.salla.sa'] }: { locale?: Locale; element: React.ReactElement; domains?: string[] }) {
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  session = {
+    client: {
+      apiFetch: async (path, init = {}) => {
+        const call = { method: init.method ?? 'GET', path, body: init.body ? JSON.parse(String(init.body)) : undefined };
+        calls.push(call);
+        return handler(call);
+      },
+    },
+    state: { status: 'signed-in', mode: 'embedded', storeName: 'Demo', storeDomains: domains, connection: { state: 'connected', storeName: 'Demo' } },
+  };
+  return render(
+    <I18nProvider locale={locale} messages={getMessages(locale)}>
+      <QueryClientProvider client={client}>
+        {element}
+        <Toaster label="Notifications" toastLabel="Notification" closeLabel="Close" />
+        <DialogHost />
+      </QueryClientProvider>
+    </I18nProvider>,
+  );
+}
+
+/** Advance fake time in small steps (flushing promises) until the check passes. */
+async function until(check: () => void, steps = 100) {
+  for (let i = 0; ; i++) {
+    try {
+      check();
+      return;
+    } catch (err) {
+      if (i >= steps) throw err;
+      await act(() => vi.advanceTimersByTimeAsync(20));
+    }
+  }
+}
+const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+const writes = () => calls.filter((c) => c.method !== 'GET');
+const title = () => screen.getByRole('textbox', { name: 'Title' }) as HTMLInputElement;
+const type = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
+
+async function chooseAction(name: string) {
+  const select = screen.getByRole('combobox', { name: 'Button action' });
+  select.focus();
+  fireEvent.keyDown(select, { key: 'Enter' });
+  let option!: HTMLElement;
+  await until(() => {
+    option = screen.getByRole('option', { name });
+  });
+  option.focus();
+  fireEvent.keyDown(option, { key: 'Enter' });
+}
+
+beforeAll(() => {
+  // jsdom lacks the pointer-capture and scroll APIs Radix Select uses.
+  Object.assign(Element.prototype, {
+    hasPointerCapture: () => false,
+    setPointerCapture: () => undefined,
+    releasePointerCapture: () => undefined,
+    scrollIntoView: () => undefined,
+  });
+});
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+  calls = [];
+  handler = echo();
+  window.history.replaceState(null, '', '/content/new');
+});
+
+afterEach(() => {
+  cleanup();
+  act(() => toast.clear());
+  act(() => dialog.clear());
+  vi.useRealTimers();
+  session = null;
+  push.mockReset();
+});
+
+describe('Content editor: new item', () => {
+  it.each(['en', 'ar'] as const)('%s: publication errors preserve Draft values and allow a successful retry', async locale => {
+    const m = getMessages(locale).content;
+    let current = item({ placements: [{ type: 'home', layout: 'ring' }] });
+    let attempts = 0;
+    handler = ({ method, path, body }) => {
+      if (method === 'PATCH') current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
+      if (path.endsWith('/publish')) {
+        attempts++;
+        if (attempts === 1) return problem(422, { type: CONTENT_NO_PLACEMENT, code: 'no_placement' });
+        if (attempts === 2) return problem(500);
+        current = { ...current, status: 'published', updated_at: '2026-11-06T10:01:00.000Z' };
+      }
+      return json(current);
+    };
+    setup({ locale, element: <ContentEditor item={current} /> });
+    const titleInput = screen.getByRole('textbox', { name: m.editor.formatTitle.title }) as HTMLInputElement;
+    type(titleInput, 'Retained title');
+    for (const reason of [m.statusReasons.no_placement, m.editor.publish.failed]) {
+      fireEvent.click(screen.getByRole('button', { name: m.editor.publish.now }));
+      await until(() => expect(screen.getByRole('alert').textContent).toBe(reason));
+      expect(titleInput.value).toBe('Retained title');
+      expect((screen.getByRole('checkbox', { name: m.editor.placements.home }) as HTMLInputElement).checked).toBe(true);
+      expect(screen.getByText(m.statuses.draft)).toBeTruthy();
+      const publish = screen.getByRole('button', { name: m.editor.publish.now });
+      expect(publish.getAttribute('aria-busy')).toBeNull();
+      expect(publish.getAttribute('aria-disabled')).toBeNull();
+    }
+    fireEvent.click(screen.getByRole('button', { name: m.editor.publish.now }));
+    await until(() => expect(screen.queryByRole('button', { name: m.editor.publish.now })).toBeNull());
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(titleInput.value).toBe('Retained title');
+    expect(current.status).toBe('published');
+    expect(attempts).toBe(3);
+  });
+
+  it('Home toggles autosave; missing placement keeps Publish focusable with a reason', async () => {
+    setup({ element: <ContentEditor item={item()} /> });
+    const publish = screen.getByRole('button', { name: 'Publish now' });
+    expect(publish.getAttribute('aria-disabled')).toBe('true');
+    publish.focus(); fireEvent.click(publish);
+    expect(document.activeElement).toBe(publish);
+    expect(writes()).toHaveLength(0);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    expect(screen.queryByText('Add a placement to publish this content.')).toBeNull();
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { placements: [{ type: 'home', layout: 'ring' }] } })]);
+    expect((screen.getByRole('checkbox', { name: 'Category page' }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('Publish waits for an in-flight autosave and then saves the latest combined values', async () => {
+    const initial = item({ placements: [{ type: 'home', layout: 'ring' }] });
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let current = initial; let patches = 0;
+    handler = async ({ method, path, body }) => {
+      if (method === 'PATCH') {
+        if (++patches === 1) await held;
+        current = { ...current, ...(body as object), updated_at: `2026-11-06T10:00:0${patches}.000Z` };
+      } else if (path.endsWith('/publish')) current = { ...current, status: 'published', updated_at: '2026-11-06T10:01:00.000Z' };
+      return json(current);
+    };
+    setup({ element: <ContentEditor item={initial} /> });
+    type(title(), 'First'); await advance(AUTOSAVE_DELAY_MS + 20);
+    type(title(), 'Latest');
+    fireEvent.click(screen.getByRole('button', { name: 'Publish now' }));
+    await advance(30);
+    expect(calls.some(c => c.path.endsWith('/publish'))).toBe(false);
+    await act(async () => { release(); await held; });
+    await until(() => expect(calls.some(c => c.path.endsWith('/publish'))).toBe(true));
+    expect(writes().map(c => c.path.endsWith('/publish') ? 'publish' : (c.body as { title: string }).title)).toEqual(['First', 'Latest', 'publish']);
+  });
+
+  it('focuses the title; the unavailable Reel choice changes nothing; a typed title creates the Draft once after 1 s and swaps the URL without a remount', async () => {
+    setup({ element: <ContentEditor /> });
+    expect(document.activeElement).toBe(title());
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('New story');
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Reel' }), { button: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Reel' }));
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+    expect(screen.getByRole('tab', { name: 'Story' }).getAttribute('aria-selected')).toBe('true');
+
+    const input = title();
+    type(input, 'Autumn perfumes');
+    await advance(AUTOSAVE_DELAY_MS - 50);
+    expect(writes()).toEqual([]);
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({
+      method: 'POST',
+      path: '/v1/content',
+      body: { auto_publish: false, title: 'Autumn perfumes', format: 'story', cta_label: 'Add to cart', cta_action: 'add_to_cart', cta_url: null, cta_style: 'ink', product_id: null, slides: [], placements: [] },
+    });
+    await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
+    expect(window.location.pathname).toBe(`/content/${ID}`);
+    expect(title()).toBe(input);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Autumn perfumes');
+
+    // Later edits PATCH the created item.
+    type(input, 'Autumn perfumes 2');
+    await until(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Autumn perfumes 2' } });
+  });
+
+  it.each(['en', 'ar'] as const)('%s: pilot choices are visible, focusable and unavailable with a localized inline reason (Story 4.2 slice)', async locale => {
+    const m = getMessages(locale).content;
+    setup({ locale, element: <ContentEditor /> });
+    // Reel format: focusable, aria-disabled, described by the visible reason; choosing it keeps Story.
+    const reel = screen.getByRole('tab', { name: m.formats.reel });
+    expect(reel.getAttribute('aria-disabled')).toBe('true');
+    expect(reel.hasAttribute('disabled')).toBe(false);
+    const reelReason = document.getElementById(reel.getAttribute('aria-describedby')!)!;
+    expect(reelReason.textContent).toBe(m.editor.formatTitle.reelUnavailable);
+    expect(reelReason.hidden).toBe(false);
+    reel.focus(); fireEvent.mouseDown(reel, { button: 0 }); fireEvent.click(reel); fireEvent.keyDown(reel, { key: 'Enter' });
+    expect(document.activeElement).toBe(reel);
+    expect(screen.getByRole('tab', { name: m.formats.story }).getAttribute('aria-selected')).toBe('true');
+    // Schedule: next to Publish now, focusable and unavailable with its reason announced and shown inline.
+    const schedule = screen.getByRole('button', { name: m.editor.publish.schedule });
+    expect(schedule.getAttribute('aria-disabled')).toBe('true');
+    expect(schedule.hasAttribute('disabled')).toBe(false);
+    expect(document.getElementById(schedule.getAttribute('aria-describedby')!)!.textContent).toBe(m.editor.publish.scheduleUnavailable);
+    expect(screen.getAllByText(m.editor.publish.scheduleUnavailable).some(node => !node.hidden)).toBe(true);
+    schedule.focus(); fireEvent.click(schedule);
+    expect(document.activeElement).toBe(schedule);
+    // Layout: only under Home; Ring is selected, Bar is focusable and unavailable with its reason.
+    expect(screen.queryByRole('radiogroup', { name: m.editor.layout.heading })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: m.editor.placements.home }));
+    const group = screen.getByRole('radiogroup', { name: m.editor.layout.heading });
+    const ring = within(group).getByRole('radio', { name: m.editor.layout.ring });
+    const bar = within(group).getByRole('radio', { name: m.editor.layout.bar });
+    expect(ring.getAttribute('aria-checked')).toBe('true');
+    expect(bar.getAttribute('aria-checked')).toBe('false');
+    expect(bar.getAttribute('aria-disabled')).toBe('true');
+    expect(bar.hasAttribute('disabled')).toBe(false);
+    expect(document.getElementById(bar.getAttribute('aria-describedby')!)!.textContent).toBe(m.editor.layout.barUnavailable);
+    expect(screen.getAllByText(m.editor.layout.barUnavailable).some(node => !node.hidden)).toBe(true);
+    bar.focus(); fireEvent.click(bar);
+    expect(document.activeElement).toBe(bar);
+    expect(ring.getAttribute('aria-checked')).toBe('true');
+    expect(writes()).toEqual([]);
+  });
+
+  it('saves Home with the Ring layout and a reload hydrates it; a 422 invalid layout shows the localized field error', async () => {
+    let current = item();
+    let rejectLayout = true;
+    handler = ({ method, body }) => {
+      if (method === 'PATCH') {
+        if (rejectLayout) return problem(422, { type: CONTENT_INVALID_LAYOUT, code: 'invalid_layout' });
+        current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
+      }
+      return json(current);
+    };
+    setup({ element: <ContentEditor item={current} /> });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { placements: [{ type: 'home', layout: 'ring' }] } })]);
+    await until(() => expect(screen.getByText(getMessages('en').content.editor.errors.layoutInvalid)).toBeTruthy());
+    expect(screen.getByRole('radiogroup', { name: 'Home layout' }).getAttribute('aria-invalid')).toBe('true');
+    const layoutAlert = getMessages('en').content.editor.errors.layoutInvalid;
+    // Choosing Ring clears the server error.
+    fireEvent.click(screen.getByRole('radio', { name: 'Story ring' }));
+    expect(screen.queryByText(layoutAlert)).toBeNull();
+    expect(screen.getByRole('radiogroup', { name: 'Home layout' }).getAttribute('aria-invalid')).toBeNull();
+    // Unchecking Home clears it too.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    await until(() => expect(screen.getByText(layoutAlert)).toBeTruthy());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    expect(screen.queryByText(layoutAlert)).toBeNull();
+    cleanup(); calls = [];
+    rejectLayout = false;
+    current = item({ placements: [{ type: 'home', layout: 'ring' }] });
+    setup({ element: <ContentEditor item={current} /> });
+    expect((screen.getByRole('checkbox', { name: 'Home' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('radio', { name: 'Story ring' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Story ring' }));
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+  });
+
+  it.each(['en', 'ar'] as const)('%s: an existing Reel draft stays editable, Publish is unavailable with the unsupported_format reason, and a 422 answer shows it', async locale => {
+    const m = getMessages(locale).content;
+    let current = item({ format: 'reel', placements: [{ type: 'home', layout: 'ring' }], auto_publish: true, status_reason: { code: 'unsupported_format' } });
+    handler = ({ method, body }) => {
+      if (method === 'PATCH') current = { ...current, ...(body as object), updated_at: '2026-11-06T10:00:00.000Z' };
+      return json(current);
+    };
+    setup({ locale, element: <ContentEditor item={current} /> });
+    const reel = screen.getByRole('tab', { name: m.formats.reel });
+    expect(reel.getAttribute('aria-selected')).toBe('true');
+    expect(reel.getAttribute('aria-disabled')).toBeNull();
+    const publish = screen.getByRole('button', { name: m.editor.publish.now });
+    expect(publish.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(publish.getAttribute('aria-describedby')!)!.textContent).toBe(m.statusReasons.unsupported_format);
+    expect(screen.getAllByText(m.statusReasons.unsupported_format).filter(node => !node.hidden)).toHaveLength(1);
+    fireEvent.click(publish);
+    expect(calls.some(c => c.path.endsWith('/publish'))).toBe(false);
+    type(screen.getByRole('textbox', { name: m.editor.formatTitle.title }), 'Reel edit');
+    await advance(AUTOSAVE_DELAY_MS + 40);
+    expect(writes()).toEqual([expect.objectContaining({ method: 'PATCH', body: { title: 'Reel edit' } })]);
+  });
+
+  it('a 422 unsupported-format publish answer shows the localized reason', async () => {
+    const current = item({ placements: [{ type: 'home', layout: 'ring' }] });
+    handler = ({ path }) => path.endsWith('/publish') ? problem(422, { type: CONTENT_UNSUPPORTED_FORMAT, code: 'unsupported_format' }) : json(current);
+    setup({ element: <ContentEditor item={current} /> });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish now' }));
+    await until(() => expect(screen.getByRole('alert').textContent).toBe(getMessages('en').content.statusReasons.unsupported_format));
+  });
+
+  it('uses the UI language for the default button text', async () => {
+    setup({ locale: 'ar', element: <ContentEditor /> });
+    type(screen.getByRole('textbox', { name: 'العنوان' }), 'عطور');
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toMatchObject({ cta_label: 'أضف إلى السلة', format: 'story', cta_action: 'add_to_cart' });
+  });
+
+  it('a failed first save shows "Couldn\'t save. Retry", keeps the form, and Retry saves again', async () => {
+    handler = () => problem(500);
+    setup({ element: <ContentEditor /> });
+    type(title(), 'Eid sale');
+    await until(() => expect(screen.getByText("Couldn't save.")).toBeTruthy());
+    expect(title().value).toBe('Eid sale');
+    expect(window.location.pathname).toBe('/content/new');
+
+    handler = echo();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await until(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1]!.method).toBe('POST');
+    await until(() => expect(screen.queryByText("Couldn't save.")).toBeNull());
+  });
+});
+
+describe('Content editor: draft autosave', () => {
+  it('debounces: edits within 1 s of each other send one PATCH with only the changed field', async () => {
+    setup({ element: <ContentEditor item={item()} /> });
+    const label = screen.getByRole('textbox', { name: 'Button text' });
+    type(label, 'Shop');
+    await advance(500);
+    type(label, 'Shop the look');
+    await advance(500);
+    expect(writes()).toEqual([]);
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { cta_label: 'Shop the look' } });
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('quick picks set the button text; the style swatches change the style', async () => {
+    setup({ element: <ContentEditor item={item({ cta_label: 'Buy' })} /> });
+    fireEvent.click(screen.getByRole('button', { name: 'Shop now' }));
+    expect((screen.getByRole('textbox', { name: 'Button text' }) as HTMLInputElement).value).toBe('Shop now');
+    expect(screen.getByRole('button', { name: 'Shop now' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Outline' }));
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ cta_label: 'Shop now', cta_style: 'outline' });
+  });
+
+  it('open link off the store domain shows the rule on blur and never saves; a subdomain is accepted', async () => {
+    setup({ element: <ContentEditor item={item()} /> });
+    await chooseAction('Open link');
+    const url = screen.getByRole('textbox', { name: 'Link' });
+    type(url, 'https://evil.com/x');
+    fireEvent.blur(url);
+    await until(() => expect(screen.getByText("Use a link on your store's domain: demo.salla.sa")).toBeTruthy());
+    expect(url.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(url.getAttribute('aria-describedby')!)!.textContent).toContain('demo.salla.sa');
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+
+    type(url, 'https://www.demo.salla.sa/p');
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ cta_action: 'open_link', cta_url: 'https://www.demo.salla.sa/p' });
+    expect(url.getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('switching open link back to add to cart clears the URL and saves it as null', async () => {
+    setup({ element: <ContentEditor item={item({ cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p' })} /> });
+    expect((screen.getByRole('textbox', { name: 'Link' }) as HTMLInputElement).value).toBe('https://demo.salla.sa/p');
+    await chooseAction('Add to cart');
+    expect(screen.queryByRole('textbox', { name: 'Link' })).toBeNull();
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ cta_action: 'add_to_cart', cta_url: null });
+  });
+
+  it('an API 422 cta-url-not-store-domain shows the rule on the field', async () => {
+    setup({ element: <ContentEditor item={item()} />, domains: ['demo.salla.sa'] });
+    handler = ({ method }) => (method === 'PATCH' ? problem(422, { type: 'cta-url-not-store-domain', code: 'cta_url_not_store_domain' }) : json(item()));
+    await chooseAction('Open link');
+    type(screen.getByRole('textbox', { name: 'Link' }), 'https://demo.salla.sa/x');
+    await until(() => expect(screen.getByText("Use a link on your store's domain: demo.salla.sa")).toBeTruthy());
+    expect(screen.getByText("Couldn't save.")).toBeTruthy();
+  });
+
+  it('a 409 on save shows an error toast and refetches the item; the editor then shows the archived item read-only', async () => {
+    setup({ element: <ContentEditorPage id={ID} /> });
+    client.setQueryData(queryKeys.content.item(ID), item());
+    await until(() => expect(title().value).toBe('Autumn perfumes'));
+    handler = ({ method }) => (method === 'PATCH' ? problem(409, { type: 'invalid-transition', code: 'invalid_transition' }) : json(item({ status: 'archived', archived_from: 'draft', updated_at: '2026-11-05T11:00:00.000Z' })));
+    type(title(), 'Changed');
+    await until(() => expect(screen.getByText('This item changed somewhere else. We loaded the latest version.')).toBeTruthy());
+    await until(() => expect(calls.some((c) => c.method === 'GET' && c.path === `/v1/content/${ID}`)).toBe(true));
+    await until(() => expect(screen.getByText(/This item is archived/)).toBeTruthy());
+    expect(title().value).toBe('Autumn perfumes');
+    expect(title().matches(':disabled')).toBe(true);
+  });
+
+  it('a 404 on save (deleted elsewhere) shows the not-found state even though the item is cached', async () => {
+    setup({ element: <ContentEditorPage id={ID} /> });
+    client.setQueryData(queryKeys.content.item(ID), item());
+    await until(() => expect(title().value).toBe('Autumn perfumes'));
+    handler = () => problem(404, { code: 'content_not_found' });
+    type(title(), 'Changed');
+    await until(() => expect(screen.getByTestId('content-not-found')).toBeTruthy());
+  });
+
+  it('shows merchant text as escaped text with dir=auto (no XSS)', () => {
+    const xss = '<img src=x onerror=alert(1)>';
+    const { container } = setup({ element: <ContentEditor item={item({ title: xss })} /> });
+    const h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.textContent).toBe(xss);
+    expect(h1.getAttribute('dir')).toBe('auto');
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByTitle('Saved content preview')).toBeTruthy();
+  });
+
+  it('a processing item still autosaves edits and updates its status chip to Draft when its slide finishes processing (Story 3.8)', async () => {
+    const assetId = '019a473a-0000-7000-8000-000000000101';
+    const slideId = '019a473a-0000-7000-8000-000000000201';
+    let assetProcessed = false;
+    let current = item({
+      status: 'processing',
+      slides: [
+        {
+          id: slideId,
+          media_asset_id: assetId,
+          kind: 'video',
+          alt_text: null,
+          status: 'scanned',
+          failure_reason: null,
+          source_url: null,
+          poster_url: null,
+        },
+      ],
+    });
+    handler = ({ method, path, body }) => {
+      if (method === 'GET' && path === `/v1/media/${assetId}`) {
+        return json({
+          v: 1,
+          id: assetId,
+          kind: 'video',
+          content_type: 'video/mp4',
+          size_bytes: 1000,
+          status: assetProcessed ? 'processed' : 'scanned',
+          failure_reason: null,
+          poster_url: assetProcessed ? `/v1/media/${assetId}/poster` : null,
+          created_at: '2026-11-05T10:00:00.000Z',
+          updated_at: '2026-11-05T10:00:00.000Z',
+        });
+      }
+      if (method === 'PATCH') {
+        current = { ...current, ...(body as object), updated_at: '2026-11-05T10:01:00.000Z' };
+        return json(current);
+      }
+      return json(current);
+    };
+
+    setup({ element: <ContentEditorPage id={ID} /> });
+    client.setQueryData(queryKeys.content.item(ID), current);
+    await until(() => expect(title().value).toBe('Autumn perfumes'));
+    expect(document.querySelector('[data-status="processing"]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Save draft' })).toBeTruthy();
+
+    type(title(), 'Processing edit');
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Processing edit' } });
+
+    // Advance close to the 3s media poll before typing an unsaved edit, so the background refetch lands while the edit is still unsaved.
+    await advance(1800);
+    const ctaLabel = screen.getByRole('textbox', { name: 'Button text' }) as HTMLInputElement;
+    type(ctaLabel, 'Shop now');
+    current = {
+      ...current,
+      status: 'draft',
+      slides: [{ ...current.slides[0]!, status: 'processed', poster_url: `/v1/media/${assetId}/poster` }],
+      updated_at: '2026-11-05T10:02:00.000Z',
+    };
+    const itemGetsBefore = calls.filter((c) => c.method === 'GET' && c.path === `/v1/content/${ID}`).length;
+    assetProcessed = true;
+    await until(() => expect(calls.filter((c) => c.method === 'GET' && c.path === `/v1/content/${ID}`).length).toBeGreaterThan(itemGetsBefore), 100);
+    expect(document.querySelector('[data-status="draft"]')).not.toBeNull();
+    expect(ctaLabel.value).toBe('Shop now');
+    await until(() => expect(writes()).toHaveLength(2), 100);
+    expect(writes()[1]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { cta_label: 'Shop now' } });
+  });
+});
+
+describe('Content editor: explicit saves, read-only, errors and leaving', () => {
+  it('a remote archive still makes a dirty Published editor read-only', async () => {
+    const published = item({ status: 'published' });
+    handler = echo(published);
+    setup({ element: <ContentEditorPage id={ID} /> });
+    await until(() => expect(title().value).toBe(published.title));
+    type(title(), 'Unsaved local edit');
+    act(() => client.setQueryData(queryKeys.content.item(ID), { ...published, status: 'archived', archived_from: 'published', updated_at: '2026-11-05T11:00:00.000Z' }));
+    await until(() => expect(title().matches(':disabled')).toBe(true));
+    expect(screen.getByText(/This item is archived/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull();
+    expect(writes()).toEqual([]);
+  });
+
+  it('Published combined edits stay local, send one PATCH, and survive a rejected save for retry', async () => {
+    const productId = crypto.randomUUID();
+    const assetA = crypto.randomUUID(), assetB = crypto.randomUUID();
+    const published = item({ status: 'published', format: 'reel', product: { id: productId, name: 'Oud', image_url: null, price_minor: 1000, sale_price_minor: null, currency: 'SAR', availability: 'available', has_required_options: false, deleted: false }, slides: [
+      { id: crypto.randomUUID(), media_asset_id: assetA, kind: 'image', alt_text: 'Original photo', status: 'processed', failure_reason: null, source_url: null, poster_url: null },
+      { id: crypto.randomUUID(), media_asset_id: assetB, kind: 'video', alt_text: null, status: 'processed', failure_reason: null, source_url: null, poster_url: null },
+    ] });
+    let reject = true;
+    let latest = published;
+    let refetchedAfterRejection = false;
+    handler = call => {
+      if (call.method !== 'PATCH') {
+        if (latest !== published) refetchedAfterRejection = true;
+        return json(latest);
+      }
+      if (reject) {
+        latest = { ...published, title: 'Saved elsewhere', cta_label: 'Shop', product: { ...published.product!, deleted: true }, updated_at: '2026-11-05T11:00:00.000Z' };
+        return problem(422, { type: 'product-not-linkable', code: 'product_not_linkable' });
+      }
+      const patch = call.body as Record<string, unknown>;
+      latest = { ...latest, ...patch, slides: [{ ...published.slides[1]! }, { ...published.slides[0]!, alt_text: 'Changed photo' }], updated_at: '2026-11-05T12:00:00.000Z' };
+      return json(latest);
+    };
+    setup({ element: <ContentEditorPage id={ID} /> });
+    await until(() => expect(title().value).toBe(published.title));
+    type(title(), 'All live changes');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Home' }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Story' }), { button: 0 });
+    fireEvent.click(screen.getByRole('tab', { name: 'Story' }));
+    type(screen.getByRole('textbox', { name: 'Button text' }), 'Shop');
+    await chooseAction('Open link');
+    type(document.getElementById('content-cta-url')!, 'https://demo.salla.sa/p');
+    fireEvent.click(screen.getByRole('radio', { name: 'Outline' }));
+    type(document.getElementById(`slide-alt-${assetA}`)!, 'Changed photo');
+    fireEvent.click(document.querySelector('[data-move="later"]')!);
+    await advance(AUTOSAVE_DELAY_MS * 3);
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await until(() => expect(writes()).toHaveLength(1));
+    const expected = { title: 'All live changes', format: 'story', cta_label: 'Shop', cta_action: 'open_link', cta_url: 'https://demo.salla.sa/p', cta_style: 'outline', slides: [{ media_asset_id: assetB, alt_text: null }, { media_asset_id: assetA, alt_text: 'Changed photo' }], placements: [{ type: 'home', layout: 'ring' }] };
+    expect(writes()[0]!.body).toEqual(expected);
+    await until(() => expect(refetchedAfterRejection).toBe(true));
+    await until(() => expect(screen.getAllByText('The linked product was deleted in your store')).toHaveLength(2));
+    await until(() => expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(false));
+    expect(title().value).toBe('All live changes');
+    expect((screen.getByRole('checkbox', { name: 'Home' }) as HTMLInputElement).checked).toBe(true);
+    expect((document.getElementById(`slide-alt-${assetA}`) as HTMLInputElement).value).toBe('Changed photo');
+    expect(screen.getByTestId('linked-product').textContent).toContain('Oud');
+    reject = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await until(() => expect(writes()).toHaveLength(2));
+    // The newer saved label already matches the local label, proving retry uses the refreshed baseline.
+    const { cta_label: savedLabel, ...retryPatch } = expected;
+    expect(savedLabel).toBe('Shop');
+    expect(writes()[1]!.body).toEqual(retryPatch);
+    await until(() => expect(screen.getByText('Changes saved')).toBeTruthy());
+  });
+
+  it('published: no autosave; "Save changes" PATCHes and shows the "Changes saved" toast', async () => {
+    setup({ element: <ContentEditor item={item({ status: 'published' })} /> });
+    expect(screen.getByText('Published')).toBeTruthy();
+    type(title(), 'Live edit');
+    await advance(AUTOSAVE_DELAY_MS * 3);
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Live edit' } });
+    await until(() => expect(screen.getByText('Changes saved')).toBeTruthy());
+  });
+
+  it('archived: read-only with a note and no save button', () => {
+    setup({ element: <ContentEditor item={item({ status: 'archived', archived_from: 'draft' })} /> });
+    expect(screen.getByText(/This item is archived/)).toBeTruthy();
+    expect(title().matches(':disabled')).toBe(true);
+    expect(screen.queryByRole('button', { name: /Save/ })).toBeNull();
+  });
+
+  it('submitting with errors shows a focused summary in the active language whose links focus each field', async () => {
+    setup({ locale: 'ar', element: <ContentEditor item={item({ status: 'published' })} /> });
+    const arTitle = screen.getByRole('textbox', { name: 'العنوان' });
+    type(arTitle, '');
+    type(screen.getByRole('textbox', { name: 'نص الزر' }), 'x'.repeat(41));
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ التغييرات' }));
+    await until(() => expect(document.activeElement?.getAttribute('data-slot')).toBe('error-summary'));
+    const summary = document.activeElement as HTMLElement;
+    expect(summary.getAttribute('role')).toBe('alert');
+    expect(summary.textContent).toContain('صحّح هذي عشان تقدر تحفظ');
+    const links = Array.from(summary.querySelectorAll('a'));
+    expect(links.map((a) => a.textContent)).toEqual(['اكتب عنوانًا', 'خلّ نص الزر 40 حرفًا أو أقل']);
+    fireEvent.click(links[1]!);
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'نص الزر' }));
+    expect(arTitle.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(arTitle.getAttribute('aria-describedby')!)!.textContent).toBe('اكتب عنوانًا');
+    expect(writes()).toEqual([]);
+  });
+
+  it('asks before leaving through an in-app link with unsaved changes; Leave navigates, and reload is guarded', async () => {
+    setup({ element: <ContentEditor item={item({ status: 'published' })} /> });
+    const back = screen.getByRole('link', { name: /Back to Videos & Stories/ });
+
+    // Clean: no prompt.
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+
+    type(title(), 'Unsaved');
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    fireEvent.click(back);
+    expect(dialog.current()?.title).toBe('Leave without saving?');
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    await until(() => expect(push).toHaveBeenCalledWith('/content'));
+  });
+
+  it('below lg the preview toggle shows and hides the preview', () => {
+    setup({ element: <ContentEditor item={item()} /> });
+    const toggle = screen.getByRole('button', { name: 'Preview' });
+    const aside = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(aside.className).toContain('hidden');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(aside.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(document.getElementById('content-editor-form')!.className).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(screen.getByText('Preview: no real cart or analytics')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to editing' }));
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('Content editor page (/content/[id])', () => {
+  it('another store\'s or a deleted id shows the not-found state', async () => {
+    handler = () => problem(404, { code: 'content_not_found' });
+    setup({ element: <ContentEditorPage id={ID} /> });
+    await until(() => expect(screen.getByTestId('content-not-found')).toBeTruthy());
+    expect(screen.getByText("We couldn't find this item")).toBeTruthy();
+  });
+
+  it('a load failure shows an inline error with Retry', async () => {
+    handler = () => problem(500);
+    setup({ element: <ContentEditorPage id={ID} /> });
+    await until(() => expect(screen.getByTestId('content-load-error')).toBeTruthy(), 400);
+    handler = echo();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await until(() => expect(title().value).toBe('Autumn perfumes'));
+  });
+});
+
+describe('Content editor: product picker (Story 3.4)', () => {
+  const P1 = '019a473a-0000-7000-8000-0000000000a1';
+  const P2 = '019a473a-0000-7000-8000-0000000000a2';
+  const P3 = '019a473a-0000-7000-8000-0000000000a3';
+  const row = (id: string, name: string, over: Partial<ProductRow> = {}): ProductRow => ({
+    id,
+    external_id: id.slice(-2),
+    name,
+    image_url: null,
+    category_name: null,
+    more_categories: 0,
+    price_minor: 15000,
+    sale_price_minor: null,
+    currency: 'SAR',
+    tax_inclusive: true,
+    availability: 'available',
+    has_required_options: false,
+    linked_content_count: 0,
+    attributed_orders: null,
+    ...over,
+  });
+  const CATALOG = [row(P1, 'Oud oil'), row(P2, 'Oud wood', { availability: 'out_of_stock' }), row(P3, 'Musk', { has_required_options: true })];
+  const summary = (r: ProductRow, deleted = false): ContentProductSummary => ({
+    id: r.id,
+    name: r.name,
+    image_url: r.image_url,
+    price_minor: r.price_minor,
+    sale_price_minor: r.sale_price_minor,
+    currency: r.currency,
+    availability: r.availability,
+    has_required_options: r.has_required_options,
+    deleted,
+  });
+
+  /** Echo server plus `GET /v1/products` search over CATALOG; a PATCHed `product_id` answers with its summary. */
+  function catalogServer(start: ContentItem, opts: { failSearch?: () => boolean } = {}): Handler {
+    const base = echo(start);
+    return async (call) => {
+      if (call.method === 'GET' && call.path.startsWith('/v1/products')) {
+        if (opts.failSearch?.()) return problem(500);
+        const q = new URL(call.path, 'http://x').searchParams.get('q') ?? '';
+        const items = CATALOG.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+        return json({ v: 1, items, total: items.length, page: 1, page_size: 10 });
+      }
+      const res = await base(call);
+      if (call.method !== 'PATCH' || !call.body || !('product_id' in (call.body as object))) return res;
+      const saved = (await res.json()) as ContentItem & { product_id?: string | null };
+      const id = saved.product_id ?? null;
+      delete saved.product_id;
+      const linked = CATALOG.find((p) => p.id === id);
+      return json({ ...saved, product: linked ? summary(linked) : null });
+    };
+  }
+  const picker = () => screen.getByRole('combobox', { name: 'Product' }) as HTMLInputElement;
+  const searches = () => calls.filter((c) => c.method === 'GET' && c.path.startsWith('/v1/products'));
+
+  it('keyboard: type, ArrowDown x2, Enter links the second match; focus stays on the input; the Draft autosaves the link', async () => {
+    handler = catalogServer(item());
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'oud');
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    await advance(200);
+    expect(searches().filter((c) => c.path.includes('q=oud'))).toHaveLength(0);
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+    expect(searches().at(-1)!.path).toBe('/v1/products?q=oud&page_size=10');
+    const options = screen.getAllByRole('option');
+    expect(options[1]!.textContent).toContain('Oud wood');
+    expect(options[1]!.textContent).toContain('Out of stock');
+    expect(options[1]!.querySelector('[dir="auto"]')!.textContent).toBe('Oud wood');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1]!.id);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('linked-product').textContent).toContain('Oud wood');
+
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { product_id: P2 } });
+    await until(() => expect(screen.getByRole('status', { name: '' }).textContent).toContain('Saved'));
+    // Out of stock: linked anyway, with the warning.
+    expect(screen.getByText('This product is out of stock')).toBeTruthy();
+  });
+
+  it('Escape closes the list and keeps the typed text; no match says so', async () => {
+    handler = catalogServer(item());
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'zzz');
+    await until(() => expect(screen.getByText('No products match')).toBeTruthy());
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(input.value).toBe('zzz');
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+  });
+
+  it('a failed search shows an inline Retry that searches again', async () => {
+    let fail = true;
+    handler = catalogServer(item(), { failSearch: () => fail });
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'musk');
+    await until(() => expect(screen.getByText("We couldn't load your products.")).toBeTruthy());
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await until(() => expect(screen.getByRole('option', { name: /Musk/ })).toBeTruthy());
+  });
+
+  it('a 422 product-not-linkable puts back the saved link, so later edits do not resend the rejected product', async () => {
+    const base = catalogServer(item());
+    handler = async (call) =>
+      call.method === 'PATCH' && call.body && 'product_id' in (call.body as object)
+        ? problem(422, { type: 'product-not-linkable', code: 'product_not_linkable' })
+        : base(call);
+    setup({ element: <ContentEditor item={item()} /> });
+    const input = picker();
+    input.focus();
+    type(input, 'oud');
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(2));
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await until(() => expect(writes()).toHaveLength(1));
+    await until(() => expect(screen.queryByTestId('linked-product')).toBeNull());
+
+    type(title(), 'Autumn perfumes 2');
+    await until(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { title: 'Autumn perfumes 2' } });
+  });
+
+  it('Remove unlinks: one PATCH with product_id null', async () => {
+    const linked = item({ product: summary(CATALOG[0]!) });
+    handler = catalogServer(linked);
+    setup({ element: <ContentEditor item={linked} /> });
+    expect(screen.getByTestId('linked-product').textContent).toContain('Oud oil');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByTestId('linked-product')).toBeNull();
+    expect(document.activeElement).toBe(picker());
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: 'PATCH', path: `/v1/content/${ID}`, body: { product_id: null } });
+  });
+
+  it('a saved product uses the real preview iframe', () => {
+    const linked = item({ product: summary(CATALOG[2]!) });
+    handler = catalogServer(linked);
+    setup({ element: <ContentEditor item={linked} /> });
+    expect(screen.getByTitle('Saved content preview').getAttribute('src')).toBe('/player-preview/index.html');
+  });
+
+  it('a deleted linked product shows the warning with "Pick another product", which opens the picker', async () => {
+    const linked = item({ product: summary(CATALOG[0]!, true) });
+    handler = catalogServer(linked);
+    setup({ element: <ContentEditor item={linked} /> });
+    expect(screen.getByText('The linked product was deleted in your store')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Pick another product' }));
+    expect(document.activeElement).toBe(picker());
+    expect(picker().getAttribute('aria-expanded')).toBe('true');
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(3));
+  });
+
+  it('published items link through "Save changes", not autosave; Arabic labels the picker', async () => {
+    const published = item({ status: 'published' });
+    handler = catalogServer(published);
+    setup({ locale: 'ar', element: <ContentEditor item={published} /> });
+    const input = screen.getByRole('combobox', { name: 'المنتج' }) as HTMLInputElement;
+    input.focus();
+    type(input, 'Musk');
+    await until(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await advance(AUTOSAVE_DELAY_MS * 2);
+    expect(writes()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: 'حفظ التغييرات' }));
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]!.body).toEqual({ product_id: P3 });
+  });
+});
+
+
+describe('Story 3.9 processing controls', () => {
+  it('saves the auto-publish switch and displays the placement reason', async () => {
+    const current = item({ auto_publish: true, status_reason: { code: 'no_placement' } });
+    handler = echo(current);
+    setup({ element: <ContentEditor item={current} /> });
+    expect(screen.getByText('Add a placement to publish', { selector: 'p' })).toBeTruthy();
+    const toggle = screen.getByRole('switch', { name: 'Publish automatically after processing' });
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    await until(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]?.body).toEqual({ auto_publish: false });
+  });
+
+  it.each(['processing_failed', 'below_min_resolution'] as const)('enables processing Retry only for processing_failed: %s', async (reason) => {
+    const current = item({ status: 'failed', status_reason: { code: reason, kind: 'video' }, slides: [{ id: ID, media_asset_id: ID, kind: 'video', alt_text: null, status: 'failed', failure_reason: reason, source_url: null, poster_url: null }] });
+    handler = ({ path, method }) => path.endsWith('/retry') && method === 'POST' ? json({ ...current, status: 'processing', status_reason: null, updated_at: '2026-11-06T00:00:00.000Z' }) : json(current);
+    setup({ element: <ContentEditor item={current} /> });
+    const retry = screen.getAllByRole('button', { name: 'Retry' }).find(b => b.closest('[role="alert"]'))!;
+    expect((retry as HTMLButtonElement).disabled).toBe(reason !== 'processing_failed');
+    if (reason === 'processing_failed') {
+      fireEvent.click(retry);
+      await until(() => expect(writes().some(c => c.path === '/v1/content/' + ID + '/retry')).toBe(true));
+    } else expect(screen.getByText('Replace the failed media to continue.')).toBeTruthy();
+  });
+});
+
+
+it('a newly created editor observes failures, retries to completion, and keeps unsaved edits', async () => {
+  let current = item({ status: 'processing' });
+  const assetId = ID;
+  handler = ({ method, path, body }) => {
+    if (path.endsWith('/retry')) { current = { ...current, status: 'processing', status_reason: null, slides: current.slides.map(s => ({ ...s, status: 'scanned', failure_reason: null })), updated_at: '2026-11-07T00:00:00.000Z' }; return json(current); }
+    if (method === 'POST') { current = { ...current, ...(body as object), slides: [{ id: ID, media_asset_id: assetId, kind: 'video', status: 'scanned', failure_reason: null, alt_text: null, source_url: null, poster_url: null }] }; return json(current, 201); }
+    if (path.startsWith('/v1/media/')) return json({ v: 1, id: assetId, kind: 'video', content_type: 'video/mp4', size_bytes: 1000, status: current.slides[0]?.status ?? 'scanned', failure_reason: current.slides[0]?.failure_reason ?? null, poster_url: null, created_at: current.created_at, updated_at: current.updated_at });
+    return json(current);
+  };
+  setup({ element: <ContentEditor /> });
+  type(title(), 'Created item');
+  await until(() => expect(writes()).toHaveLength(1));
+  current = { ...current, status: 'failed', status_reason: { code: 'processing_failed', kind: 'video' }, slides: current.slides.map(s => ({ ...s, status: 'failed', failure_reason: 'processing_failed' })), updated_at: '2026-11-06T00:00:00.000Z' };
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.content.item(ID) }); });
+  await until(() => expect(screen.getByRole('alert').textContent).toContain("We couldn't process this file"));
+  type(title(), 'Unsaved title');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await until(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(title().value).toBe('Unsaved title');
+  expect(client.getQueryData<ContentItem>(queryKeys.content.item(ID))?.status).toBe('processing');
+  current = { ...current, status: 'draft', slides: current.slides.map(s => ({ ...s, status: 'processed' })), updated_at: '2026-11-08T00:00:00.000Z' };
+  await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.content.item(ID) }); });
+  await until(() => expect(screen.getByText('Draft')).toBeTruthy());
+  expect(title().value).toBe('Unsaved title');
+});

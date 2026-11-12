@@ -51,6 +51,7 @@ deferred:
 |----------|--------------|---------------------------|----------------|
 | Default locale | no cookie | `lang="ar" dir="rtl"` | n/a |
 | English | cookie `en` | `lang="en" dir="ltr"` | invalid cookie falls back to ar |
+| Switch language in place | language link rewrites `?lang=ar/en` | refresh reused server layouts after the new URL commits; translated shell/auth copy, root language and RTL/LTR direction update without a document reload | preserve other query parameters and unaffected client state; Back/Forward works; invalid or missing language does not trigger a refresh |
 | Currency | 340 / 340.5 SAR | ar "340 ر.س", en "SAR 340"; decimals only when non-zero | n/a |
 | Digits | any number/date, ar | digits 0-9 only | n/a |
 | Missing key | key in one catalog only | test fails | n/a |
@@ -63,6 +64,9 @@ deferred:
 - `apps/dashboard/app/layout.tsx` -- root layout (was `lang="en"`); reads locale, sets lang/dir, provides messages.
 - `apps/dashboard/app/(merchant)/` -- page + new layout wrapping AppShell; placeholder routes content/products/analytics/settings.
 - `apps/dashboard/i18n/` -- config, catalogs, formatters, server locale, provider, tests.
+- `apps/dashboard/i18n/LocaleNavigationSync.tsx` -- root client observer in Suspense: refreshes cached server layouts when a valid query locale differs from the rendered locale, then synchronizes document `lang`/`dir`. Language-switch links disable prefetch to avoid mutating the locale cookie before navigation.
+
+2026-11-11 amendment verification: regression tests cover matching, changed, missing and invalid query locales, document attributes and Back/Forward transitions. A real Next.js Chromium session switched English → Arabic → English → Back, checked translated auth-layout headings and RTL/LTR direction, retained `reset=success`, and kept a window marker with only the initial document navigation (no reload). Dashboard production build, lint and typecheck pass.
 - `apps/dashboard/components/shell/` -- AppShell, nav, top bar, connection chip, mobile sheet, logo, icons.
 - `apps/dashboard/eslint.config.js` -- physical-direction and window.top restrictions.
 - `apps/dashboard/public/brand/` -- brand assets (from 1.4); add app icon for Salla listing.

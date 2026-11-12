@@ -96,16 +96,26 @@ describe('content events', () => {
   const storeId = '11111111-1111-4111-8111-111111111111';
   const contentId = '22222222-2222-4222-8222-222222222222';
 
-  it('catalogues all 13 content lifecycle events under owner content', () => {
+  it('catalogues all 14 content events (13 lifecycle + edited) under owner content', () => {
+    expect(CONTENT_EVENT_NAMES).toHaveLength(14);
     for (const name of CONTENT_EVENT_NAMES) {
       expect(EVENT_CATALOG[name].owner).toBe('content');
     }
     expect(EVENT_CATALOG['content.item.created'].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: null, to: 'draft' }).success).toBe(true);
-    for (const name of CONTENT_EVENT_NAMES.filter((n) => n !== 'content.item.created' && n !== 'content.item.deleted')) {
+    for (const name of CONTENT_EVENT_NAMES.filter((n) => n !== 'content.item.created' && n !== 'content.item.deleted' && n !== 'content.item.edited')) {
       expect(EVENT_CATALOG[name].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'published' }).success).toBe(true);
       expect(EVENT_CATALOG[name].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'ready' }).success).toBe(false);
     }
     expect(EVENT_CATALOG['content.item.deleted'].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft' }).success).toBe(true);
     expect(EVENT_CATALOG['content.item.deleted'].schema.safeParse({ v: 1, store_id: storeId, content_id: contentId, from: 'draft', to: 'archived' }).success).toBe(false);
+  });
+
+  it('content.item.edited carries the unchanged status and the changed field names', () => {
+    const schema = EVENT_CATALOG['content.item.edited'].schema;
+    const ok = { v: 1, store_id: storeId, content_id: contentId, status: 'published', changed: ['title', 'cta_url'] };
+    expect(schema.safeParse(ok).success).toBe(true);
+    expect(schema.safeParse({ ...ok, changed: [] }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, changed: ['status'] }).success).toBe(false);
+    expect(schema.safeParse({ ...ok, from: 'draft' }).success).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import type { Metadata } from 'next';
 import { Figtree, Tajawal } from 'next/font/google';
 import '@slips/ui/globals.css';
@@ -7,6 +7,7 @@ import { directionOf } from '../i18n/config';
 import { getMessages } from '../i18n/messages';
 import { I18nProvider } from '../i18n/provider';
 import { getLocale } from '../i18n/server';
+import { LocaleNavigationSync } from '../i18n/LocaleNavigationSync';
 
 // Latin: Figtree (soft geometric, tabular digits). Arabic: Tajawal, Arabic glyphs only, so Latin and the Western digits
 // inside Arabic text (emails, SAR, prices, KPIs) fall through to Figtree: tabular and identical in both languages.
@@ -28,6 +29,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body className="tabular-nums">
         <I18nProvider locale={locale} messages={getMessages(locale)}>
+          <Suspense fallback={null}><LocaleNavigationSync /></Suspense>
           {children}
         </I18nProvider>
       </body>

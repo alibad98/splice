@@ -1,7 +1,7 @@
 ---
 name: Slips
 status: final
-updated: 2026-10-10
+updated: 2026-11-11
 description: Visual identity for Slips (سليبس), a Salla app for shoppable Stories/Reels — merchant dashboard (shadcn/ui + Tailwind 4) and neutral storefront player. Direction "Studio · Coral".
 colors:
   background: '#FFFFFF'
@@ -24,8 +24,7 @@ colors:
   primary-tint: '#FF4A3D14'
   destructive-tint: '#C0123C14'
   warning-tint: '#FFB54726'
-  focus-ring-inner: '#15110F'
-  ring: '#FF4A3D'
+  ring: '#9A6500'
   destructive: '#C0123C'
   destructive-foreground: '#FFFFFF'
   destructive-text: '#9C0E31'
@@ -66,8 +65,7 @@ colors:
   primary-tint-dark: '#FF6A5C26'
   destructive-tint-dark: '#FF5C8026'
   warning-tint-dark: '#FFC46B26'
-  focus-ring-inner-dark: '#FFFFFF'
-  ring-dark: '#FF8A7E'
+  ring-dark: '#FFC23D'
   destructive-dark: '#FF5C80'
   destructive-foreground-dark: '#1A0306'
   destructive-text-dark: '#FFA3B5'
@@ -121,8 +119,8 @@ components:
   card: { background: '{colors.card}', rounded: '{rounded.base}', padding: 22px, shadow: '0 8px 24px -14px rgba(40,24,16,.16)', shadowDark: '0 8px 24px -14px rgba(0,0,0,.6)' }
   kpi-tile: { background: '{colors.card}', foreground: '{colors.foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}', label: '{colors.muted-foreground}', deltaUp: '{colors.delta-up}', deltaDown: '{colors.delta-down}' }
   kpi-tile-celebration: { background: '{colors.primary}', foreground: '{colors.primary-foreground}', label: '{colors.primary-foreground}', delta: '{colors.primary-foreground}', rounded: '{rounded.base}', padding: 20px, value: '{typography.kpi}' }
-  input: { background: '{colors.background}', border: '{colors.input-border}', rounded: '{rounded.md}', height: 36px, focusRing: '{components.focus-ring}' }
-  focus-ring: { inner: '{colors.focus-ring-inner}', outer: '{colors.ring}', width: 2px, offset: 0, opacity: 1, note: 'two-tone: 2px ink ring + 2px coral halo (dark: white inner + ring-dark); visible on coral fills' }
+  input: { background: '{colors.background}', border: '{colors.input-border}', rounded: '{rounded.md}', height: 36px, focusRing: '1px amber at 80%, zero offset; 0 2px 8px shadow at 14%', hoverRing: '1px amber at 25%; 0 1px 4px shadow at 6%, fine pointers only' }
+  focus-ring: { color: '{colors.ring}', width: 2px, offset: 0, opacity: 1, note: 'single flush amber outline; deeper amber on light surfaces for contrast, existing accent amber in dark mode; no inner ring or gap' }
   status-published: { background: '{colors.success-tint}', foreground: '{colors.success-text}', dot: '{colors.success}' }
   status-scheduled: { background: '{colors.primary-tint}', foreground: '{colors.info-text}', dot: '{colors.primary}' }
   status-draft: { background: '{colors.muted}', foreground: '{colors.muted-foreground}', dot: '{colors.muted-foreground}' }
@@ -199,7 +197,7 @@ Charts: series in order chart-1..5; never encode meaning by color alone (legend 
 
 ## Elevation & Depth
 
-Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.card.shadow}` / `shadowDark`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. No stacked shadows, no glows except the focus ring `{components.focus-ring}`: full opacity, two-tone (2px `{colors.focus-ring-inner}` ink ring inside a 2px `{colors.ring}` halo; dark: white inner + `{colors.ring-dark}`), so it stays visible on coral fills (primary button, active nav, celebration tile). The player uses the same two-tone ring (white inner, ink outer) on entry points. The player uses a black scrim (60–80%) and white surfaces only.
+Flat by default. Cards and tiles use one soft warm-neutral shadow (`{components.card.shadow}` / `shadowDark`) on a tinted page (`{colors.page}`). Popovers/dialogs add a 1px `{colors.border}` ring. Dashboard keyboard focus is one 2px amber outline at zero offset: it touches the control border, with no gap, inner ring or glow. Focused text controls match their border to the outline; invalid fields retain destructive borders. Light focus uses a deeper amber for at least 3:1 contrast against light surfaces; dark focus uses the existing amber accent. Forced colors use the system Highlight outline. Component fills and selected states retain their original palette: coral sidebar/check controls, neutral tabs/options. The player keeps its two-tone ring (white inner, ink outer), black scrim (60–80%) and white surfaces.
 
 ## Shapes
 

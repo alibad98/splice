@@ -9,9 +9,9 @@ import { ensureTestAppRole } from '../testing/app-role.js';
 import { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables } from '../testing/cross-tenant.js';
 import * as schema from './index.js';
 
-const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_integration:it_integration_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['stores', 'merchant_accounts', 'platform_tokens', 'token_access_log', 'merchant_sessions', 'store_data_jobs'];
+const ADMIN_URL = process.env.TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = process.env.TEST_APP_URL ?? `postgres://slips_it_integration:it_integration_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const TENANT_TABLES = ['stores', 'merchant_accounts', 'platform_tokens', 'token_access_log', 'merchant_sessions', 'store_data_jobs', 'store_settings'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -91,16 +91,33 @@ describe('integration tables', () => {
           return (await c.query<{ id: string }>(`insert into store_data_jobs (id, store_id, kind, install_epoch) values ($2, $1, 'purge', 1) on conflict (store_id, kind, install_epoch) do update set batches = 0 returning id::text as id`, [s, randomUUID()])).rows[0]!.id;
         },
       },
+      {
+        table: 'store_settings',
+        seed: async (c: pg.PoolClient, s: string) =>
+          (await c.query<{ id: string }>(`insert into store_settings (store_id) values ($1) on conflict (store_id) do update set updated_at = now() returning id::text as id`, [s])).rows[0]!.id,
+      },
     ];
     for (const r of regs) registerTenantTable(r);
     expect(findUnregisteredTenantTables(TENANT_TABLES)).toEqual([]);
-    expect(registeredTenantTables().length).toBe(6);
+    expect(registeredTenantTables().length).toBe(7);
   });
 
   it.each(TENANT_TABLES)('%s: store A can not read, change or write store B rows', async (table) => {
     const reg = registeredTenantTables().find((r) => r.table === table);
     expect(reg).toBeDefined();
     await assertCrossTenantIsolation({ admin, app, storeA: randomUUID(), storeB: randomUUID() }, reg!);
+  });
+
+  it('store_settings: one row per store, Ring by default, pilot layouts only, non-null tenant scope (Story 4.2)', async () => {
+    const id = randomUUID();
+    const row = await admin.query<{ story_layout: string }>('insert into store_settings (store_id) values ($1) returning story_layout', [id]);
+    expect(row.rows[0]!.story_layout).toBe('ring');
+    await expect(admin.query('insert into store_settings (store_id) values ($1)', [id])).rejects.toMatchObject({ code: '23505' });
+    for (const layout of ['bar', 'strip', 'carousel', '']) {
+      await expect(admin.query('insert into store_settings (store_id, story_layout) values ($1, $2)', [randomUUID(), layout])).rejects.toMatchObject({ code: '23514' });
+    }
+    await expect(admin.query('insert into store_settings (store_id) values (null)')).rejects.toMatchObject({ code: '23502' });
+    expect(tableOwners().get('store_settings')).toBe('integration');
   });
 
   it('rejects an unknown lifecycle state and a store_id that is not the id', async () => {

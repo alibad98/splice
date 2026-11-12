@@ -5,7 +5,7 @@ import { publishEvent, uuidv7, type EventSender } from '../../events/outbox.js';
 import { DB_POOL, EVENT_SENDER } from '../../infra.module.js';
 import { TELEMETRY, type Telemetry } from '../../ports/telemetry.js';
 import { STALE_RUN_MS } from './catalog-sync.js';
-import { CatalogReadRepository, CatalogRepository, type ProductListFilter, type ProductListRow, type SyncStateRow } from './catalog.repository.js';
+import { CatalogReadRepository, CatalogRepository, type ProductListFilter, type ProductListRow, type ProductSummaryRow, type SyncStateRow } from './catalog.repository.js';
 
 /** A merchant may ask for a sync at most once per this interval (Story 2.3). Decided here, never by the dashboard. */
 export const SYNC_REQUEST_INTERVAL_MS = 60_000;
@@ -24,7 +24,7 @@ export interface CatalogSyncView {
 /** Outcome of `requestSync`: a new run was queued, a run is already queued/running, or the last request was too recent. */
 export type SyncRequestOutcome = { kind: 'queued'; view: CatalogSyncView } | { kind: 'in_progress'; view: CatalogSyncView } | { kind: 'rate_limited'; retryAfterSeconds: number };
 
-export type { ProductListFilter, ProductListRow } from './catalog.repository.js';
+export type { ProductListFilter, ProductListRow, ProductSummaryRow } from './catalog.repository.js';
 
 const NEVER: CatalogSyncView = { status: 'never', runId: null, reason: null, lastSyncedAt: null, startedAt: null, created: 0, updated: 0 };
 
@@ -89,6 +89,16 @@ export class CatalogService {
   /** A page of the store's products visible in Salla (hidden ones are excluded), with the total that match. */
   async listProducts(storeId: string, filter: ProductListFilter): Promise<{ rows: ProductListRow[]; total: number }> {
     return withStoreContext(this.pool, storeId, () => this.reads.listProducts(filter));
+  }
+
+  /**
+   * The store's products with these ids, keyed by id, in one store transaction (Story 3.4: content links and their
+   * summaries). Tombstoned products are included with `deleted: true`; ids of other stores or unknown ids are absent.
+   */
+  async getProductsByIds(storeId: string, ids: readonly string[]): Promise<Map<string, ProductSummaryRow>> {
+    if (ids.length === 0) return new Map();
+    const rows = await withStoreContext(this.pool, storeId, () => this.reads.productsByIds(ids));
+    return new Map(rows.map((r) => [r.id, r]));
   }
 
   /** The store's categories, by name. */

@@ -84,7 +84,7 @@ describe('icons', () => {
 
 describe('disconnected banner (Story 2.7)', () => {
   const INSTALL = 'https://api.example.com/v1/integrations/salla/install';
-  const info = (connection: ConnectionStatus) => ({ v: 1 as const, mode: 'direct' as const, store: { name: 'Demo Store' }, connection, expires_at: '2030-01-01T00:00:00.000Z', csrf_token: 'c' });
+  const info = (connection: ConnectionStatus) => ({ v: 1 as const, mode: 'direct' as const, store: { name: 'Demo Store', domains: [] }, connection, expires_at: '2030-01-01T00:00:00.000Z', csrf_token: 'c' });
   const renderSignedIn = (locale: 'ar' | 'en', connection: ConnectionStatus, sync: number | 'none' | 'error' = 2) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     if (typeof sync === 'number') client.setQueryData(queryKeys.catalog.sync(), { v: 1, status: 'failed', run_id: null, reason: 'store_inactive', last_synced_at: new Date(Date.now() - sync * 3600_000).toISOString() });

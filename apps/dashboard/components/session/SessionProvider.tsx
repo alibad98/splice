@@ -38,7 +38,16 @@ export function SessionProvider({ apiBase, signInHref, initial, framed, children
   const state = useSyncExternalStore(client.subscribe, client.getState, client.getState);
   useEffect(() => {
     void client.start();
-    return () => client.stop();
+    const refresh = () => { if (document.visibilityState !== 'hidden') void client.refreshConnection(); };
+    const interval = setInterval(refresh, 30_000);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      client.stop();
+    };
   }, [client]);
   const value = useMemo(() => ({ client, state, signInHref }), [client, state, signInHref]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

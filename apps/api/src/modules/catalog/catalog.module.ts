@@ -1,4 +1,4 @@
-import { Inject, Injectable, Module, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Module, forwardRef, type OnModuleInit } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { DB_POOL, EVENT_SENDER } from '../../infra.module.js';
 import { COMMERCE_PLATFORM, type CommercePlatform } from '../../ports/commerce-platform.js';
@@ -28,5 +28,6 @@ export class ProductWebhookRegistration implements OnModuleInit {
 }
 
 /** Product catalog (Epic 2). The sync itself runs in the worker role (catalog-jobs); the http role serves the reads. */
-@Module({ imports: [ContentModule, IntegrationModule], controllers: [CatalogController], providers: [CatalogService, ProductWebhookRegistration], exports: [CatalogService] })
+// Catalog and content import each other (Story 3.4: content reads product summaries, catalog reads link counts).
+@Module({ imports: [forwardRef(() => ContentModule), IntegrationModule], controllers: [CatalogController], providers: [CatalogService, ProductWebhookRegistration], exports: [CatalogService] })
 export class CatalogModule {}

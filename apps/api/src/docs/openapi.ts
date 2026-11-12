@@ -1,6 +1,19 @@
 import {
   AUTH_PROBLEM_CODES,
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CONTENT_INVALID_LAYOUT,
   CONTENT_INVALID_TRANSITION,
+  CONTENT_UNSUPPORTED_FORMAT,
+  CONTENT_PRODUCT_NOT_LINKABLE,
+  CONTENT_SLIDE_ALT_REQUIRED,
+  ContentProductSummary,
+  ContentSlide,
+  StoreManifest,
+  ManifestItem,
+  ManifestSlide,
+  ManifestRendition,
+  SLIDES_MAX,
+  SLIDE_ALT_MAX,
   CatalogSyncStatus,
   CategoryListResponse,
   ConnectionStatus,
@@ -11,10 +24,24 @@ import {
   CONTENT_SEARCH_MAX,
   ContentListQuery,
   ContentListResponse,
+  ContentUpdateInput,
   EmbeddedSession,
   ForgotPasswordInput,
   HealthResponse,
   LoginInput,
+  MEDIA_LIMITS,
+  MEDIA_NOT_ATTACHABLE,
+  MEDIA_TOO_LARGE,
+  MEDIA_TYPE_NOT_ALLOWED,
+  MEDIA_UPLOAD_EXPIRED,
+  MEDIA_UPLOAD_MISSING,
+  MEDIA_UPLOAD_RATE_LIMITED,
+  MEDIA_URL_NOT_ALLOWED,
+  MEDIA_IMPORT_URL_MAX,
+  MediaAsset,
+  MediaImportRequest,
+  MediaUploadGrant,
+  MediaUploadRequest,
   OtpPurpose,
   PRODUCT_PAGE_SIZE,
   PRODUCT_PAGE_SIZES,
@@ -70,6 +97,10 @@ const EmbeddedSignInRequest = z.object({ token: z.string().min(1).max(4096).desc
 const CatalogSyncState = CatalogSyncStatus;
 
 const outputs: Array<[z.ZodType, string, string]> = [
+  [StoreManifest, 'StoreManifest', 'Version 1 publishing manifest with resolved URLs and ordered slides.'],
+  [ManifestItem, 'ManifestItem', 'One saved content item with its current linked product snapshot.'],
+  [ManifestSlide, 'ManifestSlide', 'A slide with explicit null URLs and empty renditions when media is unavailable.'],
+  [ManifestRendition, 'ManifestRendition', 'A resolved rendition with profile, content type and dimensions.'],
   [Problem, 'Problem', 'RFC 9457 problem details. Every error response uses this shape with `application/problem+json`.'],
   [HealthResponse, 'Health', 'Process liveness and dependency checks.'],
   [ConnectionStatus, 'ConnectionStatus', 'Whether the store is connected to Salla (shell connection chip).'],
@@ -84,7 +115,11 @@ const outputs: Array<[z.ZodType, string, string]> = [
   [ProductListResponse, 'ProductPage', `One page of products: \`items\` (at most \`page_size\`), \`total\` matching products, \`page\` (1-based) and \`page_size\`.`],
   [CategoryListResponse, 'CategoryList', "The store's categories for the Products filter."],
   [CatalogSyncState, 'CatalogSyncStatus', 'Latest catalog sync run. `never` until the first one; `queued` until the worker starts a requested run.'],
-  [ContentItem, 'ContentItem', 'One content item (Story or Reel) and its lifecycle status.'],
+  [ContentProductSummary, 'ContentProduct', 'The product linked to a content item, as the catalog has it now. `deleted`: the product was deleted in the store (the item shows "Linked product deleted"); it clears if the product is re-created.'],
+  [ContentSlide, 'ContentSlide', "One slide of a content item: its media asset, the asset's `kind`, the alt text, the asset's current `status` (and `failure_reason` when `failed`), and `source_url`, the link an imported asset came from (null for uploads)."],
+  [ContentItem, 'ContentItem', 'One content item (Story or Reel), its lifecycle status, its linked `product` (or null) and its ordered `slides`.'],
+  [MediaUploadGrant, 'MediaUploadGrant', 'A pre-signed upload: PUT the file to `url` with `headers` before `expires_at` (15 minutes). The URL signs `Content-Length`, `Content-Type` and `x-amz-checksum-sha256`, so only the declared file is accepted.'],
+  [MediaAsset, 'MediaAsset', 'An uploaded or imported media file and its status: `importing` (the link is being fetched; `content_type` and `size_bytes` are null until it is), `uploaded` (waiting for inspection), `scanned` (type checked, metadata stripped, malware-scanned), `processed` (publishable) or `failed` with `failure_reason`.'],
   [ContentListResponse, 'ContentPage', 'One page of content items for a tab: `items` (at most `page_size`), `total` matching items, `page`, `page_size`, and `counts` for every tab (counts ignore search and page).'],
 ];
 
@@ -98,7 +133,10 @@ const inputs: Array<[z.ZodType, string, string]> = [
   [ResetPasswordInput, 'ResetPasswordRequest', 'New password with the token from `verify-otp`.'],
   [SetPasswordInput, 'SetPasswordRequest', "Owner's first password with the token from `verify-otp`."],
   [ResendOtpInput, 'ResendOtpRequest', 'Send the code again.'],
-  [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA.'],
+  [ContentCreateInput, 'ContentCreateRequest', 'Create a draft Story or Reel with its CTA and, optionally, the one linked product (`product_id`) and its ordered `slides`.'],
+  [MediaImportRequest, 'MediaImportRequest', '`kind` and the link to import: http or https, port 80 or 443, no user info, at most ' + MEDIA_IMPORT_URL_MAX + ' characters.'],
+  [MediaUploadRequest, 'MediaUploadRequest', "`kind`, the file's `content_type`, its exact `size_bytes` and its SHA-256 (64 lower-case hex characters)."],
+  [ContentUpdateInput, 'ContentUpdateRequest', 'Any non-empty subset of the editable fields (title, format, CTA, `product_id`; `null` unlinks; `slides` replaces the whole slide list). The open-link rule applies to the merged item.'],
 ];
 
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -133,7 +171,7 @@ function exportModels(list: Array<[z.ZodType, string, string]>, io: 'input' | 'o
 // Routes
 // ---------------------------------------------------------------------------------------------------------------
 
-type Method = 'get' | 'post' | 'delete';
+type Method = 'get' | 'post' | 'patch' | 'delete';
 type Auth = 'public' | 'merchant' | 'admin';
 
 interface QueryDoc {
@@ -156,6 +194,11 @@ export interface RouteDoc {
   errors?: number[];
 }
 
+const MB = 1024 * 1024;
+
+const PLACEMENTS_DOC = `\`placements\` holds at most one Home placement (\`{ type: 'home', layout? }\`). The controlled pilot delivers the fixed Story Ring only: an omitted \`layout\` keeps the saved layout, or takes the store display default (Ring when the store has no settings). Any other or unknown \`layout\` answers 422 with problem \`type\` \`${CONTENT_INVALID_LAYOUT}\` (code \`invalid_layout\`) and nothing is written.`;
+const SLIDES_DOC = `\`slides\` (at most ${SLIDES_MAX}, unique \`media_asset_id\`s) replaces the item's slide list in order: removed slides are soft-deleted and a re-added asset revives its slide. Each asset must be a non-failed media asset of the store, else 422 with problem \`type\` \`${MEDIA_NOT_ATTACHABLE}\`; image slides need \`alt_text\` (1-${SLIDE_ALT_MAX} characters), else 422 \`${CONTENT_SLIDE_ALT_REQUIRED}\`.`;
+
 const productExample = {
   v: 1,
   total: 120,
@@ -174,13 +217,17 @@ const productExample = {
       currency: 'SAR',
       tax_inclusive: true,
       availability: 'low',
-      linked_content_count: 0,
+      has_required_options: false,
+      linked_content_count: 2,
       attributed_orders: null,
     },
   ],
 };
 
 export const ROUTES: RouteDoc[] = [
+  { method: 'get', path: '/v1/preview/content/:id', tag: 'Content', summary: 'Preview one saved content item', description: 'Any live item of the session store, regardless of status, schedule or placement. No writes or events. Media URLs are API-relative and require the API origin and merchant credentials. Only inspected media is exposed; importing, uploaded and failed assets are placeholders. Missing, malformed, deleted and other-store IDs return 404.', auth: 'merchant', success: { status: 200, description: 'One-item StoreManifest v1', body: StoreManifest, headers: { 'Cache-Control': 'private, no-store' } }, errors: [401, 404] },
+  { method: 'get', path: '/v1/media/:id/source', tag: 'Media', summary: 'Stream inspected media source', description: 'Streams only the sanitized malware-scanned storage copy of a scanned or processed asset of the session store. Never streams raw uploads or imported external links. Unavailable, unsafe and missing objects return 404.', auth: 'merchant', success: { status: 200, description: 'Inspected source bytes', contentType: 'application/octet-stream', headers: { 'Cache-Control': 'private, no-store' } }, errors: [401, 404] },
+  { method: 'get', path: '/v1/media/:id/renditions/:profile', tag: 'Media', summary: 'Stream a media rendition', description: 'Profiles: web for images; 480p, 720p, 1080p and poster for processed videos. While scanned, only an available image web rendition or video poster may be used. Requires merchant credentials; other-store, unknown profiles, unsafe assets and missing objects return 404. Content-Type reflects the stored rendition.', auth: 'merchant', success: { status: 200, description: 'Selected rendition bytes', contentType: 'application/octet-stream', headers: { 'Cache-Control': 'private, no-store' } }, errors: [401, 404] },
   { method: 'get', path: '/v1/health', tag: 'Ops', summary: 'Health check', description: 'Liveness plus a database check. 503 when the database is down.', auth: 'public', success: { status: 200, description: 'Healthy', body: HealthResponse }, errors: [503] },
   { method: 'get', path: '/metrics', tag: 'Ops', summary: 'Prometheus metrics', description: 'Needs `Authorization: Bearer <METRICS_TOKEN>`. Disabled when the token is not configured.', auth: 'public', success: { status: 200, description: 'Prometheus text exposition format', contentType: 'text/plain' }, errors: [401] },
 
@@ -262,11 +309,22 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content',
     tag: 'Content',
     summary: 'Create a content item',
-    description: 'Creates a draft Story or Reel with its title, format and CTA, and emits `content.item.created` in the same transaction. Invalid bodies answer 400 `invalid_body`.',
+    description: `Creates a draft Story or Reel with its title, format and CTA, and emits \`content.item.created\` in the same transaction. Invalid bodies answer 400 \`invalid_body\`. An open-link \`cta_url\` must be http(s) on one of the store's synced domains (or a subdomain of one), else 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`. An optional \`product_id\` links one catalog product; one the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. ${SLIDES_DOC} ${PLACEMENTS_DOC}`,
     auth: 'merchant',
     body: ContentCreateInput,
     success: { status: 201, description: 'Created draft content item', body: ContentItem },
-    errors: [400, 401, 403],
+    errors: [400, 401, 403, 422],
+  },
+  {
+    method: 'patch',
+    path: '/v1/content/:id',
+    tag: 'Content',
+    summary: 'Edit a content item',
+    description: `Changes the title, format, CTA, linked product (\`product_id\`, one per item; \`null\` unlinks) and slides of a live item of the store, keeps its status, and emits \`content.item.edited\` in the same transaction (nothing is written when no field changes). Moving \`cta_action\` off \`open_link\` clears \`cta_url\`. Invalid bodies, or a merged item that breaks the open-link rule, answer 400 \`invalid_body\`; archived items answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`; an off-domain \`cta_url\` answers 422 with problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`; a \`product_id\` the store's catalog does not know or has deleted answers 422 with problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\` and nothing is written. ${SLIDES_DOC} A slide the item already has stays even if its asset failed since. ${PLACEMENTS_DOC} A layout change is one \`placements\` change in the single \`content.item.edited\` event. Changing a Published or Scheduled item's \`format\` to \`reel\` answers 422 with problem \`type\` \`${CONTENT_UNSUPPORTED_FORMAT}\` (code \`unsupported_format\`) and nothing is written. Unknown, deleted or other-store items answer 404.`,
+    auth: 'merchant',
+    body: ContentUpdateInput,
+    success: { status: 200, description: 'Edited content item', body: ContentItem },
+    errors: [400, 401, 403, 404, 409, 422],
   },
   {
     method: 'get',
@@ -277,6 +335,36 @@ export const ROUTES: RouteDoc[] = [
     auth: 'merchant',
     success: { status: 200, description: 'Content item', body: ContentItem },
     errors: [401, 404],
+  },
+  {
+    method: 'post',
+    path: '/v1/content/:id/duplicate',
+    tag: 'Content',
+    summary: 'Duplicate a content item',
+    description: 'Copies any non-deleted item into a fresh Draft with a title ending in literal " (copy)" within 80 characters. Copies the saved CTA, product link and ordered live slides with fresh IDs and shared media assets, including pending/failed media and hidden/deleted products. Resets auto-publication, publication and archive/reactivation metadata; copies no placements or schedule. Emits one content.item.created atomically. Unknown, malformed, deleted or other-store sources answer 404.',
+    auth: 'merchant',
+    success: { status: 201, description: 'Duplicated draft content item', body: ContentItem },
+    errors: [401, 403, 404],
+  },
+  {
+    method: 'post',
+    path: '/v1/content/:id/retry',
+    tag: 'Content',
+    summary: 'Retry failed processing',
+    description: 'Requeues processing_failed live slides and moves a failed item to processing. Returns 409 invalid-transition if the item is not failed or has no retryable slides.',
+    auth: 'merchant',
+    success: { status: 200, description: 'Processing content item', body: ContentItem },
+    errors: [401, 403, 404, 409],
+  },
+  {
+    method: 'post',
+    path: '/v1/content/:id/publish',
+    tag: 'Content',
+    summary: 'Publish a content item now',
+    description: `Publishes a Draft under its item lock. Requires a Story (Reels are not delivered in the pilot), a saved Home placement and all attached media to be processed. Refuses atomically with 422 ${CONTENT_UNSUPPORTED_FORMAT} (code unsupported_format), no-placement (code no_placement) or content-media-not-ready (code media_not_ready). Unsupported placement types and targets are rejected by create/edit. Sets first_published_at once and emits content.item.published in the same transaction.`,
+    auth: 'merchant',
+    success: { status: 200, description: 'Published content item', body: ContentItem },
+    errors: [401, 403, 404, 409, 422],
   },
   {
     method: 'post',
@@ -293,10 +381,10 @@ export const ROUTES: RouteDoc[] = [
     path: '/v1/content/:id/undo-archive',
     tag: 'Content',
     summary: 'Undo archive on a content item',
-    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`.`,
+    description: `Returns an \`archived\` item to the status it was archived from (\`archived_from\`). Disallowed transitions answer 409 with problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`. Returning to Published or Scheduled requires a Story, a saved Home placement and processed media; admission failures answer 422 with type \`${CONTENT_UNSUPPORTED_FORMAT}\` (code unsupported_format), no-placement (code no_placement) or content-media-not-ready (code media_not_ready), without changing the item or emitting an event.`,
     auth: 'merchant',
     success: { status: 200, description: 'Unarchived content item', body: ContentItem },
-    errors: [401, 403, 404, 409],
+    errors: [401, 403, 404, 409, 422],
   },
   {
     method: 'post',
@@ -319,6 +407,59 @@ export const ROUTES: RouteDoc[] = [
     errors: [401, 403, 404],
   },
 
+  {
+    method: 'post',
+    path: '/v1/media/uploads',
+    tag: 'Media',
+    summary: 'Get an upload URL',
+    description: `A pre-signed PUT URL for one file, valid 15 minutes, under the store's own prefix and addressed by the file's SHA-256. Images: ${MEDIA_LIMITS.image.content_types.join(', ')} up to ${MEDIA_LIMITS.image.max_bytes / MB} MB; videos: ${MEDIA_LIMITS.video.content_types.join(', ')} up to ${MEDIA_LIMITS.video.max_bytes / MB} MB. Another type (SVG included) answers 422 with problem \`type\` \`${MEDIA_TYPE_NOT_ALLOWED}\`; a larger file 422 \`${MEDIA_TOO_LARGE}\`. Too many URLs for the store in 10 minutes answers 429 \`${MEDIA_UPLOAD_RATE_LIMITED}\` with a \`Retry-After\` header (seconds). Then PUT the file with the returned headers and call \`complete\`. Cookie sessions need \`x-csrf-token\`.`,
+    auth: 'merchant',
+    body: MediaUploadRequest,
+    success: { status: 201, description: 'Upload URL', body: MediaUploadGrant },
+    errors: [400, 401, 403, 422, 429],
+  },
+  {
+    method: 'post',
+    path: '/v1/media/imports',
+    tag: 'Media',
+    summary: 'Import from a link',
+    description: `Records an \`importing\` asset for the file at \`url\`. The worker fetches it (never the API; the link is never served or hotlinked), checking every address the host resolves to and every redirect (at most 3) against private, loopback, link-local and metadata ranges, within the kind's size limit and a 2 minute timeout. The file then gets the same inspection as an upload. The outcome shows on \`GET /v1/media/{id}\`, e.g. \`failed\` with \`fetch_blocked\`, \`fetch_too_large\`, \`fetch_failed\`, \`type_not_allowed\` or \`type_mismatch\`. A link that is not http(s) on port 80/443, has user info, is longer than ${MEDIA_IMPORT_URL_MAX} characters, or whose host is a blocked IP address answers 422 with problem \`type\` \`${MEDIA_URL_NOT_ALLOWED}\`. Imports count toward the upload throttle (429 \`${MEDIA_UPLOAD_RATE_LIMITED}\` with \`Retry-After\`). Cookie sessions need \`x-csrf-token\`.`,
+    auth: 'merchant',
+    body: MediaImportRequest,
+    success: { status: 201, description: 'The importing asset', body: MediaAsset },
+    errors: [400, 401, 403, 422, 429],
+  },
+  {
+    method: 'post',
+    path: '/v1/media/uploads/:upload_id/complete',
+    tag: 'Media',
+    summary: 'Complete an upload',
+    description: `Records the uploaded file as an \`uploaded\` asset and queues its inspection (hash check, type sniffing, metadata stripping, malware scan). Repeating the call returns the same asset. Not uploaded yet: 409 \`${MEDIA_UPLOAD_MISSING}\`; URL expired without an upload: 410 \`${MEDIA_UPLOAD_EXPIRED}\`; stored size differs from the declared one: 422 \`${MEDIA_TOO_LARGE}\` (the object is deleted). Unknown or other-store uploads answer 404.`,
+    auth: 'merchant',
+    success: { status: 200, description: 'The asset', body: MediaAsset },
+    errors: [401, 403, 404, 409, 410, 422],
+  },
+  {
+    method: 'get',
+    path: '/v1/media/:id',
+    tag: 'Media',
+    summary: 'Get a media asset',
+    description: 'Returns a media asset of the signed-in store and its inspection/processing status (`poster_url` is set once `processed`). Unknown or other-store assets answer 404.',
+    auth: 'merchant',
+    success: { status: 200, description: 'Media asset', body: MediaAsset },
+    errors: [401, 404],
+  },
+  {
+    method: 'get',
+    path: '/v1/media/:id/poster',
+    tag: 'Media',
+    summary: 'Stream a processed media asset poster',
+    description: 'Streams the `poster` rendition (`image/webp`, `720x1280`) for a processed video or the `web` rendition (`image/webp`) for a processed image of the signed-in store, with `Cache-Control: private, max-age=31536000, immutable`. Unknown, other-store or unready assets answer 404.',
+    auth: 'merchant',
+    success: { status: 200, description: 'WebP poster or image rendition bytes' },
+    errors: [401, 404],
+  },
+
   { method: 'post', path: '/v1/admin/sign-in', tag: 'Admin', summary: 'Slips Admin sign-in (not available yet)', description: 'Placeholder: always 403 until the admin identity provider is chosen.', auth: 'public', success: { status: 200, description: 'Signed in' }, errors: [403] },
   { method: 'get', path: '/v1/admin/session', tag: 'Admin', summary: 'Slips Admin session (not available yet)', auth: 'admin', success: { status: 200, description: 'Admin session' }, errors: [403] },
 ];
@@ -330,6 +471,7 @@ const TAGS = [
   { name: 'Password reset & setup', description: 'Code-based flow shared by "forgot password" (purpose `reset`) and the first password of a new owner (purpose `setup`): request or receive a code → `verify-otp` → `reset-password` or `set-password`.' },
   { name: 'Catalog', description: "The store's products synced from Salla: listing, categories and the sync status." },
   { name: 'Content', description: 'Stories and Reels created by the merchant and their status lifecycle.' },
+  { name: 'Media', description: 'Direct-to-storage uploads of images and videos and the inspection status of each asset.' },
   { name: 'Ops', description: 'Health and metrics for operations.' },
   { name: 'Admin', description: 'Internal Slips Admin (not available yet).' },
 ];
@@ -361,14 +503,17 @@ Every error is \`application/problem+json\` (see the \`Problem\` model) with a s
 - Password sign-in: ${AUTH_PROBLEM_CODES.map((c) => `\`${c}\``).join(', ')}
 - Queries: \`invalid_query\`
 - Catalog: \`sync_rate_limited\` (problem \`type\` \`sync-rate-limited\`, with a \`Retry-After\` header in seconds)
-- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`)`;
+- Content: \`invalid_body\`, \`content_not_found\`, \`invalid_transition\` (409, problem \`type\` \`${CONTENT_INVALID_TRANSITION}\`), \`cta_url_not_store_domain\` (422, problem \`type\` \`${CONTENT_CTA_URL_NOT_STORE_DOMAIN}\`), \`product_not_linkable\` (422, problem \`type\` \`${CONTENT_PRODUCT_NOT_LINKABLE}\`), \`media_not_attachable\` (422, problem \`type\` \`${MEDIA_NOT_ATTACHABLE}\`), \`slide_alt_text_required\` (422, problem \`type\` \`${CONTENT_SLIDE_ALT_REQUIRED}\`)
+- Media: \`invalid_body\`, \`media_url_not_allowed\` (422, \`${MEDIA_URL_NOT_ALLOWED}\`), \`media_type_not_allowed\` (422, \`${MEDIA_TYPE_NOT_ALLOWED}\`), \`media_too_large\` (422, \`${MEDIA_TOO_LARGE}\`), \`media_upload_rate_limited\` (429, \`${MEDIA_UPLOAD_RATE_LIMITED}\`, with \`Retry-After\`), \`media_upload_missing\` (409, \`${MEDIA_UPLOAD_MISSING}\`), \`media_upload_expired\` (410, \`${MEDIA_UPLOAD_EXPIRED}\`), \`media_upload_not_found\`, \`media_not_found\``;
 
 const STATUS_TEXT: Record<number, string> = {
   400: 'Invalid request (`code` says which)',
   401: 'Not signed in, session expired, or wrong credentials',
   403: 'Forbidden: missing/invalid CSRF token, store not installed, or admin only',
   404: 'Not found',
-  409: 'Conflict (`type` `invalid-transition` when a status change is not allowed)',
+  409: 'Conflict (`type` `invalid-transition` when a status change or edit is not allowed, `media-upload-missing` before the file is uploaded)',
+  410: 'Gone (`type` `media-upload-expired`: the upload URL expired unused)',
+  422: 'Unprocessable (`type` says which rule, e.g. `cta-url-not-store-domain`)',
   429: 'Too many attempts; try again later (after `Retry-After` seconds when the header is sent)',
   503: 'A dependency (database or Salla) is unavailable',
 };
@@ -395,18 +540,23 @@ export function buildOpenApi(serverUrl: string, version = '0.0.0') {
         ...(ok.body
           ? { content: { 'application/json': { schema: refFor(ok.body, outputs), ...(ok.example ? { example: ok.example } : {}) } } }
           : ok.contentType
-            ? { content: { [ok.contentType]: { schema: { type: 'string' } } } }
+            ? { content: { [ok.contentType]: { schema: { type: 'string', ...(ok.contentType === 'application/octet-stream' ? { format: 'binary' } : {}) } } } }
             : {}),
       },
     };
     for (const status of r.errors ?? []) responses[status] = { $ref: `#/components/responses/E${status}` };
-    (paths[r.path] ??= {})[r.method] = {
+    const pathParameters = [...r.path.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => ({
+      name: match[1]!, in: 'path', required: true, schema: { type: 'string' },
+    }));
+    const operationParameters = [...pathParameters, ...(r.query ? parameters(r.query) : [])];
+    const path = r.path.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}');
+    (paths[path] ??= {})[r.method] = {
       tags: [r.tag],
       summary: r.summary,
       ...(r.description ? { description: r.description } : {}),
       operationId: `${r.method}${r.path.replace(/[^a-zA-Z0-9]+(\w)?/g, (_, c: string | undefined) => (c ? c.toUpperCase() : ''))}`,
       security: security(r.auth),
-      ...(r.query ? { parameters: parameters(r.query) } : {}),
+      ...(operationParameters.length ? { parameters: operationParameters } : {}),
       ...(r.body ? { requestBody: { required: true, content: { 'application/json': { schema: refFor(r.body, inputs) } } } } : {}),
       responses,
     };

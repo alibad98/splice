@@ -1,10 +1,11 @@
 // Tiny static + fake-API server for the CLS suite. Serves fixtures, the built player and the manifest API.
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 
-const root = new URL('..', import.meta.url).pathname;
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const root = fileURLToPath(new URL('..', import.meta.url));
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webm': 'video/webm' };
 const hanging = new Set();
 
 const server = createServer(async (req, res) => {

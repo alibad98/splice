@@ -22,10 +22,13 @@ describe('UI gallery (dev only)', () => {
     expect(container.querySelectorAll('[data-slot="meter"]')).toHaveLength(3);
     expect(container.querySelectorAll('[data-slot="alert"]')).toHaveLength(3);
     expect(container.querySelectorAll('[data-slot="banner"]')).toHaveLength(2);
+    expect(container.querySelector('[data-slot="error-summary"]')?.getAttribute('role')).toBe('alert');
     expect(container.querySelector('[data-slot="empty-state"]')).not.toBeNull();
     expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(container.querySelector('[data-slot="select-trigger"]')).not.toBeNull();
     expect(container.querySelector('select')).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Product' })).toBeTruthy();
+    expect(container.querySelectorAll('[data-slot="drop-zone"]')).toHaveLength(2);
     expect(container.querySelectorAll('[data-slot="status-chip"]')).toHaveLength(10); // 5 tones + processing, ended, archived + 2 in the DataTable demo
     expect(screen.getByRole('region', { name: 'Notifications (F8)' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'العربية' }));

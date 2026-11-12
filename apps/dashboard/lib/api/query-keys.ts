@@ -6,6 +6,8 @@ export const queryKeys = {
     all: ['catalog'] as const,
     productsAll: () => [...queryKeys.catalog.all, 'products'] as const,
     products: (query: ProductListQuery) => [...queryKeys.catalog.productsAll(), query] as const,
+    /** Product picker search (Story 3.4); under `productsAll` so link changes refresh it too. */
+    search: (q: string) => [...queryKeys.catalog.productsAll(), 'search', q] as const,
     categories: () => [...queryKeys.catalog.all, 'categories'] as const,
     sync: () => [...queryKeys.catalog.all, 'sync'] as const,
   },
@@ -13,5 +15,11 @@ export const queryKeys = {
     all: ['content'] as const,
     lists: () => [...queryKeys.content.all, 'list'] as const,
     list: (query: ContentListQuery) => [...queryKeys.content.lists(), query] as const,
+    item: (id: string) => [...queryKeys.content.all, 'item', id] as const,
+  },
+  media: {
+    all: ['media'] as const,
+    /** One asset's status, polled while it is being inspected (Story 3.6). */
+    asset: (id: string) => [...queryKeys.media.all, 'asset', id] as const,
   },
 };

@@ -13,6 +13,8 @@ updated: 2026-10-10
 
 ## Foundation
 
+Approved pilot availability amendment (2026-11-11): Home placement, Story ring and publish-now are the first storefront journey. Hide unsupported storefront placements/layouts/scheduling and analytics, or explicitly label unavailable; never show fabricated zero metrics or ROI claims. Preserve completed editor/media/preview functionality; explain that Reels cannot publish to the pilot storefront. Display a pilot notice and selected real support channel. Existing Arabic/English, Western-digit, keyboard/focus, reduced-motion and explicit Published Save changes rules still apply. Full journeys below remain the full MVP target; track partial delivery in `_bmad-output/implementation-artifacts/pilot-readiness.md`.
+
 | Aspect | Decision |
 |---|---|
 | Surfaces | (1) Merchant dashboard: responsive web, embedded in the Salla dashboard iframe, also reachable by direct link (AD-12). (2) Storefront player: mobile-first overlay/inline in Salla themes, loaded by the injector. (3) `/admin`: internal support view, never framed. |

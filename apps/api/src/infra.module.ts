@@ -1,3 +1,4 @@
+import { CDN_PURGER, unconfiguredCdnPurger, type CdnPurger } from './ports/cdn-purger.js';
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import type { WebhookRecorder } from './modules/integration/webhook-recorder.js';
 import type { Pool } from 'pg';
@@ -10,6 +11,10 @@ import { FEATURE_FLAGS, type FeatureFlags } from './ports/feature-flags.js';
 import { STORE_DATA_LIFECYCLES, type StoreDataLifecycle } from './ports/store-data-lifecycle.js';
 import { TELEMETRY, type Telemetry } from './ports/telemetry.js';
 import { MAILER, type Mailer } from './ports/mailer.js';
+import type { ExternalFetcher } from './ports/external-fetcher.js';
+import type { MediaProcessor } from './ports/media-processor.js';
+import { MALWARE_SCANNER, type MalwareScanner } from './ports/malware-scanner.js';
+import { OBJECT_STORAGE, type ObjectStorage } from './ports/object-storage.js';
 import { STORE_INSTALL_LISTENERS, type StoreInstallListener } from './ports/store-install-listener.js';
 
 export const APP_INFO = Symbol('APP_INFO');
@@ -18,6 +23,17 @@ export const DB_POOL = Symbol('DB_POOL');
 export const EVENT_SENDER = Symbol('EVENT_SENDER');
 export const INTEGRATION_CONFIG = Symbol('INTEGRATION_CONFIG');
 export const SESSION_CONFIG = Symbol('SESSION_CONFIG');
+export const MEDIA_CONFIG = Symbol('MEDIA_CONFIG');
+
+export interface MediaConfig {
+  /** Upload URLs one store may be issued per throttle window (`MEDIA_UPLOAD_RATE_LIMIT`). */
+  uploadRateLimit: number;
+  /**
+   * Public base URL of the media bucket (`MEDIA_PUBLIC_BASE_URL`) that store manifests link renditions under (Story 4.4).
+   * Rendition keys are content-addressed, so the URLs are immutable.
+   */
+  publicBaseUrl: string;
+}
 
 export interface IntegrationConfig {
   /** Where the merchant lands after the install flow. */
@@ -72,6 +88,22 @@ export interface InfraDeps {
   session: SessionConfig;
   adminAccess: AdminAccess;
   mailer: Mailer;
+  /** The media bucket (Story 3.5). */
+  storage: ObjectStorage;
+  cdnPurger?: CdnPurger;
+  /** Malware scanning of uploaded media (dev: EICAR only). */
+  scanner: MalwareScanner;
+  /**
+   * The SSRF-safe fetcher for media links (Story 3.7). Worker role only: the API never fetches external links, so it is
+   * not bound in the Nest container.
+   */
+  fetcher?: ExternalFetcher;
+  /**
+   * Video/image processor for renditions and posters (Story 3.8). Worker role only: media processing never runs in the
+   * `http` role.
+   */
+  processor?: MediaProcessor;
+  media: MediaConfig;
   /** Modules that hold tenant data, registered for uninstall, reinstall and purge (the integration module adds its own, last). */
   lifecycles: readonly StoreDataLifecycle[];
   /** Modules told about each committed install, on the webhook and the OAuth path alike (the owner invite). */
@@ -97,6 +129,10 @@ export class InfraModule {
       { provide: SESSION_CONFIG, useValue: deps.session },
       { provide: ADMIN_ACCESS, useValue: deps.adminAccess },
       { provide: MAILER, useValue: deps.mailer },
+      { provide: OBJECT_STORAGE, useValue: deps.storage },
+      { provide: CDN_PURGER, useValue: deps.cdnPurger ?? unconfiguredCdnPurger },
+      { provide: MALWARE_SCANNER, useValue: deps.scanner },
+      { provide: MEDIA_CONFIG, useValue: deps.media },
       { provide: STORE_DATA_LIFECYCLES, useValue: deps.lifecycles },
       { provide: STORE_INSTALL_LISTENERS, useValue: deps.installListeners },
     ];

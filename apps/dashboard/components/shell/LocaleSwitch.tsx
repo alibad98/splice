@@ -17,6 +17,7 @@ export function LocaleSwitch() {
   return (
     <Link
       href={withLang(qs ? `${pathname}?${qs}` : pathname, other)}
+      prefetch={false}
       lang={other}
       aria-label={messages.shell.switchToLabel}
       className="inline-flex min-h-9 items-center rounded-pill border border-input-border px-3 text-small font-semibold hover:bg-secondary"

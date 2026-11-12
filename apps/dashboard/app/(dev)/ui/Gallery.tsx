@@ -9,6 +9,8 @@ import {
   Card,
   CardTitle,
   Checkbox,
+  Combobox,
+  DropZone,
   ConfirmDialog,
   DataTable,
   Icon,
@@ -28,6 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
+  ErrorSummary,
   Field,
   Input,
   Label,
@@ -104,12 +107,13 @@ const COPY = {
       badge: 'Badge', badgeTones: { neutral: 'Draft', brand: 'New', accent: 'Pro plan', info: 'Scheduled', success: 'Live', warning: 'Low stock', danger: 'Failed' }, verified: 'Verified for Salla', syncingNow: 'Syncing', small: 'Small', medium: 'Medium', large: 'Large',
       feedback: 'Progress and meter', alerts: 'Alert and banner', empty: 'Empty state and skeleton', pagination: 'Pagination', pages: 'Pages', range: (r: { from: number; to: number; total: number }) => `${r.from}-${r.to} of ${r.total}`, previous: 'Previous', next: 'Next', rowsPerPage: 'Rows per page', forms: 'Form controls', overlays: 'Dialogs, menus and tooltips', themeSection: 'Theme toggle', tabsSection: 'Tabs',
       uploading: 'Uploading video', syncing: 'Syncing products', stories: 'Stories this month', n: (a: number, b: number) => `${a} of ${b}`,
-      errorTitle: 'We could not load your stories', errorBody: 'Your other blocks are fine.', retry: 'Retry', warnTitle: 'Two products are out of stock', okTitle: 'Settings saved', dismiss: 'Dismiss',
+      errorTitle: 'We could not load your stories', errorBody: 'Your other blocks are fine.', retry: 'Retry', warnTitle: 'Two products are out of stock', okTitle: 'Settings saved', dismiss: 'Dismiss', summaryTitle: 'Fix 2 problems to save', summaryItems: ['Enter a title', 'Use a link on your store domain'],
       offline: 'You are offline. Changes will sync when you reconnect.', disconnected: 'Your store is disconnected from Salla.', reconnect: 'Reconnect',
       emptyTitle: 'No stories yet', firstStory: 'Create your first story', emptyBody: 'Create your first story from a product video.', filtered: 'No products match your filters.', loading: 'Loading',
       email: 'Email address', emailHint: 'We send sign-in codes here.', emailPh: 'you@store.com', password: 'Password', passwordError: 'At least 8 characters', show: 'Show password', hide: 'Hide password',
-      notes: 'Notes', notesPh: 'Anything shoppers should know', category: 'Category', all: 'All categories', abayas: 'Abayas', bags: 'Bags', perfume: 'Perfume',
+      notes: 'Notes', notesPh: 'Anything shoppers should know', category: 'Category', all: 'All categories', abayas: 'Abayas', bags: 'Bags', perfume: 'Perfume', product: 'Product', productPh: 'Search your products', products: 'Products', noMatch: 'No products match',
       terms: 'Show prices with VAT', autosync: 'Sync products automatically', code: 'Verification code', digit: 'Digit', of: 'of',
+      dropTitle: 'Drop images or videos here', dropHint: 'JPG, PNG or WebP up to 10 MB. MP4, MOV or WebM up to 200 MB.', dropButton: 'Choose files', dropFull: 'This item has 10 slides, the most it can have.', dropped: (n: number) => `${n} file(s) picked`,
       tabStories: 'Stories', tabReels: 'Reels', tabStoriesBody: 'Stories show at the top of your store.', tabReelsBody: 'Reels play on product pages.',
       openDialog: 'Open dialog', dialogTitle: 'Rename story', dialogBody: 'Shoppers see this name under the story ring.', save: 'Save', cancel: 'Cancel',
       openConfirm: 'Delete story...', confirmTitle: 'Delete “Summer abayas”?', confirmBody: 'It disappears from your store right away. This cannot be undone.', confirmDelete: 'Delete story',
@@ -152,12 +156,13 @@ const COPY = {
       badge: 'الشارة', badgeTones: { neutral: 'مسودة', brand: 'جديد', accent: 'الباقة الاحترافية', info: 'مجدول', success: 'مباشر', warning: 'مخزون منخفض', danger: 'فشل' }, verified: 'معتمد لمتجر سلة', syncingNow: 'نزامن الآن', small: 'صغيرة', medium: 'متوسطة', large: 'كبيرة',
       feedback: 'التقدم والعداد', alerts: 'التنبيه والشريط', empty: 'الحالة الفارغة والهيكل', pagination: 'التنقل بين الصفحات', pages: 'الصفحات', range: (r: { from: number; to: number; total: number }) => `${r.from}-${r.to} من ${r.total}`, previous: 'السابق', next: 'التالي', rowsPerPage: 'عدد الصفوف', forms: 'عناصر النماذج', overlays: 'النوافذ والقوائم والتلميحات', themeSection: 'مبدّل الوضع', tabsSection: 'التبويبات',
       uploading: 'نرفع الفيديو', syncing: 'نزامن المنتجات', stories: 'ستوريز هذا الشهر', n: (a: number, b: number) => `${a} من ${b}`,
-      errorTitle: 'ما قدرنا نحمّل الستوريز', errorBody: 'باقي الأقسام تعمل بشكل طبيعي.', retry: 'حاول مرة ثانية', warnTitle: 'منتجان نفدا من المخزون', okTitle: 'تم حفظ الإعدادات', dismiss: 'إغلاق',
+      errorTitle: 'ما قدرنا نحمّل الستوريز', errorBody: 'باقي الأقسام تعمل بشكل طبيعي.', retry: 'حاول مرة ثانية', warnTitle: 'منتجان نفدا من المخزون', okTitle: 'تم حفظ الإعدادات', dismiss: 'إغلاق', summaryTitle: 'صحّح مشكلتين للحفظ', summaryItems: ['اكتب عنوانًا', 'استخدم رابطًا على نطاق متجرك'],
       offline: 'أنت غير متصل. ستتم مزامنة التغييرات عند عودة الاتصال.', disconnected: 'متجرك غير مرتبط بسلة.', reconnect: 'أعد الربط',
       emptyTitle: 'لا توجد ستوريز بعد', firstStory: 'أنشئ أول ستوري', emptyBody: 'أنشئ أول ستوري من فيديو منتج.', filtered: 'لا توجد منتجات تطابق الفلاتر.', loading: 'نحمّل',
       email: 'البريد الإلكتروني', emailHint: 'نرسل رموز الدخول إلى هذا البريد.', emailPh: 'you@store.com', password: 'كلمة المرور', passwordError: '8 أحرف على الأقل', show: 'إظهار كلمة المرور', hide: 'إخفاء كلمة المرور',
-      notes: 'ملاحظات', notesPh: 'أي شيء يهم المتسوقين', category: 'التصنيف', all: 'كل التصنيفات', abayas: 'عبايات', bags: 'حقائب', perfume: 'عطور',
+      notes: 'ملاحظات', notesPh: 'أي شيء يهم المتسوقين', category: 'التصنيف', all: 'كل التصنيفات', abayas: 'عبايات', bags: 'حقائب', perfume: 'عطور', product: 'المنتج', productPh: 'ابحث في منتجاتك', products: 'المنتجات', noMatch: 'لا توجد منتجات مطابقة',
       terms: 'اعرض الأسعار شاملة الضريبة', autosync: 'زامن المنتجات تلقائيًا', code: 'رمز التحقق', digit: 'الرقم', of: 'من',
+      dropTitle: 'اسحب الصور أو الفيديوهات وأفلتها هنا', dropHint: 'JPG أو PNG أو WebP حتى 10 ميجابايت. MP4 أو MOV أو WebM حتى 200 ميجابايت.', dropButton: 'اختر ملفات', dropFull: 'هذا العنصر فيه 10 شرائح، وهذا الحد الأقصى.', dropped: (n: number) => `اخترت ${n} ملف`,
       tabStories: 'ستوريز', tabReels: 'ريلز', tabStoriesBody: 'تظهر الستوريز أعلى متجرك.', tabReelsBody: 'تعمل الريلز في صفحات المنتجات.',
       openDialog: 'افتح النافذة', dialogTitle: 'غيّر اسم الستوري', dialogBody: 'يرى المتسوقون هذا الاسم تحت حلقة الستوري.', save: 'احفظ', cancel: 'إلغاء',
       openConfirm: 'احذف الستوري...', confirmTitle: 'حذف «عبايات الصيف»؟', confirmBody: 'ستختفي من متجرك فورًا. لا يمكن التراجع.', confirmDelete: 'احذف الستوري',
@@ -191,7 +196,9 @@ export function Gallery() {
   const [locale, setLocale] = useState<Locale>('en');
   const [dark, setDark] = useState(false);
   const [otp, setOtp] = useState('');
+  const [dropped, setDropped] = useState(0);
   const [category, setCategory] = useState('');
+  const [productQuery, setProductQuery] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pager, setPager] = useState({ page: 1, size: 10 });
   const c = COPY[locale];
@@ -340,6 +347,8 @@ export function Gallery() {
             <Alert tone="danger" title={k.errorTitle} description={k.errorBody} action={{ label: k.retry, onClick: () => undefined }} />
             <Alert tone="warning" title={k.warnTitle} />
             <Alert tone="success" title={k.okTitle} onDismiss={() => undefined} dismissLabel={k.dismiss} />
+            {/* The gallery must not steal focus on load; in forms the summary focuses itself. */}
+            <ErrorSummary title={k.summaryTitle} items={k.summaryItems.map((label, i) => ({ id: `gallery-summary-${i}`, label }))} autoFocus={false} />
             <Banner tone="warning">{k.offline}</Banner>
             <Banner tone="danger" action={{ label: k.reconnect, onClick: () => undefined }}>
               {k.disconnected}
@@ -376,6 +385,19 @@ export function Gallery() {
                 </SelectContent>
               </Select>
             </Field>
+            <Field label={k.product}>
+              <Combobox
+                inputValue={productQuery}
+                onInputValueChange={setProductQuery}
+                options={[k.abayas, k.bags, k.perfume].filter((name) => name.toLowerCase().includes(productQuery.trim().toLowerCase()))}
+                getOptionKey={(name) => name}
+                renderOption={(name) => <span dir="auto">{name}</span>}
+                onSelect={setProductQuery}
+                placeholder={k.productPh}
+                listLabel={k.products}
+                emptyContent={k.noMatch}
+              />
+            </Field>
             <Field label={k.notes}>
               <Textarea placeholder={k.notesPh} rows={2} className="min-h-9" />
             </Field>
@@ -392,6 +414,11 @@ export function Gallery() {
             <Field label={k.code}>
               <OtpInput value={otp} onChange={setOtp} digitLabel={k.digit} ofLabel={k.of} />
             </Field>
+            <div className="flex flex-col gap-2 sm:col-span-2">
+              <DropZone onFiles={(files) => setDropped(files.length)} title={k.dropTitle} hint={k.dropHint} buttonLabel={k.dropButton} accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" multiple />
+              {dropped > 0 ? <p className="text-small text-muted-foreground">{k.dropped(dropped)}</p> : null}
+              <DropZone onFiles={() => {}} title={k.dropTitle} buttonLabel={k.dropButton} multiple disabled disabledReason={k.dropFull} />
+            </div>
           </div>
         </Section>
 

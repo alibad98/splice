@@ -44,6 +44,8 @@ export class PinoTelemetry implements Telemetry {
     this.registry.declare(Metric.DashboardRequests, 'counter', OUTCOMES);
     this.registry.declare(Metric.SallaApiFailures, 'counter', [{}]);
     this.registry.declare(Metric.WebhookFailures, 'counter', [{}]);
+    this.registry.declare(Metric.MediaUploadThrottled, 'counter', [{}]);
+    this.registry.declare(Metric.MediaStoredBytes, 'counter', [{}]);
     this.registry.declare(Metric.CatalogStaleWrites, 'counter', [{ source: 'webhook' }, { source: 'sync' }, { source: 'reconcile' }]);
     this.registry.declare(Metric.CatalogReconcileProducts, 'counter', [{ outcome: 'created' }, { outcome: 'updated' }, { outcome: 'deleted' }, { outcome: 'unchanged' }]);
     this.registry.declare(Metric.ApiRequestDuration, 'histogram');
@@ -52,6 +54,9 @@ export class PinoTelemetry implements Telemetry {
     this.registry.declare(Metric.QueueOldestAgeSeconds, 'gauge');
     this.registry.declare(Metric.DeadLetterDepth, 'gauge');
     this.registry.declare(Metric.WorkerUp, 'gauge');
+    for (const metric of [Metric.ManifestDeliveryPending, Metric.ManifestDeliveryFailed, Metric.ManifestDeliveryOldestAge]) this.registry.declare(metric, 'gauge');
+    for (const metric of [Metric.ManifestOriginFailures, Metric.ManifestDeliveryFailures, Metric.ManifestPurges]) this.registry.declare(metric, 'counter');
+    this.registry.declare(Metric.ManifestDeliveryLag, 'histogram');
   }
 
   counter(name: string, labels?: Labels, value?: number): void {

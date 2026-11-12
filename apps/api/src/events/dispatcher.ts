@@ -4,8 +4,11 @@ import type { Pool } from 'pg';
 import type { JobHandler } from '../adapters/telemetry/jobs.js';
 import type { TxQueryable } from './outbox.js';
 
-/** Runs inside the delivery transaction, so its writes and the delivery record commit together. */
-export type EventHandler<N extends EventName> = (event: { id: string; name: N; payload: EventPayload<N> }, tx: TxQueryable) => Promise<void>;
+/**
+ * Runs inside the delivery transaction, so its writes and the delivery record commit together. `occurredAt` is the
+ * envelope's ISO time the event was published (e.g. the start of the manifest compile lag, Story 4.4).
+ */
+export type EventHandler<N extends EventName> = (event: { id: string; name: N; payload: EventPayload<N>; occurredAt?: string }, tx: TxQueryable) => Promise<void>;
 
 /** Handlers per event, registered in the worker role only. A handler id is unique and names its ledger row. */
 export class EventHandlerRegistry {
@@ -46,7 +49,7 @@ export function eventDispatcher(pool: Pool, registry: EventHandlerRegistry): Job
       const deliver = async (tx: TxQueryable): Promise<void> => {
         const claimed = await tx.query('insert into event_deliveries (event_id, handler) values ($1, $2) on conflict do nothing returning event_id', [env.event_id, handler.id]);
         if (claimed.rows.length === 0) return;
-        await handler.run({ id: env.event_id, name: env.name, payload } as never, tx);
+        await handler.run({ id: env.event_id, name: env.name, payload, occurredAt: env.occurred_at } as never, tx);
       };
       try {
         if (env.store_id) await withStoreContext(pool, env.store_id, deliver);

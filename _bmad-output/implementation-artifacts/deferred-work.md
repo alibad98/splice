@@ -144,3 +144,86 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-1-content-model-lifecycle.md`
   summary: "Deleting an item while `processing` makes media's later `finish_processing`/`fail_processing` hit `ContentNotFoundError`."
   evidence: "Story 3.8/3.9: treat `ContentNotFoundError` as terminal in the media job (ack, clean up the upload)."
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-4-link-product-picker.md`
+  summary: `lifecycle.test.ts` "the sweep finishes pending webhooks and queues a purge…" fails once the shared test DB holds over 100 due `store_purge_schedule` rows, because `duePurges` takes the 100 oldest.
+  evidence: 2026-11-05 the Docker test DB (5436) had 132 leftover schedules from earlier runs; the test passed after clearing them. Fix: give the test its own due window/limit or clean schedules in its setup.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-5-upload-media-directly-to-storage.md`
+  summary: Replace the dev-only `EicarMalwareScanner` with a real `MalwareScanner` adapter, and refuse to boot in production without one.
+  evidence: Story 3.5 ships no vendor (AD-15, Q-05 hosting undecided); the EICAR adapter is wired in every environment today.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-5-upload-media-directly-to-storage.md`
+  summary: Stream media inspection (hash, sniff, scan) instead of buffering whole files, and do storage I/O outside the asset-row transaction.
+  evidence: Story 3.5 buffers up to 200 MB per job (media concurrency 2) and holds a DB transaction across storage calls; revisit with 3.8 video processing.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-8-process-videos-into-renditions-and-posters.md`
+  summary: Replace `DevMediaProcessor` video transcoding with a real FFmpeg/cloud `MediaProcessor` adapter once hosting is chosen (Q-05), and refuse to boot in production without one.
+  evidence: Story 3.8 uses `sharp` for real WebP image optimization and poster generation, and a deterministic in-process MP4 generator for video renditions until Q-05 is resolved.
+  update_2026_11_11: Superseded for adapter implementation: apps/api/src/http.ts imports FfmpegMediaProcessor and wires it for workers with env.FFMPEG_PATH. Production runtime FFmpeg, representative media, limits and playback verification remain open in pilot-readiness.md; the separate EicarMalwareScanner production gap remains open. Historical evidence above is retained.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-9-run-quality-checks-retry-failures-auto-publish.md`
+  summary: Reconcile media status atomically when attaching slides so completion/failure events cannot race the attachment transaction.
+  evidence: Attachment validation already reads media outside the lifecycle transaction in Story 3.8; an event delivered before the slide write sees no referencing item, and the subsequent write can use stale status. Verify with an interleaved event/attachment integration test.
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-9-run-quality-checks-retry-failures-auto-publish.md`
+  summary: Extend the production processor probe to support WebM without Duration and verify encoded resolution against representative container fixtures.
+  evidence: The development adapter requires explicit duration metadata and uses presentation dimensions. Keep conservative rejection when duration is unknown. Timestamp-derived WebM duration and encoded-versus-presentation resolution validation must accompany the production FFmpeg/cloud adapter deferred under Q-05; encoded-resolution bypass impact remains unverified until a representative fixture is tested.
+
+- source_spec: `spec-3-10-serve-a-preview-manifest-for-one-content-item.md`
+  summary: Normalize generated OpenAPI paths to brace parameters and declare required path parameter schemas across all routes.
+  evidence: Existing buildOpenApi uses paths[r.path] with Express colon segments and only generates query parameters; Swagger/generated clients cannot substitute the documented IDs. Story 3.10 inherits this pre-existing generator behavior.
+
+- source_spec: `spec-3-13-edit-duplicate-archive-restore-delete-content.md`
+  summary: Restore quantified upload/processing and cost-abuse constraints in the refreshed Epic 3 agent context.
+  evidence: Independent review B9/B10 found the context refresh omitted upload-URL throttling, abuse metrics, per-store stored-byte metering, the exact 15-minute presigned expiry and recording the processing P95 metric; authoritative planning requirements remain unchanged. Context-file corrections are deferred by the BMAD review routing rule.
+
+## Review-gap resolutions — 2026-11-11
+
+Original entries above retain their historical findings. Current disposition and executed evidence are in [review-gap closeout](review-gap-closeout-2026-11-11.md).
+
+- Daily reconcile cron registration and registration of every catalogued domain event are now covered through worker startup tests, including media-only queue selection.
+- Mid-session disconnect/reconnect metadata now refreshes periodically/on focus with cleanup and failure coverage. Background refresh preserves cookie idle expiry.
+- The purge-sweep integration fixture no longer falls outside its first 100-row page when earlier test runs leave due schedules; unrelated rows are retained.
+- Media attachment now locks/re-reads media owner data inside the content transaction. Interleaved create/PATCH completion/failure and actual PostgreSQL lock-wait regression tests pass.
+- OpenAPI colon paths are normalized to brace parameters, with required path schemas; every path placeholder is covered.
+- Epic 3 context once again carries exact presigned expiry, throttling/abuse metrics, per-store metering and processing-duration measurement requirements, plus the approved pilot direction.
+- Full FFmpeg output correctness is verified locally. Staging 60-second 1080p P95, real scanner/hosting decisions, deployed HTTPS/merchant format compatibility, Salla 404 behavior and bounded ingestion resource validation remain open launch evidence. Publishing disconnected-store eligibility and every return-to-live placement gate remain explicit Epic 4 dependencies.
+
+
+## Home pilot review follow-ups - 2026-11-11
+
+- source_spec: `spec-4-1-placements-and-targets.md`
+  summary: Ensure 4.4 storefront selection excludes empty or unprocessed media after explicit Published edits.
+  evidence: B1/B2 confirm existing lifecycle behavior permits zero slides and pending Published replacements. The Home slice gates every new live destination; storefront delivery remains absent. Apply the existing processed-assets requirement at 4.4 selection, without exposing pending preview media publicly.
+
+- source_spec: `spec-4-1-placements-and-targets.md`
+  summary: Bound background session refresh and guard late authentication failures against a replaced/stopped session.
+  evidence: B4/B5/E1/E2 trace the inherited review-gap changes: a never-settling request keeps refreshing occupied; request() handles a late cookie 401 before the caller's generation/state guard. Add timeout/abort plus stop/restart/late-401 tests and mounted unresolved-request cleanup coverage (B9).
+
+- source_spec: `spec-4-1-placements-and-targets.md`
+  summary: Strengthen inherited resolution browser and worker-startup verification.
+  evidence: B8/B10 propose a real-browser valid replacement after invalid media and exact startup handler identities/counts plus recurring registration counts. Existing tests cover invalid replacement feedback and at least one handler per event; no new Home implementation defect was demonstrated.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-2-ring-layout-pilot-slice.md`
+  summary: Verify that the API (DI-built) and worker `ContentLifecycle` instances actually read the store display default from `IntegrationService.getDisplayDefaults` when a placement layout is omitted.
+  evidence: Review V1/B13 (2026-11-11). Ring is both the only allowed default and the fallback, so the current API settings-row test passes even when the integration dependency is not wired. Settle it once a second layout (Bar) exists by storing a non-Ring default and asserting a new Home placement inherits it through the HTTP and worker paths.
+
+- source_spec: none
+  summary: Pilot slice of Story 4.5 — serve the compiled store manifest from the CDN at /m/v1/salla/<platform_store_id>.json with 60-second TTL and retried purge on change.
+  evidence: Split from the combined 4.4–4.6 pilot intent on 2026-11-11 (user chose one story at a time); depends on 4.4 output.
+- source_spec: none
+  summary: Pilot slice of Story 4.6 — recompile and refresh the storefront manifest on visible product price, stock and deletion changes within the two-minute P95 budget.
+  evidence: Split from the combined 4.4–4.6 pilot intent on 2026-11-11 (user chose one story at a time); depends on 4.4 compiler and 4.5 delivery.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
+  summary: Avoid CDN uploads/purges (or revision bumps) when a compile produces an unchanged manifest.
+  evidence: Review B3 (2026-11-11). Every compile writes revision + 1, including those triggered by unrelated catalog/media events and repeated compiles of an uninstalled store. Story 4.5 uploads and purges per revision; compare a content hash before uploading.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
+  summary: Bound the store manifest candidate read instead of loading every published Home Story on each compile.
+  evidence: Review B7 (2026-11-11). `publishedHomeStories` is unbounded; only 10 are kept after media and product filtering. Negligible at pilot scale; needs an iterative or over-fetching read before wider rollout.
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
+  summary: Emit a manifest trigger when an active store's synced domains change.
+  evidence: Review E3 (2026-11-11). Refreshing an active store's details updates `synced_domains` without any `MANIFEST_INPUTS` event, so open-link CTA drop decisions can stay stale until the next trigger. Pre-existing; save-time validation still rejects off-domain URLs.
+- source_spec: `spec-4-5-cdn-manifest-delivery-pilot-slice.md`
+  summary: Verify browser cache and stale-while-revalidate behavior when the production player loader is implemented.
+  evidence: The local caching HTTP fixture verifies invalidation, while the future loader fetch policy and browser cache behavior remain unknown. Check browser requests and deployed CDN timing to settle the unverified medium-risk freshness question; CDN purge cannot invalidate a browser cache.
+
+- source_spec: `spec-4-5-cdn-manifest-delivery-pilot-slice.md`
+  summary: Make worker-start event-publishing privilege replacement atomic.
+  evidence: grantEventPublishing already executed REVOKE and subsequent GRANT statements in separate transactions before 4.5, temporarily removing enqueue permissions during worker startup. Wrap the sequence in one transaction and verify concurrent producers in a follow-up.

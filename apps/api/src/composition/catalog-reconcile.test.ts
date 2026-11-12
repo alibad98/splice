@@ -28,8 +28,8 @@ import { Metric } from '../ports/telemetry.js';
 import { catalogJobHandlers, fanOutReconcile, RECONCILE_EXPIRE_SECONDS, RECONCILE_FANOUT_PAGE, RECONCILE_SINGLETON_SECONDS, type ActiveStoreSource } from '../worker/catalog-jobs.js';
 import { QUEUES, queueOptions } from '../worker/queues.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_reconcile:it_reconcile_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_reconcile:it_reconcile_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_reconcile_test';
 const lines: string[] = [];
 const telemetry = new PinoTelemetry({ role: 'worker', level: 'debug', stream: { write: (l: string) => void lines.push(l) } });

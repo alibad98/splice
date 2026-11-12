@@ -141,3 +141,10 @@ context:
 **Commands:**
 - `pnpm -C apps/api exec vitest run src/composition/catalog-reconcile.test.ts src/composition/catalog.test.ts src/composition/product-webhooks.test.ts src/adapters src/worker src/ops` -- expected: pass (live DB; locally use the Docker DB on 5436 per the port-conflict note).
 - `pnpm turbo run lint typecheck test build` -- expected: pass (`@slips/player#build` fails on Windows only, a known issue).
+
+
+### Pilot review closeout — 2026-11-11
+
+Closed: current catalog/reconcile/webhook tests pass, including guarded writes, logs/metrics, retries and alerts; new worker startup coverage pins reconcile/sweep cron registration and all catalogued event handlers.
+
+Actual shared verification: API 677, dashboard 367, contracts 92, DB 62, UI 102 and player 62 unit tests passed; dashboard 16 and player 33 browser tests passed. All 26 repository lint/typecheck/test/build tasks succeeded. See [review-gap closeout](review-gap-closeout-2026-11-11.md) for commands, environment, initial failures, cache use and remaining acceptance/launch gates. These are executed results; older expected-only commands above remain historical.

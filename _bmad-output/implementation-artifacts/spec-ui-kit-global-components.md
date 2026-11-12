@@ -23,7 +23,7 @@ context:
 **Always:**
 - Visuals come only from `packages/ui/src/styles/globals.css` tokens (colour, radius, shadow, focus ring, type). Light and dark themes; no hard-coded colours.
 - RTL and LTR: logical CSS properties only; directional icons mirror, media icons never do; text and numbers bidi-safe.
-- Accessibility: WCAG 2.1 AA (text 4.5:1, UI 3:1), visible two-tone focus ring, correct roles and live regions, keyboard operable, 24px minimum targets.
+- Accessibility: WCAG 2.1 AA (text 4.5:1, UI 3:1), visible single 2px amber focus outline at zero offset with no gap (system Highlight in forced colors), correct roles and live regions, keyboard operable, 24px minimum targets. Keep original component fills and selected colors; focus polish must not recolor tabs, sidebar items, checkboxes, switches or options.
 - Motion: CSS transitions/keyframes first; every animation stops or becomes instant under `prefers-reduced-motion`. A JS animation library is allowed only where CSS cannot do the job, loaded lazily so it never lands in the first load of pages that do not use it.
 - Performance: components are server-renderable where possible (`'use client'` only on interactive parts), tree-shakeable named exports, no runtime CSS-in-JS, no layout shift on mount. Report each wave's added first-load JS for `/products` from `next build`.
 - Copy inside components comes from props (callers pass `ar`/`en` strings); components never hold user-facing text except accessible defaults passed in by the app.
@@ -61,6 +61,22 @@ context:
 
 ## Component Registry
 
+### LivePreviewPanel (dashboard editor, Story 3.12)
+
+`apps/dashboard/components/content/editor/LivePreviewPanel.tsx` embeds the real
+player in the existing end-side responsive editor column. Uses the established
+rounded-lg 9:16 ink bezel, shared Button for Retry, small warning text for the
+always-visible safety note, and logical layout utilities. No shared tokens changed.
+The small-screen toggle and medium sticky button preserve the existing editor flow.
+
+States: save-first (no request), loading (polite announcement and skeleton after
+150 ms), saved player, startup/fetch/media failure with Retry, and retained valid
+view on refresh error. Skeleton animation obeys reduced motion. Arabic/English
+titles and messages are localized; iframe title names the saved-content preview.
+Only saved server snapshots trigger manifests, and the persistent iframe receives
+locale changes through the v1 update protocol. Parent owns authentication and blob
+cleanup; the child makes no commerce or analytics connections.
+
 | Wave | Component | Covers | Status |
 |------|-----------|--------|--------|
 | 1 | Button (+ Spinner) | primary, secondary, accent, ghost, destructive; sizes 32/36/44; pending; unavailable-with-reason | built (Story 2.3) |
@@ -72,16 +88,18 @@ context:
 | 1 | EmptyState | sentence + optional action/link; filtered-empty variant | built (UI rework) |
 | 1 | Skeleton | boneyard-based blocks, shimmer off under reduced motion | built (UI rework) |
 | 2 | Tooltip | KPI definitions, help text | built (UI rework) |
-| 2 | Popover | rich help content | later |
+| 2 | Popover | rich help content; Radix Popover (`radix-ui`) is in the kit as the Combobox popup (anchored to the input, focus kept in the input, `pop-in`/`pop-out`); a standalone `Popover` export comes with its first help-content use | built (Story 3.4, inside Combobox) |
 | 2 | Dialog, ConfirmDialog, Sheet | destructive confirm naming the item (alertdialog, Cancel focused first), sheet from the inline-start edge (mobile nav) | built (UI rework) |
 | 2 | AlertDialog + global `dialog.confirm()` / DialogHost | one alert look for every confirm: tone medallion (neutral / warning / danger, icon override), blur-in scrim, panel rises out of a soft blur, one ripple from the medallion; Radix AlertDialog (no outside-click dismiss, Cancel focused); async `onConfirm` stays open + pending, stays open on reject; imperative store like `toast()`, host mounted once in the merchant layout; ConfirmDialog is now a controlled wrapper of the same view. Used by Sign out | built (UI rework 3) |
 | 2 | Sidebar (shadcn) | collapsible icon rail pinned to the viewport's inline-start edge (both directions), width animates with a spacer in flow, state in the `sidebar_state` cookie read on the server (no first-paint shift), Ctrl/Cmd+B, rail strip, tooltips towards the inline end when collapsed, sheet below md (replaces MobileNav) | built (UI rework 3) |
 | 2 | DropdownMenu | row menus | built (UI rework) |
 | 3 | Field, Input, PasswordInput, Select, Textarea, Switch, Checkbox | one control look (`control.ts`), Field wires id/aria-describedby/aria-invalid via context; no native `<select>` or pickers anywhere | built (UI rework) |
+| 3 | ErrorSummary | form error summary on submit: danger tint, `role="alert"`, focuses itself on mount and on each `focusKey` change, one link per error that focuses its field (ids from Field `htmlFor`); renders nothing without items; copy via props | built (Story 3.3) |
 | 3 | OtpInput | LTR digit group, paste + iOS one-time-code autofill, Home/End/arrows | built (UI rework) |
-| 3 | Combobox | product picker | later |
+| 3 | Combobox | product picker: generic `Combobox<T>` (APG combobox + listbox popup on Radix Popover): search Input with `role="combobox"`, `aria-expanded`/`aria-controls`/`aria-activedescendant`, ArrowUp/Down move, Enter picks (never submits the form), Escape closes and keeps the text, click picks without moving focus; caller owns options/search; `status` ready/loading/error with empty, loading and error (Retry) contents via props | built (Story 3.4) |
 | 1 | Badge (+ StatusChip on top of it) | bordered pill: 7 tones x soft/solid/outline, sm/md/lg, icon or (pulsing) dot, glass; trust marks, plans, counts, deltas, statuses. StatusChip: `variant` soft/outline and a leading `icon` node replacing the dot (ended, archived); pulse static under reduced motion | built (UI rework 2; outline/icon Story 3.2) |
 | 1 | DataTable | TanStack headless + shadcn Table: 56px rows, sortable headers (`aria-sort`), card list below `md`; optional `onRowActivate` (row `tabIndex=0`, click or `Enter` opens; clicks on controls/portals ignored) and `rowClassName` (e.g. failed 6% tint) | built (Story 2.2; row activation Story 3.2) |
+| 3 | DropZone | media uploader: dashed `input-border` zone (`rounded-lg`, the base radius), title + limits hint via props, a "Choose files" Button that opens the native picker (Enter/Space; a click on the zone does too), hidden `accept`/`multiple` file input out of the tab order, drag-over state (static under reduced motion), `disabled` with a visible reason (e.g. slide cap); emits `File[]` in drop order, the caller pre-checks and uploads | built (Story 3.6) |
 | 3 | Tabs (also the segmented control) | status tabs, Stories/Reels toggle | built (UI rework) |
 | 3 | ThemeToggle (+ THEME_INIT_SCRIPT) | animated sun/moon morph driven by the `dark` variant, circular View Transition reveal, saved choice applied before paint | built (UI rework) |
 | 1 | Pagination | named `<nav>` pager: "from-to of total" summary, optional rows-per-page Select (caller-given sizes), Previous/Next Buttons disabled at the ends; copy via props; Products uses 10/25/50 (default 10) kept in the URL | built (Products page size) |
@@ -148,6 +166,13 @@ Rejected:
 
 ## Spec Change Log
 
+- 2026-11-11 — Extended the same soft amber hover/focus treatment to DropZone: existing dashed border tint and faint shadow on hover (no extra outline), 1px zero-gap focus outline and blurred shadow when its picker has keyboard focus or files are dragged over it. Dashed borders remain dashed during drag; disabled zones get no interaction effect. Shared UI build, 102 tests and lint pass; browser checks cover hover, keyboard focus, drag and disabled states in both themes at desktop/mobile sizes. Impeccable detector reports no findings.
+
+- 2026-11-11 — Follow-up form-control polish: thinner 1px focus outline at 80% opacity, zero gap, a faded `0 2px 8px` amber shadow at 14%, and a faint hover outline/shadow on fine-pointer devices. Shared Input, Textarea, Select trigger and OTP styling use the same treatment. Invalid borders and forced-color focus are preserved. UI tests, softened-outline contrast checks, lint and desktop/mobile browser inspection in both themes pass; Impeccable detector reports no findings.
+
+- 2026-11-11 — Corrected the scope of focus polish after user review: removed teal tokens and restored original component colors (coral sidebar/checkbox/switch, neutral tabs and options). Only focus uses amber, with a darker light-theme shade for contrast; input border and outline meet with zero gap. Upload feedback and language switching are retained.
+- Verification: UI 101 tests and 71 affected dashboard tests pass; UI/dashboard lint passes. Rebuilt the shared UI for the running local server. Chromium at 1440px English and 390px Arabic, light/dark, confirms matching input border/outline colors and zero outline offset, plus original coral checkboxes and neutral active tabs. Component sources for sidebar, tabs, checkbox, switch, select, dropdown and combobox match the pre-teal versions. Impeccable detector: no findings.
+
 - 2026-11-01 — UI rework 4: Arabic font -> Tajawal (digits come from Figtree, so still tabular); auth layout responsive to height: illustration and headline scale with dvh, stats hide under 760px tall and the reels under 600px, form spacing tightens; checked 1024x640 to 1920x1080 with no page scroll and no panel clipping.
 
 - 2026-11-01 — UI rework 3: Arabic font Rubik -> Alexandria (Tajawal rejected: no tabular digits); auth panel 50/50 and wider, brand panel text not selectable, showcase simplified to three abstract fanned reels + a quiet stats line.
@@ -173,3 +198,13 @@ Rejected:
 
 **Manual checks:**
 - Gallery at `http://localhost:3003/ui` in AR/EN, light/dark, and with reduced motion on (OS setting or DevTools emulation).
+
+### Player preview (Story 3.11)
+
+Owner: `packages/player`, entry `@slips/player/preview`, shared viewer `@slips/player/viewer`. This is a Preact Shadow DOM component with system fonts and no React/Tailwind/UI-kit runtime imports. It renders the first StoreManifest v1 item and its ordered slides in a 9:16 stage. Locale controls host direction and merchant text uses `dir="auto"`.
+
+Visual tokens: ink #15110f, amber #ffc23d CTA text, white product surface, muted #615954, coral #ff4a3d focus; 4px spacing and 12–16px corners. The player README registers the full `--slips-*` property/default table. Native video controls stay unobstructed; title/product names wrap within bounded areas, navigation and the localized safety note stay visible.
+
+States: complete image/video, processing poster/inspected-source fallback, empty item/slides, missing/failed media, missing/deleted product, limited/out-of-stock, required options, disabled CTA, keyboard focus and localized simulated feedback. Text is never interpreted as HTML. Preview actions exclusively use MockStorefrontPlatform; no real cart, navigation or analytics.
+
+Integration boundary: explicit API base and parent origin, exact-source/origin versioned handshake, validated updates without iframe reload, parent-owned authenticated fetching and blob lifetime. Dashboard phone frame, editor layout and loading/retry composition belong to Story 3.12. Existing DESIGN.md is preserved.

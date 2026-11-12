@@ -15,7 +15,8 @@ import { ContentView } from './ContentView';
 import { contentParams, toContentQuery } from './url-state';
 
 const push = vi.fn();
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push, replace: vi.fn(), prefetch: vi.fn() }) }));
+const router = { push, replace: vi.fn(), prefetch: vi.fn() };
+vi.mock('next/navigation', () => ({ useRouter: () => router, useSearchParams: () => new URLSearchParams(window.location.search) }));
 
 const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   v: 1,
@@ -29,8 +30,12 @@ const item = (over: Partial<ContentItem> = {}): ContentItem => ({
   status: 'draft',
   archived_from: null,
   reactivate_to: null,
+  status_reason: null,
   auto_publish: false,
   first_published_at: null,
+  product: null,
+  slides: [],
+  placements: [],
   created_at: '2026-11-01T10:00:00.000Z',
   updated_at: '2026-11-01T10:00:00.000Z',
   ...over,
@@ -56,7 +61,7 @@ function setup({ locale = 'en', search = '', lists = [], onUrlUpdate }: Setup = 
     if (data instanceof Error) client.getQueryCache().build(client, { queryKey: queryKeys.content.list(query) }).setState({ status: 'error', error: data, fetchStatus: 'idle' });
     else client.setQueryData(queryKeys.content.list(query), data);
   }
-  return render(
+  const rendered = render(
     <I18nProvider locale={locale} messages={getMessages(locale)}>
       <QueryClientProvider client={client}>
         <NuqsTestingAdapter hasMemory searchParams={search} {...(onUrlUpdate ? { onUrlUpdate } : {})}>
@@ -66,11 +71,15 @@ function setup({ locale = 'en', search = '', lists = [], onUrlUpdate }: Setup = 
       </QueryClientProvider>
     </I18nProvider>,
   );
+  return { ...rendered, client };
 }
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 beforeAll(() => {
+  // Skeletons may mount after their 150 ms delay in any list test.
+  Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined }) });
+  Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, writable: true, value: class { observe() {} unobserve() {} disconnect() {} } });
   // jsdom lacks the pointer-capture and scroll APIs Radix Select/DropdownMenu use.
   Object.assign(Element.prototype, {
     hasPointerCapture: () => false,
@@ -92,10 +101,41 @@ const openRowMenu = async (title: string) => {
   const trigger = screen.getByRole('table').querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${title}"]`)!;
   trigger.focus();
   fireEvent.keyDown(trigger, { key: 'Enter' });
-  return screen.findByRole('menu');
+  return waitFor(() => {
+    const menu = screen.getByRole('menu');
+    expect(menu.getAttribute('aria-labelledby')).toBe(trigger.id);
+    return menu;
+  });
 };
 
 describe('Videos & Stories page', () => {
+  it.each(['en', 'ar'] as const)('renders Home in the %s desktop row and mobile card, leaving unplaced items empty', locale => {
+    const m = getMessages(locale).content;
+    const home = item({ title: 'With Home', placements: [{ type: 'home', layout: 'ring' }] });
+    const unplaced = item({ title: 'No placement', placements: [] });
+    setup({ locale, lists: [[DEFAULT, page([home, unplaced])]] });
+    const table = screen.getByRole('table');
+    const homeRow = table.querySelector(`tr[data-row-id="${home.id}"]`)!;
+    const unplacedRow = table.querySelector(`tr[data-row-id="${unplaced.id}"]`)!;
+    expect(homeRow.querySelectorAll('td')[3]!.textContent).toBe(m.editor.placements.home);
+    expect(unplacedRow.querySelectorAll('td')[3]!.textContent).toBe(m.none);
+    const cards = screen.getByRole('list', { name: m.tableLabel });
+    const homeCard = within(cards).getByRole('link', { name: home.title }).closest('li')!;
+    const unplacedCard = within(cards).getByRole('link', { name: unplaced.title }).closest('li')!;
+    expect(within(homeCard).getByText(m.editor.placements.home)).toBeTruthy();
+    expect(within(unplacedCard).queryByText(m.editor.placements.home)).toBeNull();
+  });
+
+  it.each(['en', 'ar'] as const)('shows the %s unsupported_format reason for a Reel draft in the desktop row and mobile card (4.2 pilot)', locale => {
+    const m = getMessages(locale).content;
+    const reel = item({ title: 'Reel draft', format: 'reel', auto_publish: true, status_reason: { code: 'unsupported_format' }, placements: [{ type: 'home', layout: 'ring' }] });
+    setup({ locale, lists: [[DEFAULT, page([reel])]] });
+    const row = screen.getByRole('table').querySelector(`tr[data-row-id="${reel.id}"]`)! as HTMLElement;
+    expect(within(row).getByText(m.statusReasons.unsupported_format)).toBeTruthy();
+    const card = within(screen.getByRole('list', { name: m.tableLabel })).getByRole('link', { name: reel.title }).closest('li')!;
+    expect(within(card).getByText(m.statusReasons.unsupported_format)).toBeTruthy();
+  });
+
   it('renders thumb, title (dir=auto), format, "—" placement, chip, "—" views/clicks and the tab counts', () => {
     const a = item({ title: 'Summer sale', format: 'reel', status: 'published' });
     setup({ lists: [[DEFAULT, page([a], { total: 8 })]] });
@@ -111,6 +151,66 @@ describe('Videos & Stories page', () => {
     expect(cells).toEqual(['', 'Summer sale', 'Reel', '—', 'Published', '—', '—', '']);
     for (const [tab, n] of Object.entries(COUNTS)) expect(screen.getByTestId(`count-${tab}`).textContent).toBe(String(n));
     expect(screen.getByRole('tab', { name: /All/ }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('renders the first slide poster_url in the 9:16 thumb when ready and falls back to the format icon otherwise (Story 3.8)', () => {
+    const assetId = '019a473a-0000-7000-8000-000000000101';
+    const withPoster = item({
+      title: 'With poster',
+      format: 'reel',
+      slides: [
+        {
+          id: '019a473a-0000-7000-8000-000000000201',
+          media_asset_id: assetId,
+          kind: 'video',
+          alt_text: null,
+          status: 'processed',
+          failure_reason: null,
+          source_url: null,
+          poster_url: `/v1/media/${assetId}/poster`,
+        },
+      ],
+    });
+    const withoutPoster = item({
+      title: 'Without poster',
+      format: 'story',
+      slides: [
+        {
+          id: '019a473a-0000-7000-8000-000000000202',
+          media_asset_id: '019a473a-0000-7000-8000-000000000102',
+          kind: 'image',
+          alt_text: 'Photo',
+          status: 'scanned',
+          failure_reason: null,
+          source_url: null,
+          poster_url: null,
+        },
+      ],
+    });
+    setup({ lists: [[DEFAULT, page([withPoster, withoutPoster])]] });
+    const table = screen.getByRole('table');
+    const thumbWith = table.querySelector(`tr[data-row-id="${withPoster.id}"] [data-testid="content-thumb"]`)!;
+    expect(thumbWith.querySelector('img')?.getAttribute('src')).toBe(`/v1/media/${assetId}/poster`);
+    const thumbWithout = table.querySelector(`tr[data-row-id="${withoutPoster.id}"] [data-testid="content-thumb"]`)!;
+    expect(thumbWithout.querySelector('img')).toBeNull();
+    expect(thumbWithout.querySelector('svg')).not.toBeNull();
+  });
+
+  it('a deleted linked product shows the warning chip "Linked product deleted" under the title, in Arabic too (Story 3.4)', () => {
+    const product = { id: crypto.randomUUID(), name: 'Oud oil', image_url: null, price_minor: 100, sale_price_minor: null, currency: 'SAR', availability: 'available' as const, has_required_options: false };
+    const gone = item({ title: 'Gone product', product: { ...product, deleted: true } });
+    const live = item({ title: 'Live product', product: { ...product, deleted: false } });
+    const none = item({ title: 'No product' });
+    const { unmount } = setup({ lists: [[DEFAULT, page([gone, live, none])]] });
+    const table = screen.getByRole('table');
+    const rowOf = (id: string) => table.querySelector(`tr[data-row-id="${id}"]`) as HTMLElement;
+    const chip = within(rowOf(gone.id)).getByText('Linked product deleted').closest('[data-slot="status-chip"]')!;
+    expect(chip.closest('td')!.textContent).toContain('Gone product');
+    expect(within(rowOf(live.id)).queryByText('Linked product deleted')).toBeNull();
+    expect(within(rowOf(none.id)).queryByText('Linked product deleted')).toBeNull();
+    unmount();
+    setup({ locale: 'ar', lists: [[DEFAULT, page([gone])]] });
+    expect(screen.getByRole('table').textContent).toContain('المنتج المرتبط محذوف');
   });
 
   it('renders Arabic labels', () => {
@@ -423,6 +523,15 @@ describe('Videos & Stories page', () => {
               Object.assign(found, { status: found.archived_from, archived_from: null });
               return json(found);
             }
+            if (path.endsWith('/duplicate')) {
+              const copy = { ...found, id: crypto.randomUUID(), title: found.title + ' (copy)', status: 'draft' as const, archived_from: null };
+              items.push(copy);
+              return json(copy, 201);
+            }
+            if (path.endsWith('/restore')) {
+              Object.assign(found, { status: 'draft', archived_from: null });
+              return json(found);
+            }
             if (path.endsWith('/archive')) {
               Object.assign(found, { status: 'archived', archived_from: found.status });
               return json(found);
@@ -433,6 +542,78 @@ describe('Videos & Stories page', () => {
       };
       return { calls, drop: (id: string) => void (items = items.filter((i) => i.id !== id)) };
     };
+
+    it('Edit opens the saved item without activating its row', async () => {
+      const a = item();
+      live([a]);
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Edit' }));
+      expect(push).toHaveBeenCalledExactlyOnceWith(`/content/${a.id}`);
+    });
+
+    it('Duplicate copies an archived item and navigates only to the returned Draft', async () => {
+      const a = item({ status: 'archived', archived_from: 'published' });
+      const { calls } = live([a]);
+      const { client } = setup();
+      const productsKey = [...queryKeys.catalog.productsAll(), 'linked-counts'];
+      client.setQueryData(productsKey, { count: 1 });
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Duplicate' }));
+      expect(push).not.toHaveBeenCalled();
+      await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+      expect(push.mock.lastCall![0]).not.toBe(`/content/${a.id}`);
+      expect(calls).toContainEqual(['POST', `/v1/content/${a.id}/duplicate`]);
+      expect(client.getQueryState(productsKey)?.isInvalidated).toBe(true);
+      expect(toast.list().some(t => t.title === getMessages('en').content.duplicate.done)).toBe(true);
+    });
+
+    it('Restore returns an archived row to Draft and refreshes counts without navigation', async () => {
+      const a = item({ status: 'archived', archived_from: 'published' });
+      const { calls } = live([a]);
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Restore to Draft' }));
+      await waitFor(() => expect(screen.getByTestId('count-drafts').textContent).toBe('1'));
+      expect(calls).toContainEqual(['POST', `/v1/content/${a.id}/restore`]);
+      expect(push).not.toHaveBeenCalled();
+      expect(toast.list().some(t => t.title === getMessages('en').content.restore.done)).toBe(true);
+      expect(within(await openRowMenu(a.title)).queryByRole('menuitem', { name: 'Restore to Draft' })).toBeNull();
+    });
+
+    it.each(['Duplicate', 'Restore to Draft'])('%s failure shows localized recovery and refetches', async (action) => {
+      const a = item({ status: 'archived', archived_from: 'draft' });
+      const { calls, drop } = live([a]);
+      setup();
+      await screen.findByRole('table');
+      const menu = await openRowMenu(a.title);
+      drop(a.id);
+      const gets = calls.filter(([method]) => method === 'GET').length;
+      fireEvent.click(within(menu).getByRole('menuitem', { name: action }));
+      const message = action === 'Duplicate' ? getMessages('en').content.duplicate.failed : getMessages('en').content.restore.failed;
+      await waitFor(() => expect(toast.list().some(t => t.title === message && t.tone === 'danger')).toBe(true));
+      expect(calls.filter(([method]) => method === 'GET').length).toBeGreaterThan(gets);
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it('pending Duplicate disables every row action and sends only one request', async () => {
+      const a = item();
+      let finish!: (value: Response) => void;
+      const posts: string[] = [];
+      session = { state: { status: 'signed-in', connection: { state: 'connected' } }, client: { apiFetch: async (path, init) => {
+        if (init?.method === 'POST') { posts.push(path); return new Promise<Response>(resolve => { finish = resolve; }); }
+        return json(page([a]));
+      } } };
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Duplicate' }));
+      await waitFor(() => expect(posts).toHaveLength(1));
+      const menu = await openRowMenu(a.title);
+      for (const entry of within(menu).getAllByRole('menuitem')) expect(entry.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate' }));
+      expect(posts).toHaveLength(1);
+      await act(async () => finish(json(item({ title: a.title + ' (copy)' }), 201)));
+    });
 
     it('Archive moves the item to archived, counts refresh, and Undo restores the prior status and replaces the toast', async () => {
       const a = item({ title: 'Summer sale', status: 'published' });
@@ -479,7 +660,9 @@ describe('Videos & Stories page', () => {
       const a = item({ title: 'Eid perfume', status: 'published' });
       const b = item({ title: 'Keep me' });
       const { calls } = live([a, b]);
-      setup();
+      const { client } = setup();
+      const productsKey = [...queryKeys.catalog.productsAll(), 'linked-counts'];
+      client.setQueryData(productsKey, { count: 2 });
       await screen.findByRole('table');
       fireEvent.click(within(await openRowMenu('Eid perfume')).getByRole('menuitem', { name: 'Archive' }));
       await waitFor(() => expect(toast.list().some((t) => t.id === `content-archived-${a.id}` && t.open)).toBe(true));
@@ -493,6 +676,7 @@ describe('Videos & Stories page', () => {
       await waitFor(() => expect(calls).toContainEqual(['DELETE', `/v1/content/${a.id}`]));
       await waitFor(() => expect(screen.getByRole('table').textContent).not.toContain('Eid perfume'));
       expect(screen.getByRole('table').textContent).toContain('Keep me');
+      expect(client.getQueryState(productsKey)?.isInvalidated).toBe(true);
       expect(toast.list().find((t) => t.id === `content-archived-${a.id}`)?.open).toBe(false);
       expect(toast.list().some((t) => t.tone === 'success' && t.title === 'Deleted')).toBe(true);
     });
@@ -509,6 +693,19 @@ describe('Videos & Stories page', () => {
       fireEvent.click(within(menu).getByRole('menuitem', { name: 'Archive' }));
       await waitFor(() => expect(toast.list().some((t) => t.tone === 'danger')).toBe(true));
       await waitFor(() => expect(calls.filter(([m]) => m === 'GET').length).toBeGreaterThan(gets));
+    });
+
+    it('cancelling the named Delete confirmation leaves the item and makes no write', async () => {
+      const a = item({ title: 'Keep this story' });
+      const { calls } = live([a]);
+      setup();
+      await screen.findByRole('table');
+      fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Delete' }));
+      const confirmation = await screen.findByRole('alertdialog');
+      fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+      expect(calls.every(([method]) => method === 'GET')).toBe(true);
+      expect(screen.getByRole('table').textContent).toContain(a.title);
     });
 
     it('Delete on an item that 404s shows a danger toast and no success toast', async () => {
@@ -551,5 +748,48 @@ describe('URL state and API path', () => {
     expect(toContentQuery({ tab: 'all', q: '', sort: '-updated', page: 1, size: 7 }).page_size).toBe(10);
     expect(contentPath(DEFAULT)).toBe('/v1/content');
     expect(contentPath({ tab: 'scheduled', q: 'a%b', sort: 'title', page: 2, page_size: 50 })).toBe('/v1/content?tab=scheduled&q=a%25b&sort=title&page=2&page_size=50');
+  });
+});
+
+
+describe('Story 3.9 list status reasons and Retry', () => {
+  it('Retry shares its pending guard across desktop and mobile menus', async () => {
+    const a = item({ status: 'failed', status_reason: { code: 'processing_failed', kind: 'video' }, slides: [{ id: crypto.randomUUID(), media_asset_id: crypto.randomUUID(), kind: 'video', status: 'failed', failure_reason: 'processing_failed', alt_text: null, source_url: null, poster_url: null }] });
+    let finish!: (response: Response) => void;
+    const posts: string[] = [];
+    session = { state: { status: 'signed-in', connection: { state: 'connected' } }, client: { apiFetch: async (path, init) => {
+      if (init?.method === 'POST') { posts.push(path); return new Promise<Response>(resolve => { finish = resolve; }); }
+      return json(page([a]));
+    } } };
+    setup();
+    await screen.findByRole('table');
+    fireEvent.click(within(await openRowMenu(a.title)).getByRole('menuitem', { name: 'Retry' }));
+    await waitFor(() => expect(posts).toEqual([`/v1/content/${a.id}/retry`]));
+    const triggers = document.querySelectorAll<HTMLButtonElement>(`button[aria-label="Actions for ${a.title}"]`);
+    expect(triggers).toHaveLength(2);
+    for (const trigger of triggers) {
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: 'Enter' });
+      const menu = await screen.findByRole('menu');
+      for (const action of within(menu).getAllByRole('menuitem')) expect(action.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Retry' }));
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Duplicate' }));
+      expect(posts).toHaveLength(1);
+      fireEvent.keyDown(menu, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    }
+    await act(async () => finish(json({ ...a, status: 'processing' })));
+  });
+
+  it.each(['processing_failed', 'below_min_resolution'] as const)('shows Retry only for retryable failure %s', async (reason) => {
+    const a = item({ status: 'failed', status_reason: { code: reason, kind: 'video' }, slides: [{ id: crypto.randomUUID(), media_asset_id: crypto.randomUUID(), kind: 'video', status: 'failed', failure_reason: reason, alt_text: null, source_url: null, poster_url: null }] });
+    const calls: string[] = [];
+    session = { state: { status: 'signed-in', connection: { state: 'connected' } }, client: { apiFetch: async (path, init) => { if (init?.method === 'POST') { calls.push(path); return json({ ...a, status: 'processing' }); } return json(page([a])); } } };
+    setup({ lists: [[DEFAULT, page([a])]] });
+    expect(screen.getAllByText(/This video did not finish processing/).length).toBeGreaterThan(0);
+    const menu = await openRowMenu(a.title);
+    const retry = within(menu).queryByRole('menuitem', { name: 'Retry' });
+    expect(Boolean(retry)).toBe(reason === 'processing_failed');
+    if (retry) { fireEvent.click(retry); await waitFor(() => expect(calls).toContain('/v1/content/' + a.id + '/retry')); }
   });
 });

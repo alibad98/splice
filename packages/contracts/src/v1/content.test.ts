@@ -15,7 +15,25 @@ import {
   ContentListQuery,
   ContentListResponse,
   TAB_STATUSES,
+  CONTENT_CTA_URL_NOT_STORE_DOMAIN,
+  CTA_STYLES,
+  ContentUpdateInput,
+  DEFAULT_CTA_STYLE,
+  ctaUrlMatchesAction,
+  isStoreDomainUrl,
+  CONTENT_PRODUCT_NOT_LINKABLE,
+  ContentFields,
+  ContentProductSummary,
+  CONTENT_SLIDE_ALT_REQUIRED,
+  SLIDES_MAX,
+  SLIDE_ALT_MAX,
+  slideAltTextOk,
+  CONTENT_INVALID_LAYOUT,
+  CONTENT_UNSUPPORTED_FORMAT,
+  STORY_LAYOUTS_PILOT,
+  hasInvalidLayoutIssue,
 } from './content.js';
+import { EVENT_CATALOG } from './events.js';
 
 const item = {
   id: '019a473a-0000-7000-8000-000000000001',
@@ -30,11 +48,40 @@ const item = {
   reactivate_to: null,
   auto_publish: false,
   first_published_at: null,
+  product: null,
+  slides: [],
   created_at: '2026-11-03T10:00:00.000Z',
   updated_at: '2026-11-03T10:00:00.000Z',
 };
 
 describe('content contracts', () => {
+  it('accepts Home only, rejects targets and duplicate placements, and exposes edited placement changes', () => {
+    expect(ContentUpdateInput.parse({ placements: [{ type: 'home' }] })).toEqual({ placements: [{ type: 'home' }] });
+    for (const placements of [[{ type: 'category' }], [{ type: 'product' }], [{ type: 'home', target_id: 'x' }], [{ type: 'home' }, { type: 'home' }]]) expect(ContentUpdateInput.safeParse({ placements }).success).toBe(false);
+    expect(ContentFields.keyof().options).toContain('placements');
+  });
+  it('accepts an omitted or Ring layout on input, requires it on output and flags other layouts on the layout path (4.2 pilot)', () => {
+    expect(STORY_LAYOUTS_PILOT).toEqual(['ring']);
+    expect(CONTENT_INVALID_LAYOUT).toBe('content-invalid-layout');
+    expect(CONTENT_UNSUPPORTED_FORMAT).toBe('content-unsupported-format');
+    expect(ContentUpdateInput.parse({ placements: [{ type: 'home' }] }).placements).toEqual([{ type: 'home' }]);
+    expect(ContentUpdateInput.parse({ placements: [{ type: 'home', layout: 'ring' }] }).placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    for (const layout of ['bar', 'strip', 'carousel', 'Ring', '', 7, null]) {
+      const parsed = ContentUpdateInput.safeParse({ placements: [{ type: 'home', layout }] });
+      expect(parsed.success).toBe(false);
+      expect(hasInvalidLayoutIssue(parsed.error!.issues)).toBe(true);
+    }
+    const target = ContentUpdateInput.safeParse({ placements: [{ type: 'category' }] });
+    expect(hasInvalidLayoutIssue(target.error!.issues)).toBe(false);
+    expect(hasInvalidLayoutIssue(ContentUpdateInput.safeParse({ title: '' }).error!.issues)).toBe(false);
+    expect(hasInvalidLayoutIssue([])).toBe(false);
+    // Mixed bodies keep the generic invalid-body answer.
+    expect(hasInvalidLayoutIssue(ContentUpdateInput.safeParse({ title: '', placements: [{ type: 'home', layout: 'bar' }] }).error!.issues)).toBe(false);
+    expect(hasInvalidLayoutIssue(ContentUpdateInput.safeParse({ placements: [{ type: 'category', layout: 'bar' }] }).error!.issues)).toBe(false);
+    expect(ContentItem.parse({ ...item, placements: [{ type: 'home', layout: 'ring' }] }).placements).toEqual([{ type: 'home', layout: 'ring' }]);
+    expect(ContentItem.safeParse({ ...item, placements: [{ type: 'home' }] }).success).toBe(false);
+    expect(ContentItem.safeParse({ ...item, placements: [{ type: 'home', layout: 'bar' }] }).success).toBe(false);
+  });
   it('defines the 8 content statuses (no ready), formats, CTA actions and invalid-transition problem slug', () => {
     expect(CONTENT_STATUSES).toEqual(['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated']);
     expect(CONTENT_STATUSES).not.toContain('ready');
@@ -49,8 +96,8 @@ describe('content contracts', () => {
     for (const status of CONTENT_STATUSES) expect(canTransition(status, 'create')).toBe(false);
 
     expect(CONTENT_TRANSITIONS.start_processing.from).toEqual(['draft', 'failed']);
-    expect(CONTENT_TRANSITIONS.finish_processing).toMatchObject({ from: ['processing'], to: 'draft', event: 'content.item.processed' });
-    expect(CONTENT_TRANSITIONS.fail_processing).toMatchObject({ from: ['processing'], to: 'failed', event: 'content.item.processing_failed' });
+    expect(CONTENT_TRANSITIONS.finish_processing).toMatchObject({ from: ['processing', 'failed'], to: 'draft', event: 'content.item.processed' });
+    expect(CONTENT_TRANSITIONS.fail_processing).toMatchObject({ from: ['processing', 'draft'], to: 'failed', event: 'content.item.processing_failed' });
     expect(CONTENT_TRANSITIONS.publish).toMatchObject({ from: ['draft'], to: 'published', event: 'content.item.published' });
     expect(CONTENT_TRANSITIONS.schedule).toMatchObject({ from: ['draft'], to: 'scheduled', event: 'content.item.scheduled' });
     expect(CONTENT_TRANSITIONS.go_live).toMatchObject({ from: ['scheduled'], to: 'published', event: 'content.item.published' });
@@ -80,9 +127,9 @@ describe('content contracts', () => {
         cta_label: 'Learn more',
         cta_action: 'open_link',
         cta_url: 'https://shop.example.com/p/1',
-        cta_style: 'pill',
+        cta_style: 'light',
       }),
-    ).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'pill' });
+    ).toMatchObject({ cta_action: 'open_link', cta_url: 'https://shop.example.com/p/1', cta_style: 'light' });
 
     // Unknown property rejected (strict)
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart', extra: true }).success).toBe(false);
@@ -96,7 +143,7 @@ describe('content contracts', () => {
       expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link', cta_url: bad }).success).toBe(false);
     }
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link', cta_url: 'https://shop.example.com/sale' }).success).toBe(true);
-    expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart', cta_style: 'a'.repeat(41) }).success).toBe(false);
+    expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart', cta_style: 'pill' }).success).toBe(false);
     // cta_url required for open_link and forbidden for add_to_cart / open_product
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link' }).success).toBe(false);
     expect(ContentCreateInput.safeParse({ title: 'S', format: 'story', cta_label: 'Go', cta_action: 'open_link', cta_url: null }).success).toBe(false);
@@ -153,4 +200,149 @@ describe('content list contracts (Story 3.2)', () => {
     expect(parsed.counts.drafts).toBe(2);
     expect(ContentListResponse.safeParse({ items: [], total: 0, page: 1, page_size: 10 }).success).toBe(false);
   });
+});
+
+describe('content editing contracts (Story 3.3)', () => {
+  it('defines the CTA styles (ink default) and the store-domain problem slug', () => {
+    expect(CTA_STYLES).toEqual(['ink', 'light', 'outline']);
+    expect(DEFAULT_CTA_STYLE).toBe('ink');
+    expect(CONTENT_CTA_URL_NOT_STORE_DOMAIN).toBe('cta-url-not-store-domain');
+    expect(ContentItem.safeParse({ ...item, cta_style: 'outline' }).success).toBe(true);
+    expect(ContentItem.safeParse({ ...item, cta_style: 'pill' }).success).toBe(false);
+  });
+
+  it('validates ContentUpdateInput as a strict, non-empty partial of the editable fields', () => {
+    expect(ContentUpdateInput.parse({ title: 'New title' })).toEqual({ title: 'New title' });
+    expect(ContentUpdateInput.parse({ cta_action: 'add_to_cart', cta_url: null })).toEqual({ cta_action: 'add_to_cart', cta_url: null });
+    expect(ContentUpdateInput.safeParse({}).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ status: 'published' }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ title: '' }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ title: 'a'.repeat(81) }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ cta_label: 'a'.repeat(41) }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ cta_url: 'javascript:alert(1)' }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ cta_style: 'pill' }).success).toBe(false);
+    // The open-link rule is checked on the merged item, not on the patch alone.
+    expect(ContentUpdateInput.safeParse({ cta_action: 'open_link' }).success).toBe(true);
+    expect(ctaUrlMatchesAction({ cta_action: 'open_link', cta_url: null })).toBe(false);
+    expect(ctaUrlMatchesAction({ cta_action: 'open_link', cta_url: 'https://a.b' })).toBe(true);
+    expect(ctaUrlMatchesAction({ cta_action: 'add_to_cart', cta_url: null })).toBe(true);
+    expect(ctaUrlMatchesAction({ cta_action: 'open_product', cta_url: 'https://a.b' })).toBe(false);
+  });
+
+  it('isStoreDomainUrl accepts the store host and its subdomains over http(s) only', () => {
+    const domains = ['demo.salla.sa'];
+    expect(isStoreDomainUrl('https://demo.salla.sa/p/1', domains)).toBe(true);
+    expect(isStoreDomainUrl('http://demo.salla.sa', domains)).toBe(true);
+    expect(isStoreDomainUrl('https://www.demo.salla.sa/p', domains)).toBe(true);
+    expect(isStoreDomainUrl('https://DEMO.Salla.SA./x', domains)).toBe(true);
+    expect(isStoreDomainUrl('https://evil.com/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://demo.salla.sa.evil.com/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://evildemo.salla.sa/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://user:pw@demo.salla.sa/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('ftp://demo.salla.sa/x', domains)).toBe(false);
+    expect(isStoreDomainUrl('javascript:alert(1)//demo.salla.sa', domains)).toBe(false);
+    expect(isStoreDomainUrl('not a url', domains)).toBe(false);
+    expect(isStoreDomainUrl('https://demo.salla.sa/x', [])).toBe(false);
+    expect(isStoreDomainUrl('https://shop.example.com/x', ['https://shop.example.com/', 'other.sa'])).toBe(true);
+    expect(isStoreDomainUrl('https://shop.example.com/x', ['', ' '])).toBe(false);
+  });
+});
+
+describe('content product link contracts (Story 3.4)', () => {
+  const productId = '019a473a-0000-7000-8000-0000000000aa';
+  const summary = {
+    id: productId,
+    name: 'زيت العود',
+    image_url: null,
+    price_minor: 15000,
+    sale_price_minor: null,
+    currency: 'SAR',
+    availability: 'out_of_stock',
+    has_required_options: true,
+    deleted: false,
+  };
+
+  it('accepts product_id (uuid or null) on create and update, and nothing else', () => {
+    const base = { title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart' };
+    expect(ContentCreateInput.parse({ ...base, product_id: productId }).product_id).toBe(productId);
+    expect(ContentCreateInput.safeParse({ ...base, product_id: null }).success).toBe(true);
+    expect(ContentCreateInput.safeParse({ ...base, product_id: 'p1' }).success).toBe(false);
+    expect(ContentUpdateInput.parse({ product_id: null })).toEqual({ product_id: null });
+    expect(ContentUpdateInput.safeParse({ product_id: productId }).success).toBe(true);
+    expect(ContentUpdateInput.safeParse({ product_id: 42 }).success).toBe(false);
+  });
+
+  it('carries the product summary (or null) on a ContentItem and the problem slug', () => {
+    expect(CONTENT_PRODUCT_NOT_LINKABLE).toBe('product-not-linkable');
+    expect(ContentItem.parse({ ...item, product: summary }).product).toEqual(ContentProductSummary.parse(summary));
+    expect(ContentItem.safeParse({ ...item, product: { ...summary, deleted: undefined } }).success).toBe(false);
+    expect(ContentItem.safeParse({ ...item, product: { ...summary, availability: 'many' } }).success).toBe(false);
+    const withoutProduct: Record<string, unknown> = { ...item };
+    delete withoutProduct.product;
+    expect(ContentItem.safeParse(withoutProduct).success).toBe(false);
+  });
+
+  it('lets content.item.edited name product_id as a changed field', () => {
+    expect(ContentFields.keyof().options).toContain('product_id');
+    const payload = { v: 1, store_id: productId, content_id: item.id, status: 'draft', changed: ['product_id'] };
+    expect(EVENT_CATALOG['content.item.edited'].schema.safeParse(payload).success).toBe(true);
+  });
+});
+
+describe('content slide contracts (Story 3.6)', () => {
+  const a1 = '019a473a-0000-7000-8000-0000000000b1';
+  const a2 = '019a473a-0000-7000-8000-0000000000b2';
+  const base = { title: 'S', format: 'story', cta_label: 'Buy', cta_action: 'add_to_cart' };
+
+  it('accepts an ordered slide list of unique assets up to SLIDES_MAX on create and update', () => {
+    const slides = [
+      { media_asset_id: a1, alt_text: 'Red abaya' },
+      { media_asset_id: a2, alt_text: null },
+    ];
+    expect(ContentCreateInput.parse({ ...base, slides }).slides).toEqual(slides);
+    expect(ContentUpdateInput.parse({ slides: [] })).toEqual({ slides: [] });
+    expect(ContentUpdateInput.safeParse({ slides: [slides[0], slides[0]] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: 'x', alt_text: null }] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: a1 }] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: a1, alt_text: 'x'.repeat(SLIDE_ALT_MAX + 1) }] }).success).toBe(false);
+    expect(ContentUpdateInput.safeParse({ slides: [{ media_asset_id: a1, alt_text: null, position: 1 }] }).success).toBe(false);
+    const many = Array.from({ length: SLIDES_MAX + 1 }, (_, i) => ({ media_asset_id: `019a473a-0000-7000-8000-${String(i).padStart(12, '0')}`, alt_text: null }));
+    expect(SLIDES_MAX).toBe(10);
+    expect(ContentUpdateInput.safeParse({ slides: many.slice(0, SLIDES_MAX) }).success).toBe(true);
+    expect(ContentUpdateInput.safeParse({ slides: many }).success).toBe(false);
+  });
+
+  it('requires alt text on image slides only', () => {
+    expect(CONTENT_SLIDE_ALT_REQUIRED).toBe('slide-alt-text-required');
+    expect(slideAltTextOk('image', 'Red abaya')).toBe(true);
+    expect(slideAltTextOk('image', '   ')).toBe(false);
+    expect(slideAltTextOk('image', null)).toBe(false);
+    expect(slideAltTextOk('image', 'x'.repeat(SLIDE_ALT_MAX + 1))).toBe(false);
+    expect(slideAltTextOk('video', null)).toBe(true);
+    expect(slideAltTextOk('video', '')).toBe(true);
+  });
+
+  it('carries the slides with asset kind and status on a ContentItem', () => {
+    const slide = { id: a2, media_asset_id: a1, kind: 'image', alt_text: 'Red', status: 'failed', failure_reason: 'type_mismatch' };
+    expect(ContentItem.parse({ ...item, slides: [slide] }).slides).toEqual([{ ...slide, source_url: null, poster_url: null }]);
+    const imported = { ...slide, status: 'importing', failure_reason: null, source_url: 'https://cdn.example.com/a.jpg', poster_url: null };
+    expect(ContentItem.parse({ ...item, slides: [imported] }).slides).toEqual([imported]);
+    const processed = { ...slide, status: 'processed', failure_reason: null, source_url: null, poster_url: `/v1/media/${a1}/poster` };
+    expect(ContentItem.parse({ ...item, slides: [processed] }).slides).toEqual([processed]);
+    expect(ContentItem.safeParse({ ...item, slides: [{ ...slide, status: 'ready' }] }).success).toBe(false);
+    const withoutSlides: Record<string, unknown> = { ...item };
+    delete withoutSlides.slides;
+    expect(ContentItem.safeParse(withoutSlides).success).toBe(false);
+    expect(ContentFields.keyof().options).toContain('slides');
+  });
+});
+
+
+it('accepts auto_publish edits and validates derived media or placement status reasons', () => {
+  expect(ContentUpdateInput.parse({ auto_publish: true })).toEqual({ auto_publish: true });
+  expect(ContentUpdateInput.safeParse({ auto_publish: 'true' }).success).toBe(false);
+  expect(ContentItem.parse({ ...item, status_reason: { code: 'below_min_resolution', kind: 'video' } }).status_reason).toEqual({ code: 'below_min_resolution', kind: 'video' });
+  expect(ContentItem.parse({ ...item, status_reason: { code: 'no_placement' } }).status_reason).toEqual({ code: 'no_placement' });
+  expect(ContentItem.parse({ ...item, format: 'reel', status_reason: { code: 'unsupported_format' } }).status_reason).toEqual({ code: 'unsupported_format' });
+  expect(ContentItem.safeParse({ ...item, status_reason: { code: 'unknown' } }).success).toBe(false);
 });

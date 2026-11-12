@@ -112,7 +112,45 @@ describe('embedded sign-in', () => {
 });
 
 describe('direct-link session', () => {
-  const direct = { status: 'signed-in', mode: 'direct', storeName: 'D', connection: { state: 'connected', storeName: 'D' }, csrfToken: 'csrf-1' } as const;
+  const direct = { status: 'signed-in', mode: 'direct', storeName: 'D', storeDomains: [], connection: { state: 'connected', storeName: 'D' }, csrfToken: 'csrf-1' } as const;
+
+  it('refreshes disconnect/reconnect metadata without a reload and retains state on network errors', async () => {
+    let disconnected = true;
+    let offline = false;
+    const f = mockFetch(() => {
+      if (offline) throw new Error('offline');
+      return Response.json(info({ mode: 'direct', csrf_token: 'csrf-2', connection: { v: 1, state: disconnected ? 'disconnected' : 'connected', store_name: 'D' } }));
+    });
+    const c = client(host({ isFramed: () => false }), f as unknown as typeof fetch, direct);
+    await c.refreshConnection();
+    expect(c.getState()).toMatchObject({ status: 'signed-in', connection: { state: 'disconnected' }, csrfToken: 'csrf-2' });
+    disconnected = false;
+    await c.refreshConnection();
+    expect(c.getState()).toMatchObject({ connection: { state: 'connected' } });
+    const saved = c.getState();
+    offline = true;
+    await c.refreshConnection();
+    expect(c.getState()).toBe(saved);
+  });
+
+  it('single-flights metadata refresh and discards a response after stop', async () => {
+    let finish!: (res: Response) => void;
+    const f = mockFetch(() => new Promise<Response>(resolve => { finish = resolve; }));
+    const c = client(host({ isFramed: () => false }), f as unknown as typeof fetch, direct);
+    const first = c.refreshConnection();
+    const second = c.refreshConnection();
+    expect(f).toHaveBeenCalledOnce();
+    c.stop();
+    finish(Response.json(info({ mode: 'direct', connection: { v: 1, state: 'disconnected', store_name: 'D' } })));
+    await Promise.all([first, second]);
+    expect(c.getState()).toBe(direct);
+  });
+
+  it('expires a cookie session when metadata refresh returns 401', async () => {
+    const c = client(host({ isFramed: () => false }), mockFetch(() => problem(401, 'session_expired')) as unknown as typeof fetch, direct);
+    await c.refreshConnection();
+    expect(c.getState()).toEqual({ status: 'signed-out', reason: 'expired' });
+  });
 
   it('sends the cookie and the CSRF token on state-changing requests only', async () => {
     const f = mockFetch(() => Response.json({}));

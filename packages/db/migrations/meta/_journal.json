@@ -120,6 +120,69 @@
       "when": 1761523200000,
       "tag": "0016_content_items",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1761609600000,
+      "tag": "0017_content_product_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1761696000000,
+      "tag": "0018_media_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1761782400000,
+      "tag": "0019_slides",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1761868800000,
+      "tag": "0020_media_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1761955200000,
+      "tag": "0021_renditions",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1762041600000,
+      "tag": "0022_placements",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1762128000000,
+      "tag": "0023_store_settings_layout",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1762214400000,
+      "tag": "0024_store_manifests",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1762300800000,
+      "tag": "0025_manifest_delivery",
+      "breakpoints": true
     }
   ]
 }

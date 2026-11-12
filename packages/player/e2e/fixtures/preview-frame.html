@@ -1,0 +1,24 @@
+﻿<!doctype html>
+<html>
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  /><title>Preview frame</title
+  ><style>
+    html,
+    body {
+      margin: 0;
+    }
+    #player {
+      width: 100%;
+    }
+  </style>
+  <div id="player"></div>
+  <script type="module">
+    import { mountPreview } from '/dist/preview.js';
+    window.preview = mountPreview(document.querySelector('#player'), {
+      parentOrigin: location.origin,
+      apiBase: location.origin,
+    });
+  </script>
+</html>

@@ -9,9 +9,9 @@ import { ensureTestAppRole } from '../testing/app-role.js';
 import { assertCrossTenantIsolation, findUnregisteredTenantTables, registerTenantTable, registeredTenantTables } from '../testing/cross-tenant.js';
 import * as schema from './index.js';
 
-const ADMIN_URL = process.env.TEST_ADMIN_URL ?? 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = process.env.TEST_APP_URL ?? 'postgres://slips_it_content:it_content_pw@127.0.0.1:5433/slips';
-const TENANT_TABLES = ['content_items'];
+const ADMIN_URL = process.env.TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = process.env.TEST_APP_URL ?? `postgres://slips_it_content:it_content_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const TENANT_TABLES = ['content_items', 'content_product_links', 'slides', 'placements'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -37,6 +37,7 @@ describe('content tables', () => {
   });
 
   it('every content tenant table registers with the cross-tenant harness', () => {
+    registerTenantTable({ table: 'placements', seed: async (c, s) => (await c.query<{ id: string }>("insert into placements (store_id, content_id, type) values ($1, gen_random_uuid(), 'home') returning id::text as id", [s])).rows[0]!.id });
     registerTenantTable({
       table: 'content_items',
       seed: async (c: pg.PoolClient, s: string) =>
@@ -44,6 +45,26 @@ describe('content tables', () => {
           await c.query<{ id: string }>(
             `insert into content_items (store_id, title, format, cta_label, cta_action)
              values ($1, 'Story 1', 'story', 'Buy now', 'add_to_cart') returning id::text as id`,
+            [s],
+          )
+        ).rows[0]!.id,
+    });
+    registerTenantTable({
+      table: 'content_product_links',
+      seed: async (c: pg.PoolClient, s: string) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into content_product_links (store_id, content_id, product_id) values ($1, gen_random_uuid(), gen_random_uuid()) returning id::text as id`,
+            [s],
+          )
+        ).rows[0]!.id,
+    });
+    registerTenantTable({
+      table: 'slides',
+      seed: async (c: pg.PoolClient, s: string) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, gen_random_uuid(), gen_random_uuid(), 'image', 0) returning id::text as id`,
             [s],
           )
         ).rows[0]!.id,
@@ -73,5 +94,54 @@ describe('content tables', () => {
     await expect(ins('story', 'draft', 'add_to_cart', 'https://example.com')).rejects.toMatchObject({ code: '23514' });
     await expect(ins('reel', 'draft', 'open_link', 'https://example.com/item')).resolves.toBeDefined();
     expect(schema.CONTENT_STATUSES).toEqual(['draft', 'processing', 'failed', 'scheduled', 'published', 'ended', 'archived', 'deactivated']);
+  });
+});
+
+describe('content_product_links', () => {
+  it('holds one link per content item and allows an unlinked (null product) row', async () => {
+    const s = randomUUID();
+    const content = randomUUID();
+    await admin.query(`insert into content_product_links (store_id, content_id, product_id) values ($1, $2, gen_random_uuid())`, [s, content]);
+    await expect(admin.query(`insert into content_product_links (store_id, content_id, product_id) values ($1, $2, gen_random_uuid())`, [s, content])).rejects.toMatchObject({
+      code: '23505',
+    });
+    await expect(admin.query(`update content_product_links set product_id = null where store_id = $1 and content_id = $2`, [s, content])).resolves.toMatchObject({ rowCount: 1 });
+  });
+});
+
+describe('placements', () => {
+  it('allows one Home per item and rejects unsupported placements and missing tenant scope', async () => {
+    const store = randomUUID(); const content = randomUUID();
+    const insert = (type: string, storeId: string | null = store) => admin.query('insert into placements (store_id, content_id, type) values ($1, $2, $3)', [storeId, content, type]);
+    await insert('home');
+    await expect(insert('home')).rejects.toMatchObject({ code: '23505' });
+    await expect(insert('category')).rejects.toMatchObject({ code: '23514' });
+    await expect(insert('home', null)).rejects.toMatchObject({ code: '23502' });
+  });
+
+  it('defaults layout to ring and rejects other or missing layouts (Story 4.2 pilot)', async () => {
+    const store = randomUUID();
+    const row = await admin.query<{ layout: string }>("insert into placements (store_id, content_id, type) values ($1, gen_random_uuid(), 'home') returning layout", [store]);
+    expect(row.rows[0]!.layout).toBe('ring');
+    for (const layout of ['bar', 'strip', 'carousel', 'Ring', '']) {
+      await expect(admin.query("insert into placements (store_id, content_id, type, layout) values ($1, gen_random_uuid(), 'home', $2)", [store, layout])).rejects.toMatchObject({ code: '23514' });
+    }
+    await expect(admin.query("insert into placements (store_id, content_id, type, layout) values ($1, gen_random_uuid(), 'home', null)", [store])).rejects.toMatchObject({ code: '23502' });
+  });
+});
+
+describe('slides', () => {
+  it('keeps one live slide per asset per item, allows soft-deleted duplicates and checks kind/position', async () => {
+    const s = randomUUID();
+    const content = randomUUID();
+    const asset = randomUUID();
+    const ins = (kind = 'image', position = 0) =>
+      admin.query(`insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, $2, $3, $4, $5)`, [s, content, asset, kind, position]);
+    await ins();
+    await expect(ins()).rejects.toMatchObject({ code: '23505' });
+    await admin.query(`update slides set deleted_at = now() where store_id = $1 and content_id = $2`, [s, content]);
+    await expect(ins()).resolves.toBeDefined();
+    await expect(admin.query(`insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, $2, gen_random_uuid(), 'gif', 0)`, [s, content])).rejects.toMatchObject({ code: '23514' });
+    await expect(admin.query(`insert into slides (store_id, content_id, media_asset_id, kind, position) values ($1, $2, gen_random_uuid(), 'video', -1)`, [s, content])).rejects.toMatchObject({ code: '23514' });
   });
 });

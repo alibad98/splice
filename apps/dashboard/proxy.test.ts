@@ -8,6 +8,15 @@ const get = (path: string, headers: Record<string, string> = {}) =>
 afterEach(() => vi.unstubAllEnvs());
 
 describe('proxy security headers', () => {
+  it('allows same-origin preview iframes with or without a merchant session cookie', () => {
+    for (const cookie of ['', 'slips_session=store.sess.token']) {
+      const res = get('/player-preview/index.html', { 'sec-fetch-dest': 'iframe', cookie });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('location')).toBeNull();
+      expect(res.headers.get('content-security-policy')).toBe("frame-ancestors 'self' https://s.salla.sa");
+      expect(res.headers.get('x-frame-options')).toBeNull();
+    }
+  });
   it('merchant pages are framable only by the Salla dashboard origin', () => {
     for (const path of ['/', '/products?lang=en', '/settings']) {
       const res = get(path);

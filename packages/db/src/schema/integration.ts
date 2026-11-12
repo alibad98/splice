@@ -30,6 +30,22 @@ export const stores = pgTable('stores', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().default(sql`now()`),
 });
 
+/** Pilot Story display layouts (Story 4.2 Ring slice). Bar and Reel layouts are later full-story work. */
+export const STORY_LAYOUTS_PILOT = ['ring'] as const;
+export type StoryLayoutPilot = (typeof STORY_LAYOUTS_PILOT)[number];
+
+/**
+ * Store-level display defaults (Story 4.2), one row per store. A missing row means Ring; content reads the default only
+ * through `IntegrationService.getDisplayDefaults` (AD-2). CHECK keeps `story_layout` to the pilot values (migration 0023).
+ */
+export const storeSettings = pgTable('store_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  storeId: uuid('store_id').notNull(),
+  storyLayout: text('story_layout').$type<StoryLayoutPilot>().notNull().default('ring'),
+  createdAt: now(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().default(sql`now()`),
+});
+
 /** Maps (platform, platform_store_id) to the store id before any store context exists. No RLS, no store_id column; exposes only that mapping. */
 export const storeLocator = pgTable('store_locator', {
   platform: text('platform').$type<StorePlatform>().notNull(),

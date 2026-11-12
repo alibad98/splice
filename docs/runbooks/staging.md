@@ -2,6 +2,8 @@
 
 Status: no hosting provider yet. Hosting, deploy target and secrets wait on **Q-05**.
 
+Controlled-pilot scope was approved on 2026-11-11. This does not make staging suitable for live merchants. Resolve production decisions and evidence in [production pilot](production-pilot.md); deployment/enrollment require separate authorization.
+
 ## What "staging" means today
 
 - CI builds two Docker images on every pull request and push to `main`, without pushing them:
@@ -23,6 +25,7 @@ Status: no hosting provider yet. Hosting, deploy target and secrets wait on **Q-
 ## Environment
 
 - Every process validates its environment with Zod at boot and exits non-zero, naming the variable, when one is missing or invalid. See `.env.example` for the variable list.
+- Live-Postgres tests default to local test port 5433. When Windows blocks that port, set `TEST_DATABASE_PORT` to an isolated test PostgreSQL instance; do not point tests at development or production data. Existing full-URL test overrides remain supported. Set `FFMPEG_PATH` to a full FFmpeg binary with test-source filters and H.264/AAC/WebP support for processor tests. Turbo forwards these test variables and includes them in test cache keys.
 
 ## Dashboard build and Google Fonts
 

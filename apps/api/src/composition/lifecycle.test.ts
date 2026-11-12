@@ -20,8 +20,8 @@ import { MAX_ATTEMPTS, PARK_WINDOW_MS } from '../modules/integration/webhook-inb
 import { GRACE_PERIOD_MS } from '../modules/integration/store-lifecycle.js';
 import type { StoreDataLifecycle } from '../ports/store-data-lifecycle.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_life:it_life_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_life:it_life_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_lifecycle_test';
 const SECRET = 'whsec-lifecycle-test';
 const lines: string[] = [];
@@ -280,6 +280,7 @@ describe('purge', () => {
     const s = await installStore();
     fake.rows.set(s.storeId, 1200);
     await admin.query(`insert into token_access_log (store_id, purpose, outcome) values ($1, 'use', 'ok')`, [s.storeId]);
+    await admin.query(`insert into store_settings (store_id) values ($1)`, [s.storeId]);
     await send(hook('app.uninstalled', s.merchant));
     return s;
   }
@@ -295,7 +296,7 @@ describe('purge', () => {
     expect(fake.purgeCalls).toBe(3);
     expect(fake.rows.get(storeId)).toBe(0);
     expect(await storeRow(storeId)).toMatchObject({ lifecycle_state: 'purged', install_epoch: 1, name: 'purged' });
-    for (const t of ['platform_tokens', 'merchant_accounts', 'token_access_log', 'merchant_sessions']) expect((await admin.query(`select 1 from ${t} where store_id = $1`, [storeId])).rowCount).toBe(0);
+    for (const t of ['platform_tokens', 'merchant_accounts', 'token_access_log', 'merchant_sessions', 'store_settings']) expect((await admin.query(`select 1 from ${t} where store_id = $1`, [storeId])).rowCount).toBe(0);
     expect((await admin.query('select 1 from webhook_inbox where platform_store_id = $1', [merchant])).rowCount).toBe(0);
     expect((await admin.query('select 1 from store_purge_schedule where id = $1', [storeId])).rowCount).toBe(0);
     const audit = (await admin.query('select action, details from lifecycle_audit where platform_store_id = $1 order by at', [merchant])).rows;
@@ -422,6 +423,9 @@ describe('worker jobs', () => {
     const handlers = integrationJobHandlers(service, telemetry, { send: async (queue, data) => (sent.push({ queue, data: data as Record<string, unknown> }), 'id') });
     await send(hook('app.uninstalled', merchant, {}, { created_at: new Date(clock + 1000).toISOString() }));
     clock += GRACE_PERIOD_MS + 60_000;
+    // Keep this fixture inside the bounded sweep page even when previous test runs left due rows.
+    // Only this store's fixture changes; unrelated schedules remain untouched.
+    await admin.query("update store_purge_schedule set due_at = (select min(due_at) - interval '1 second' from store_purge_schedule) where id = $1", [storeId]);
     await handlers[WEBHOOK_SWEEP_QUEUE]!({ v: 1, trace_id: 't' }, { id: 'j', data: {} });
     const queued = sent.find((s) => s.queue === STORE_PURGE_QUEUE && s.data.store_id === storeId);
     expect(queued?.data).toMatchObject({ v: 1, store_id: storeId, install_epoch: expect.any(Number) });

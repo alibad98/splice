@@ -1,3 +1,5 @@
+import { HttpCdnPurger } from './adapters/cdn/http-cdn-purger.js';
+import { unconfiguredCdnPurger } from './ports/cdn-purger.js';
 import { createHmac, randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { NestFactory } from '@nestjs/core';
@@ -13,6 +15,14 @@ import { DevSallaCommercePlatform, SallaCommercePlatform, unconfiguredPlatform }
 import { sessionStoreData } from './modules/session/session.lifecycle.js';
 import { catalogStoreData } from './modules/catalog/catalog.lifecycle.js';
 import { contentStoreData } from './modules/content/content.lifecycle.js';
+import { publishingDeliveryStoreData } from './modules/publishing/publishing.lifecycle.js';
+import { mediaStoreData } from './modules/media/media.lifecycle.js';
+import { S3ObjectStorage } from './adapters/storage/s3-storage.js';
+import { EicarMalwareScanner } from './adapters/scanner/eicar-scanner.js';
+import { SsrfSafeFetcher } from './adapters/fetch/ssrf-safe-fetcher.js';
+import { FfmpegMediaProcessor } from './adapters/media/ffmpeg-media-processor.js';
+import { unconfiguredStorage, type ObjectStorage } from './ports/object-storage.js';
+import type { Telemetry } from './ports/telemetry.js';
 import { ConsoleMailer } from './adapters/mailer/console-mailer.js';
 import { ownerInviteListener } from './modules/auth/owner-invite.js';
 import { denyAllAdminAccess } from './ports/admin-access.js';
@@ -47,6 +57,18 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'SALLA_WEBHOOK_SECRET'
       | 'DASHBOARD_URL'
       | 'SESSION_COOKIE_DOMAIN'
+      | 'S3_ENDPOINT'
+      | 'S3_REGION'
+      | 'S3_BUCKET'
+      | 'S3_ACCESS_KEY'
+      | 'S3_SECRET_KEY'
+      | 'S3_FORCE_PATH_STYLE'
+      | 'MEDIA_UPLOAD_RATE_LIMIT'
+      | 'MEDIA_PUBLIC_BASE_URL'
+      | 'FFMPEG_PATH'
+      | 'CDN_PURGE_URL'
+      | 'CDN_PURGE_TOKEN'
+      | 'CDN_PURGE_TIMEOUT_MS'
     >
   >;
 
@@ -56,6 +78,39 @@ function unconfiguredCipher(): TokenCipher {
     throw new Error('TOKEN_ENCRYPTION_KEY is not configured');
   };
   return { keyId: 'unconfigured', encrypt: fail, decrypt: fail };
+}
+
+/** S3 storage when the endpoint and keys are set (required in production); otherwise a storage that fails on use. */
+function buildStorage(env: HttpEnv, telemetry: Telemetry): ObjectStorage {
+  if (!env.S3_ENDPOINT || !env.S3_ACCESS_KEY || !env.S3_SECRET_KEY) return unconfiguredStorage();
+  return new S3ObjectStorage({
+    endpoint: env.S3_ENDPOINT,
+    region: env.S3_REGION ?? 'us-east-1',
+    bucket: env.S3_BUCKET ?? 'slips-media',
+    accessKeyId: env.S3_ACCESS_KEY,
+    secretAccessKey: env.S3_SECRET_KEY,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE ?? true,
+    corsOrigins: env.CORS_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean),
+    warn: (message, fields) => telemetry.log.warn(message, fields),
+  });
+}
+
+/**
+ * Public base URL store manifests link media under (Story 4.4): `MEDIA_PUBLIC_BASE_URL` (required in production), else
+ * the bucket on the S3 endpoint (`${S3_ENDPOINT}/${S3_BUCKET}`, path-style; MinIO locally). Never ends with a slash.
+ */
+export function mediaPublicBaseUrl(env: Pick<HttpEnv, 'MEDIA_PUBLIC_BASE_URL' | 'S3_ENDPOINT' | 'S3_BUCKET'>): string {
+  const configured = env.MEDIA_PUBLIC_BASE_URL ?? `${(env.S3_ENDPOINT ?? 'http://localhost:9000').replace(/\/+$/, '')}/${env.S3_BUCKET ?? 'slips-media'}`;
+  return configured.replace(/\/+$/, '');
+}
+
+/** Development boot: create the media bucket when missing. A storage that is down only logs; uploads fail until it is up. */
+export async function ensureDevBucket(storage: ObjectStorage, telemetry: Telemetry): Promise<void> {
+  try {
+    await storage.ensureBucket?.();
+  } catch (err) {
+    telemetry.log.warn('media bucket not ensured', { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /** Build the default adapters from env. Tests override pieces via `overrides`. */
@@ -94,10 +149,12 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
   const recorder = env.NODE_ENV === 'production' ? undefined : createWebhookRecorder(env.WEBHOOK_RECORD_DIR);
   const dashboardUrl = env.DASHBOARD_URL ?? 'http://localhost:3000';
   const mailer = overrides.mailer ?? new ConsoleMailer(telemetry);
+  const storage = overrides.storage ?? buildStorage(env, telemetry);
+  const events = overrides.events ?? new SendOnlyEventSender(databaseUrl, telemetry);
   return {
     telemetry,
     pool,
-    events: overrides.events ?? new SendOnlyEventSender(databaseUrl, telemetry),
+    events,
     cipher,
     platform,
     integration: overrides.integration ?? {
@@ -123,7 +180,14 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     },
     adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
     mailer,
-    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData],
+    storage,
+    cdnPurger: overrides.cdnPurger ?? (env.CDN_PURGE_URL && env.CDN_PURGE_TOKEN ? new HttpCdnPurger(env.CDN_PURGE_URL, env.CDN_PURGE_TOKEN, env.CDN_PURGE_TIMEOUT_MS) : unconfiguredCdnPurger),
+    // Development-only adapter: flags the EICAR test string. A real scanner is a deferred decision (no vendor chosen).
+    scanner: overrides.scanner ?? new EicarMalwareScanner(),
+    media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60, publicBaseUrl: mediaPublicBaseUrl(env) },
+    // External media links are fetched by the worker only (Story 3.7).
+    ...(role === 'worker' ? { fetcher: overrides.fetcher ?? new SsrfSafeFetcher(), processor: overrides.processor ?? new FfmpegMediaProcessor(env.FFMPEG_PATH) } : {}),
+    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage), publishingDeliveryStoreData(events, telemetry)],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),
@@ -134,6 +198,7 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
 
 export async function createHttpApp(env: HttpEnv, overrides: Partial<InfraDeps> = {}): Promise<INestApplication> {
   const deps = buildInfra(env, 'http', overrides);
+  if (env.NODE_ENV === 'development') await ensureDevBucket(deps.storage, deps.telemetry);
   const app = await NestFactory.create(AppModule.register(deps), { logger: new NestTelemetryLogger(deps.telemetry), rawBody: true });
   app.use(requestTelemetry(deps.telemetry));
   app.enableCors({

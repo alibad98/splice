@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EnvError, parseEnv } from './env.js';
+import { mediaPublicBaseUrl } from '../http.js';
 
 const base = { ROLE: 'http', DATABASE_URL: 'postgres://slips:slips@localhost:5432/slips' };
 
@@ -72,14 +73,61 @@ describe('parseEnv', () => {
       expect(() => parseEnv({ ...base, OAUTH_STATE_SECRET: 'short' })).toThrow(/OAUTH_STATE_SECRET/);
     });
     it('requires the key and Salla credentials in production', () => {
-      expect.assertions(2);
+      expect.assertions(5);
       try {
         parseEnv({ ...base, NODE_ENV: 'production' });
       } catch (err) {
-        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI']);
+        expect((err as EnvError).variables).toEqual(['TOKEN_ENCRYPTION_KEY', 'OAUTH_STATE_SECRET', 'SALLA_CLIENT_ID', 'SALLA_CLIENT_SECRET', 'SALLA_REDIRECT_URI', 'S3_ENDPOINT', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'MEDIA_PUBLIC_BASE_URL', 'CDN_PURGE_URL', 'CDN_PURGE_TOKEN']);
       }
-      const ok = parseEnv({ ...base, NODE_ENV: 'production', TOKEN_ENCRYPTION_KEY: key, OAUTH_STATE_SECRET: 's'.repeat(32), SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://api.example.com/cb' });
+      const ok = parseEnv({
+        ...base,
+        NODE_ENV: 'production', CDN_PURGE_URL: 'https://purge.example.test/invalidate', CDN_PURGE_TOKEN: 'test-token-123456',
+        TOKEN_ENCRYPTION_KEY: key,
+        OAUTH_STATE_SECRET: 's'.repeat(32),
+        SALLA_CLIENT_ID: 'id',
+        SALLA_CLIENT_SECRET: 'secret-123',
+        SALLA_REDIRECT_URI: 'https://api.example.com/cb',
+        S3_ENDPOINT: 'https://s3.example.com',
+        S3_ACCESS_KEY: 'access',
+        S3_SECRET_KEY: 'secret',
+        MEDIA_PUBLIC_BASE_URL: 'https://media.example.com',
+      });
       expect(ok.TOKEN_ENCRYPTION_KEY).toBe(key);
+      const prodMedia = { ...base, NODE_ENV: 'production', CDN_PURGE_URL: 'https://purge.example.test/invalidate', CDN_PURGE_TOKEN: 'test-token-123456', TOKEN_ENCRYPTION_KEY: key, OAUTH_STATE_SECRET: 's'.repeat(32), SALLA_CLIENT_ID: 'id', SALLA_CLIENT_SECRET: 'secret-123', SALLA_REDIRECT_URI: 'https://api.example.com/cb', S3_ENDPOINT: 'https://s3.example.com', S3_ACCESS_KEY: 'access', S3_SECRET_KEY: 'secret' };
+      expect(() => parseEnv({ ...prodMedia, MEDIA_PUBLIC_BASE_URL: 'http://media.example.com' })).toThrow(/MEDIA_PUBLIC_BASE_URL: must be an https URL in production/);
+      expect(parseEnv({ ...prodMedia, MEDIA_PUBLIC_BASE_URL: 'https://media.example.com' }).MEDIA_PUBLIC_BASE_URL).toBe('https://media.example.com');
+      expect(parseEnv({ ...base, MEDIA_PUBLIC_BASE_URL: 'http://localhost:9000/slips-media' }).MEDIA_PUBLIC_BASE_URL).toBe('http://localhost:9000/slips-media');
     });
+  });
+
+  describe('media storage and upload throttle', () => {
+    it('defaults region, bucket, path style and the rate limit; endpoint and keys stay optional outside production', () => {
+      const env = parseEnv(base);
+      expect(env).toMatchObject({ S3_REGION: 'us-east-1', S3_BUCKET: 'slips-media', S3_FORCE_PATH_STYLE: true, MEDIA_UPLOAD_RATE_LIMIT: 60 });
+      expect(env.S3_ENDPOINT).toBeUndefined();
+      const set = parseEnv({ ...base, S3_ENDPOINT: 'http://localhost:9000', S3_FORCE_PATH_STYLE: 'false', MEDIA_UPLOAD_RATE_LIMIT: '5', S3_BUCKET: 'my-bucket' });
+      expect(set).toMatchObject({ S3_ENDPOINT: 'http://localhost:9000', S3_FORCE_PATH_STYLE: false, MEDIA_UPLOAD_RATE_LIMIT: 5, S3_BUCKET: 'my-bucket' });
+    });
+    it('MEDIA_PUBLIC_BASE_URL: optional http(s) URL, defaulting to the bucket on the S3 endpoint without a trailing slash', () => {
+      expect(parseEnv(base).MEDIA_PUBLIC_BASE_URL).toBeUndefined();
+      expect(parseEnv({ ...base, MEDIA_PUBLIC_BASE_URL: 'https://cdn.example.com/media/' }).MEDIA_PUBLIC_BASE_URL).toBe('https://cdn.example.com/media/');
+      expect(() => parseEnv({ ...base, MEDIA_PUBLIC_BASE_URL: 'ftp://cdn.example.com' })).toThrow(/MEDIA_PUBLIC_BASE_URL/);
+      expect(mediaPublicBaseUrl({ S3_ENDPOINT: 'http://localhost:9000/', S3_BUCKET: 'my-bucket' })).toBe('http://localhost:9000/my-bucket');
+      expect(mediaPublicBaseUrl({ MEDIA_PUBLIC_BASE_URL: 'https://cdn.example.com/media/', S3_ENDPOINT: 'http://localhost:9000' })).toBe('https://cdn.example.com/media');
+    });
+    it('rejects a bad bucket name or rate limit', () => {
+      expect(() => parseEnv({ ...base, S3_BUCKET: 'Bad_Bucket' })).toThrow(/S3_BUCKET/);
+      expect(() => parseEnv({ ...base, MEDIA_UPLOAD_RATE_LIMIT: '0' })).toThrow(/MEDIA_UPLOAD_RATE_LIMIT/);
+    });
+  });
+});
+
+describe('purge bridge configuration', () => {
+  it('requires paired credentials, bounded timeouts and a clean HTTP URL', () => {
+    expect(() => parseEnv({...base,CDN_PURGE_URL:'https://purge.test'})).toThrow(/URL and token/);
+    expect(() => parseEnv({...base,CDN_PURGE_TOKEN:'s'.repeat(16)})).toThrow(/URL and token/);
+    for (const ms of ['99','10001']) expect(() => parseEnv({...base,CDN_PURGE_TIMEOUT_MS:ms})).toThrow(/CDN_PURGE_TIMEOUT_MS/);
+    expect(() => parseEnv({...base,CDN_PURGE_URL:'https://user:password@purge.test',CDN_PURGE_TOKEN:'s'.repeat(16)})).toThrow(/must not contain credentials/);
+    expect(parseEnv({...base,CDN_PURGE_URL:'http://127.0.0.1/purge',CDN_PURGE_TOKEN:'s'.repeat(16)}).CDN_PURGE_TIMEOUT_MS).toBe(5000);
   });
 });

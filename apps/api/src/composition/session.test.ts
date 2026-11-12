@@ -16,8 +16,8 @@ import { IntegrationService } from '../modules/integration/integration.service.j
 import { SessionService } from '../modules/session/session.service.js';
 import { PlatformAuthRejectedError, PlatformUnavailableError, type CommercePlatform, type EmbeddedIdentity, type MerchantProfile, type TokenSet } from '../ports/commerce-platform.js';
 
-const ADMIN_URL = 'postgres://slips:slips@127.0.0.1:5433/slips';
-const APP_URL = 'postgres://slips_it_session:it_session_pw@127.0.0.1:5433/slips';
+const ADMIN_URL = `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
+const APP_URL = `postgres://slips_it_session:it_session_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const SCHEMA = 'pgboss_session_test';
 const lines: string[] = [];
 const telemetry = new PinoTelemetry({ role: 'http', level: 'debug', stream: { write: (l: string) => void lines.push(l) } });
@@ -39,7 +39,7 @@ class FakePlatform implements CommercePlatform {
   unavailable = false;
   profile: MerchantProfile = this.newProfile();
   newProfile(): MerchantProfile {
-    return { platformStoreId: `ses-${randomUUID()}`, storeName: 'Session Store', platformMerchantId: 'm-1', ownerName: 'Owner', domains: [] };
+    return { platformStoreId: `ses-${randomUUID()}`, storeName: 'Session Store', platformMerchantId: 'm-1', ownerName: 'Owner', domains: ['demo-store.salla.sa'] };
   }
   readonly auth = {
     buildAuthorizeUrl: (state: string) => `https://accounts.example/auth?state=${state}`,
@@ -130,7 +130,7 @@ describe('embedded sign-in', () => {
     expect(session.expires_in).toBeLessThanOrEqual(900);
     const me = await fetch(`${base}/v1/session`, { headers: { authorization: `Bearer ${session.access_token}` } });
     const info = SessionInfo.parse(await me.json());
-    expect(info).toMatchObject({ mode: 'embedded', store: { name: 'Embedded Store' }, connection: { state: 'connected', store_name: 'Embedded Store' } });
+    expect(info).toMatchObject({ mode: 'embedded', store: { name: 'Embedded Store', domains: ['demo-store.salla.sa'] }, connection: { state: 'connected', store_name: 'Embedded Store' } });
     expect(info.csrf_token).toBeUndefined();
     expect(info.open_in_platform_url).toBeUndefined();
     expect((await admin.query('select mode from merchant_sessions where store_id = $1', [store.storeId])).rows).toEqual([{ mode: 'embedded' }]);
@@ -237,6 +237,21 @@ describe('direct-link sign-in', () => {
     const { bearer } = await embeddedBearer();
     expect((await post('/v1/session/sign-out', { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(204);
     expect((await fetch(`${base}/v1/session`, { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(401);
+  });
+
+  it('background connection refresh does not keep an idle cookie session alive', async () => {
+    const d = await directCookie();
+    const sessions = nest.get(SessionService);
+    const before = (await admin.query('select last_seen_at from merchant_sessions where store_id = $1', [d.storeId])).rows[0]!.last_seen_at;
+    try {
+      sessions.now = () => Date.now() + 11 * HOUR;
+      expect((await fetch(`${base}/v1/session`, { headers: { cookie: d.cookie, 'x-slips-client': 'session-refresh' } })).status).toBe(200);
+      expect((await admin.query('select last_seen_at from merchant_sessions where store_id = $1', [d.storeId])).rows[0]!.last_seen_at).toEqual(before);
+      sessions.now = () => Date.now() + 13 * HOUR;
+      const expired = await fetch(`${base}/v1/session`, { headers: { cookie: d.cookie, 'x-slips-client': 'session-refresh' } });
+      expect(expired.status).toBe(401);
+      expect(await expired.json()).toMatchObject({ code: 'session_expired' });
+    } finally { sessions.now = Date.now; }
   });
 
   it('expires a session idle for 12 hours, clears the cookie and says so; activity keeps it alive', async () => {

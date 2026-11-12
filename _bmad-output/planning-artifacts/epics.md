@@ -19,6 +19,12 @@ This document provides the complete epic and story breakdown for Slips, decompos
 
 ## Requirements Inventory
 
+### Approved controlled-pilot delivery order (2026-11-11)
+
+Ali approved the [pilot proposal](sprint-change-proposal-2026-11-11.md). First close relevant review gaps in 2.6-2.7 and 3.3-3.12; reuse 3.13's recorded final verification. Then deliver Home-only 4.1 plus fixed Story Ring from 4.2, followed by 4.4-4.6 and 5.1-5.6, 5.8-5.10, 5.12-5.13. Run production-readiness work and pilot slices of 7.7/7.11-7.15 alongside development. Keep scheduling (4.3), Reels storefront (5.7) and additional layouts (5.11) for full MVP.
+
+Pilot availability is Home/Story/publish-now, with no new shopper tracking, ROI claims or billing automation. Keep existing editor/media/preview code and shared compiler/player contracts; absent schedules mean publish-now. Gate all transitions back into live states on placement eligibility. Record partial delivery in [pilot readiness](../implementation-artifacts/pilot-readiness.md); original story IDs, acceptance criteria and full-story completion rules below remain binding. Home-only work cannot mark full 4.1 done. Deployment/enrollment require separate authorization and completed launch gates.
+
 ### Functional Requirements
 
 - FR1: Install from the Salla App Store and authenticate via Salla OAuth; tokens stored encrypted and refreshed automatically; dashboard shows "Connected to Salla" with the store name.

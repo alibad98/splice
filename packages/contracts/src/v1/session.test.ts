@@ -16,3 +16,12 @@ describe('session contracts', () => {
     expect(info.open_in_platform_url).toBeUndefined();
   });
 });
+
+describe('session store domains (Story 3.3)', () => {
+  const base = { mode: 'embedded', connection: { state: 'connected', store_name: 'S' }, expires_at: '2026-10-11T10:00:00.000Z' };
+  it('carries the synced domains and defaults them to an empty list', () => {
+    expect(SessionInfo.parse({ ...base, store: { name: 'S', domains: ['demo.salla.sa'] } }).store.domains).toEqual(['demo.salla.sa']);
+    expect(SessionInfo.parse({ ...base, store: { name: 'S' } }).store.domains).toEqual([]);
+    expect(SessionInfo.safeParse({ ...base, store: { name: 'S', domains: [1] } }).success).toBe(false);
+  });
+});

@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "pnpm -r --filter \"./packages/*\" --filter \"!@slips/player\" build && pnpm --parallel --filter \"./apps/*\" dev",
+    "dev": "pnpm -r --filter \"./packages/*\" build && pnpm --parallel --filter \"./apps/*\" dev",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

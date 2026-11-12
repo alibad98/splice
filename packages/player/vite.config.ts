@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [preact()],
   build: {
     lib: {
-      entry: { loader: 'src/index.ts', viewer: 'src/viewer/index.ts', analytics: 'src/analytics/index.ts' },
+      entry: { loader: 'src/index.ts', viewer: 'src/viewer/index.ts', analytics: 'src/analytics/index.ts', preview: 'src/preview/index.ts' },
       formats: ['es'],
       fileName: (_format, name) => `${name}.js`,
     },

@@ -227,3 +227,11 @@ Original entries above retain their historical findings. Current disposition and
 - source_spec: `spec-4-5-cdn-manifest-delivery-pilot-slice.md`
   summary: Make worker-start event-publishing privilege replacement atomic.
   evidence: grantEventPublishing already executed REVOKE and subsequent GRANT statements in separate transactions before 4.5, temporarily removing enqueue permissions during worker startup. Wrap the sequence in one transaction and verify concurrent producers in a follow-up.
+
+- source_spec: none
+  summary: Emit a manifest trigger when an active store's synced domains change, and avoid revision bumps for compiles that produce an unchanged manifest.
+  evidence: Split from the 4.6 product-freshness pilot intent on 2026-11-12 (user chose Split). 4.5 delivery already skips redundant uploads/purges by canonical content hash; only the revision bump and the domain trigger remain.
+
+- source_spec: `spec-4-6-product-freshness-pilot-slice.md`
+  summary: Tell the merchant when a linked product hidden in Salla withholds a published Story (content flag plus a "Linked product hidden" dashboard chip, mirroring the deletion flag).
+  evidence: Review B1/V1 (2026-11-12). The store compile now withholds items whose linked product has `visible` false, but nothing flags the content; `ContentTable.tsx:48` only checks `product.deleted`, so the dashboard shows a published Story shoppers cannot see. Ali chose to defer it from the pilot slice.

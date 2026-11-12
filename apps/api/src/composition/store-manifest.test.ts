@@ -68,7 +68,7 @@ beforeAll(async () => {
   compiler = new StoreManifestCompiler(app, content, catalog, media, integration, telemetry, boss);
   lifecycle = new ContentLifecycle(boss, telemetry, media);
   const registry = new EventHandlerRegistry();
-  registerPublishingEventHandlers(registry, boss, telemetry);
+  registerPublishingEventHandlers(registry, boss, telemetry, content);
   registerContentEventHandlers(registry, telemetry, lifecycle);
   // The worker delivers events on its own (pg-boss owner) pool; compiles run as the RLS-bound app role.
   dispatch = eventDispatcher(admin, registry);
@@ -185,16 +185,35 @@ const compileJobs = async (storeId: string) =>
   (await admin.query<{ id: string; data: Record<string, unknown> }>(`select id, data from ${SCHEMA}.job where name = $1 and singleton_key = $2 order by created_on, id`, [MANIFEST_COMPILE_QUEUE, storeId])).rows;
 
 /** Deliver every queued domain event of the store (as the worker's `events.dispatch` job would). */
-async function deliverEvents(storeId: string) {
-  const { rows } = await admin.query<{ id: string; data: EventEnvelope }>(`select id, data from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2 order by created_on, id`, [EVENT_QUEUE, storeId]);
+async function deliverEvents(storeId: string, only?: EventName) {
+  const { rows } = await admin.query<{ id: string; data: EventEnvelope }>(
+    `select id, data from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2 and ($3::text is null or data->>'name' = $3) order by created_on, id`,
+    [EVENT_QUEUE, storeId, only ?? null],
+  );
   for (const r of rows) await dispatch(r.data, { id: r.id, data: r.data });
   return rows.length;
 }
 
+const PRODUCT_INPUTS: ReadonlySet<EventName> = new Set(['catalog.product.updated', 'catalog.product.deleted']);
+
+/** Drop the store's queued events and compile jobs (fixture writes emit their own). */
+async function clearQueued(storeId: string) {
+  await admin.query(`delete from ${SCHEMA}.job where name = $1 and singleton_key = $2`, [MANIFEST_COMPILE_QUEUE, storeId]);
+  await admin.query(`delete from ${SCHEMA}.job where name = $1 and data->>'store_id' = $2`, [EVENT_QUEUE, storeId]);
+}
+
+/** A product linked to one non-deleted (draft) content item, with the fixture's own events and jobs cleared. */
+async function linkedProduct(storeId: string) {
+  const productId = await product(storeId);
+  await item(storeId, { productId, status: 'draft' });
+  await clearQueued(storeId);
+  return productId;
+}
+
 const runCompileJob = (data: unknown) => publishingJobHandlers(app, compiler)[MANIFEST_COMPILE_QUEUE]!(data, { id: 'job', data });
 
-function payloadFor(name: EventName, storeId: string): EventPayload<EventName> {
-  const id = randomUUID();
+function payloadFor(name: EventName, storeId: string, productId?: string): EventPayload<EventName> {
+  const id = productId ?? randomUUID();
   const transition = { v: 1, store_id: storeId, content_id: id, from: 'draft', to: 'published' } as const;
   const lifecycleEvent = { v: 1, store_id: storeId, install_epoch: 1 } as const;
   const payloads: Partial<Record<EventName, EventPayload<EventName>>> = {
@@ -214,23 +233,44 @@ function payloadFor(name: EventName, storeId: string): EventPayload<EventName> {
 
 describe('MANIFEST_INPUTS triggers through the transactional outbox', () => {
   it.each(MANIFEST_INPUTS)('%s: a committed trigger leaves exactly one compile job for its store; a rolled-back one leaves none', async (name) => {
-    const committed = randomUUID();
-    await withStoreContext(app, committed, (tx) => publishEvent(tx, boss, telemetry, name, payloadFor(name, committed) as never));
-    expect(await deliverEvents(committed)).toBe(1);
+    // Product events compile only for a product linked to live content (Story 4.6): link one first.
+    const gated = PRODUCT_INPUTS.has(name);
+    const committed = gated ? await store() : randomUUID();
+    const productId = gated ? await linkedProduct(committed) : undefined;
+    await withStoreContext(app, committed, (tx) => publishEvent(tx, boss, telemetry, name, payloadFor(name, committed, productId) as never));
+    expect(await deliverEvents(committed, name)).toBe(1);
     const jobs = await compileJobs(committed);
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.data).toMatchObject({ v: 1, store_id: committed });
     // Redelivering the same event never queues a second compile (delivery ledger).
-    await deliverEvents(committed);
+    await deliverEvents(committed, name);
     expect(await compileJobs(committed)).toHaveLength(1);
 
-    const rolledBack = randomUUID();
+    const rolledBack = gated ? await store() : randomUUID();
+    const rolledBackProduct = gated ? await linkedProduct(rolledBack) : undefined;
     await expect(withStoreContext(app, rolledBack, async (tx) => {
-      await publishEvent(tx, boss, telemetry, name, payloadFor(name, rolledBack) as never);
+      await publishEvent(tx, boss, telemetry, name, payloadFor(name, rolledBack, rolledBackProduct) as never);
       throw new Error('roll back the trigger');
     })).rejects.toThrow('roll back the trigger');
-    expect(await deliverEvents(rolledBack)).toBe(0);
+    expect(await deliverEvents(rolledBack, name)).toBe(0);
     expect(await compileJobs(rolledBack)).toHaveLength(0);
+  });
+
+  it.each([...PRODUCT_INPUTS])('%s: enqueues only for a product linked to non-deleted content (unlinked and deleted-only links skip)', async (name) => {
+    const storeId = await store();
+    const linked = await linkedProduct(storeId);
+    const unlinked = await product(storeId);
+    const deletedOnly = await product(storeId);
+    await item(storeId, { productId: deletedOnly, deleted: true });
+    await clearQueued(storeId);
+    for (const productId of [unlinked, deletedOnly]) {
+      await withStoreContext(app, storeId, (tx) => publishEvent(tx, boss, telemetry, name, payloadFor(name, storeId, productId) as never));
+    }
+    expect(await deliverEvents(storeId, name)).toBe(2);
+    expect(await compileJobs(storeId)).toHaveLength(0);
+    await withStoreContext(app, storeId, (tx) => publishEvent(tx, boss, telemetry, name, payloadFor(name, storeId, linked) as never));
+    await deliverEvents(storeId, name);
+    expect(await compileJobs(storeId)).toHaveLength(1);
   });
 
   it('enqueues on the delivery transaction: a rolled-back delivery leaves no compile job', async () => {
@@ -312,6 +352,18 @@ describe('store manifest selection', () => {
     for (const id of ineligible) expect(JSON.stringify(manifest)).not.toContain(id);
   });
 
+  it('withholds an item whose linked product is hidden in the platform and restores it when unhidden (Story 4.6)', async () => {
+    const storeId = await store();
+    const productId = await product(storeId);
+    const id = await item(storeId, { productId });
+    await admin.query('update products set visible = false where id = $1', [productId]);
+    await compiler.compile(storeId);
+    expect(StoreManifest.parse((await row(storeId))!.manifest).items).toEqual([]);
+    await admin.query('update products set visible = true where id = $1', [productId]);
+    await compiler.compile(storeId);
+    expect(StoreManifest.parse((await row(storeId))!.manifest).items.map((i) => i.id)).toEqual([id]);
+  });
+
   it('caps at the 10 newest by first_published_at (then id) and withdraws an archived or deleted item on the next compile', async () => {
     const storeId = await store();
     const base = Date.parse('2026-01-01T00:00:00Z');
@@ -374,7 +426,8 @@ describe('store manifest revisions', () => {
       revisions.push(Number((await row(storeId))!.revision));
     }
     expect(revisions).toEqual(revisions.map((_, i) => i + 1));
-  });
+    // The slot alignment above can wait up to 5 s, the default test timeout.
+  }, 20_000);
 
   it('race: concurrent compiles serialize on the row lock; each commits previous + 1 and the newest inputs hold the highest revision', async () => {
     const storeId = await store();

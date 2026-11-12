@@ -27,7 +27,8 @@ export type CompileOutcome =
  * - `purged` or unknown store: no row (any row is deleted), which readers treat as an empty manifest. The purged event
  *   fires after the store purge, so writing here would recreate the row the purge removed;
  * - `active`: live `published` Home Stories whose every slide asset is `processed` (at least one slide) and whose
- *   linked product (if any) exists and is not deleted, newest `first_published_at` first then id, at most 10, with public immutable
+ *   linked product (if any) exists, is not deleted and is not hidden in the platform (`visible` false withholds the item
+ *   exactly like a deletion; unhiding restores it at the next compile; previews are unaffected), newest `first_published_at` first then id, at most 10, with public immutable
  *   rendition URLs. An open-link CTA whose URL is no longer on a synced store domain is dropped (fields null, warning).
  * The row is locked (`FOR UPDATE`, created at revision 0 when missing) before the inputs are read and the compile
  * writes `revision + 1`, so concurrent compiles serialize and the newest commit always holds the highest revision.
@@ -105,8 +106,12 @@ export class StoreManifestCompiler {
     const ready = candidates.filter((c) => c.item.format === 'story' && c.slides.length > 0 && c.slides.every((s) => media.has(s.mediaAssetId)));
     const productIds = [...new Set(ready.flatMap((c) => (c.productId ? [c.productId] : [])))];
     const products = await this.catalog.getProductsByIds(storeId, productIds);
-    // A linked product must exist and be live: a deleted or missing one withholds the item.
-    const selected = ready.filter((c) => !c.productId || products.get(c.productId)?.deleted === false).slice(0, MANIFEST_PLACEMENT_MAX_ITEMS);
+    // A linked product must exist, be live and be visible in the platform: a deleted, missing or hidden one withholds the item.
+    const selected = ready.filter((c) => {
+      if (!c.productId) return true;
+      const product = products.get(c.productId);
+      return product?.deleted === false && product.visible;
+    }).slice(0, MANIFEST_PLACEMENT_MAX_ITEMS);
     const domains = selected.some((c) => c.item.ctaAction === 'open_link') ? await this.integration.getSyncedDomains(storeId) : [];
     return selected.map((c) => {
       const product = c.productId ? products.get(c.productId) : undefined;

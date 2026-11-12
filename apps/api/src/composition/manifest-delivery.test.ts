@@ -57,7 +57,7 @@ beforeAll(async () => {
   const media = new MediaService(app, storage, boss, telemetry, { uploadRateLimit: 60, publicBaseUrl: 'https://media.test' });
   compiler = new StoreManifestCompiler(app, new ContentService(app), new CatalogService(app, boss, telemetry), media, integration, telemetry, boss);
   lifecycle = new ContentLifecycle(boss, telemetry, media, integration);
-  const registry = new EventHandlerRegistry(); registerPublishingEventHandlers(registry, boss, telemetry); registerContentEventHandlers(registry, telemetry, lifecycle, media); dispatch = eventDispatcher(admin, registry);
+  const registry = new EventHandlerRegistry(); registerPublishingEventHandlers(registry, boss, telemetry, new ContentService(app)); registerContentEventHandlers(registry, telemetry, lifecycle, media); dispatch = eventDispatcher(admin, registry);
   originPool = new pg.Pool({ connectionString: appUrl.href });
   nest = await createHttpApp({ CORS_ORIGINS: 'https://dashboard.test', NODE_ENV: 'test', LOG_LEVEL: 'silent' }, {
     pool: originPool, storage, events: boss, telemetry,

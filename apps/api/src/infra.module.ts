@@ -1,3 +1,4 @@
+import { CDN_PURGER, unconfiguredCdnPurger, type CdnPurger } from './ports/cdn-purger.js';
 import { Global, Module, type DynamicModule } from '@nestjs/common';
 import type { WebhookRecorder } from './modules/integration/webhook-recorder.js';
 import type { Pool } from 'pg';
@@ -89,6 +90,7 @@ export interface InfraDeps {
   mailer: Mailer;
   /** The media bucket (Story 3.5). */
   storage: ObjectStorage;
+  cdnPurger?: CdnPurger;
   /** Malware scanning of uploaded media (dev: EICAR only). */
   scanner: MalwareScanner;
   /**
@@ -128,6 +130,7 @@ export class InfraModule {
       { provide: ADMIN_ACCESS, useValue: deps.adminAccess },
       { provide: MAILER, useValue: deps.mailer },
       { provide: OBJECT_STORAGE, useValue: deps.storage },
+      { provide: CDN_PURGER, useValue: deps.cdnPurger ?? unconfiguredCdnPurger },
       { provide: MALWARE_SCANNER, useValue: deps.scanner },
       { provide: MEDIA_CONFIG, useValue: deps.media },
       { provide: STORE_DATA_LIFECYCLES, useValue: deps.lifecycles },

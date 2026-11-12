@@ -11,7 +11,7 @@ import * as schema from './index.js';
 
 const ADMIN_URL = process.env.TEST_ADMIN_URL ?? `postgres://slips:slips@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
 const APP_URL = process.env.TEST_APP_URL ?? `postgres://slips_it_publishing:it_publishing_pw@127.0.0.1:${process.env.TEST_DATABASE_PORT ?? '5433'}/slips`;
-const TENANT_TABLES = ['store_manifests'];
+const TENANT_TABLES = ['store_manifests', 'manifest_deliveries'];
 
 const admin = new pg.Pool({ connectionString: ADMIN_URL, max: 2 });
 let app: pg.Pool;
@@ -49,6 +49,7 @@ describe('publishing tables', () => {
           )
         ).rows[0]!.id,
     });
+    registerTenantTable({ table: 'manifest_deliveries', seed: async (c, storeId) => (await c.query<{ id: string }>(`insert into manifest_deliveries (store_id,install_epoch,platform_store_id,revision,content_hash) values ($1,1,'test',1,repeat('a',64)) on conflict (store_id) do update set revision=manifest_deliveries.revision+1 returning id::text as id`, [storeId])).rows[0]!.id });
     expect(findUnregisteredTenantTables(TENANT_TABLES)).toEqual([]);
   });
 
@@ -69,5 +70,27 @@ describe('publishing tables', () => {
     await expect(admin.query(`insert into store_manifests (store_id, revision, manifest, size_gzip_bytes, compiled_at) values ($1, 0, '{}'::jsonb, 1, now())`, [randomUUID()])).rejects.toMatchObject({ code: '23514' });
     await expect(admin.query(`insert into store_manifests (store_id, revision, manifest, size_gzip_bytes, compiled_at) values ($1, 2, '{}'::jsonb, -1, now())`, [randomUUID()])).rejects.toMatchObject({ code: '23514' });
     await expect(admin.query(`insert into store_manifests (store_id, revision, manifest, size_gzip_bytes, compiled_at) values ($1, 2, '{}'::jsonb, 1, now())`, [randomUUID()])).resolves.toBeDefined();
+  });
+});
+
+describe('manifest delivery constraints', () => {
+  it('requires valid scope, epoch, revision and canonical hashes', async () => {
+    for (const [epoch, revision, hash] of [[0,1,'a'.repeat(64)],[1,0,'a'.repeat(64)],[1,1,'bad']] as const) {
+      await expect(admin.query('insert into manifest_deliveries (store_id,install_epoch,platform_store_id,revision,content_hash) values ($1,$2,$3,$4,$5)', [randomUUID(),epoch,'123',revision,hash])).rejects.toMatchObject({ code:'23514' });
+    }
+    await expect(admin.query("insert into manifest_deliveries (store_id,install_epoch,platform_store_id,revision,content_hash) values (null,1,'123',1,repeat('a',64))")).rejects.toMatchObject({code:'23502'});
+  });
+});
+
+describe('manifest delivery operational aggregate boundary', () => {
+  it('returns counts and age only to the app role, with fixed search path and no public grant', async () => {
+    const result = await app.query('select * from manifest_delivery_stats()');
+    expect(Object.keys(result.rows[0]).sort()).toEqual(['failed','oldest_seconds','pending']);
+    for (const value of Object.values(result.rows[0])) expect(Number(value)).toBeGreaterThanOrEqual(0);
+    const metadata=await admin.query(`select p.prosecdef,p.proconfig,array_to_string(p.proacl,',') as acl from pg_proc p where p.oid='manifest_delivery_stats()'::regprocedure`);
+    expect(metadata.rows[0].prosecdef).toBe(true);
+    expect(metadata.rows[0].proconfig).toContain('search_path=pg_catalog, public');
+    expect(metadata.rows[0].acl).toContain('slips_app=X/');
+    expect(metadata.rows[0].acl).not.toMatch(/(^|,)=/);
   });
 });

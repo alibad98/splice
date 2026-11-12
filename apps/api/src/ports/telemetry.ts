@@ -35,6 +35,13 @@ export const Metric = {
   /** Histogram: duration in seconds of `media.asset.process` jobs, label `kind` (`image` | `video`) (Story 3.8). */
   MediaProcessingDuration: 'slips_media_processing_duration_seconds',
   /** Counter, label `outcome` (`compiled` | `emptied` | `skipped_disconnected` | `removed`): store manifest compiles (Story 4.4). */
+  ManifestOriginFailures: 'slips_manifest_origin_failures_total',
+  ManifestDeliveryPending: 'slips_manifest_delivery_pending',
+  ManifestDeliveryFailed: 'slips_manifest_delivery_failed',
+  ManifestDeliveryOldestAge: 'slips_manifest_delivery_oldest_age_seconds',
+  ManifestDeliveryLag: 'slips_manifest_delivery_lag_seconds',
+  ManifestDeliveryFailures: 'slips_manifest_delivery_failures_total',
+  ManifestPurges: 'slips_manifest_purges_total',
   ManifestCompiles: 'slips_manifest_compiles_total',
   /** Histogram: seconds from the triggering event's `occurred_at` to a committed compile that wrote a manifest (`compiled` | `emptied`, Story 4.4). */
   ManifestCompileLag: 'slips_manifest_compile_lag_seconds',

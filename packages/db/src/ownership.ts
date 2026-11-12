@@ -8,7 +8,7 @@ export const OWNERSHIP = {
   catalog: ['products', 'categories', 'catalog_sync_state'],
   content: ['content_items', 'slides', 'placements', 'schedules', 'content_product_links'],
   media: ['media_assets', 'media_upload_grants', 'renditions'],
-  publishing: ['store_manifests', 'store_keys'],
+  publishing: ['manifest_deliveries', 'store_manifests', 'store_keys'],
   analytics: ['events_raw', 'daily_rollups'],
   attribution: ['cart_adds', 'attributed_lines'],
   billing: ['subscriptions', 'usage_meters'],

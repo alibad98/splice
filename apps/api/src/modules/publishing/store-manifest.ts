@@ -1,4 +1,7 @@
 // Store manifest compile (Story 4.4 pilot slice): the worker job behind `publishing.manifest.compile`.
+import type { EventSender } from '../../events/outbox.js';
+import { lockStore } from '../integration/store-lifecycle.js';
+import { enqueueCompiledManifest } from './manifest-delivery.js';
 import { gzipSync } from 'node:zlib';
 import { MANIFEST_PLACEMENT_MAX_ITEMS, StoreManifest, isStoreDomainUrl } from '@slips/contracts';
 import { requireStoreContext, withStoreContext } from '@slips/db';
@@ -18,7 +21,7 @@ export type CompileOutcome =
   | { outcome: 'compiled' | 'emptied'; revision: number; items: number; sizeGzipBytes: number };
 
 /**
- * Compiles one store's manifest into `store_manifests` in one store-context transaction:
+ * Compiles one store's manifest and atomically queues object delivery in one store-context transaction:
  * - `disconnected`: nothing is written, the last manifest is kept;
  * - `uninstalled`: an empty manifest (no placements, no items) at the next revision;
  * - `purged` or unknown store: no row (any row is deleted), which readers treat as an empty manifest. The purged event
@@ -36,13 +39,15 @@ export class StoreManifestCompiler {
     private readonly content: Pick<ContentService, 'getStoreManifestCandidates'>,
     private readonly catalog: Pick<CatalogService, 'getProductsByIds'>,
     private readonly media: Pick<MediaService, 'getPublishedMediaByIds'>,
-    private readonly integration: Pick<IntegrationService, 'getLifecycleState' | 'getSyncedDomains'>,
+    private readonly integration: Pick<IntegrationService, 'getLifecycleState' | 'getSyncedDomains' | 'getManifestIdentity'>,
     private readonly telemetry: Telemetry,
+    private readonly deliverySender: EventSender,
   ) {}
 
   async compile(storeId: string, options: { occurredAt?: Date } = {}): Promise<CompileOutcome> {
     const result = await withStoreContext(this.pool, storeId, async (): Promise<CompileOutcome> => {
       const tx = requireStoreContext();
+      await lockStore(tx);
       // Lock first, then read the lifecycle state: a lifecycle change committed while this compile waited is seen.
       const inserted = await tx.query('insert into store_manifests (store_id) values ($1) on conflict (store_id) do nothing returning id', [storeId]);
       await tx.query('select revision from store_manifests where store_id = $1 for update', [storeId]);
@@ -53,6 +58,7 @@ export class StoreManifestCompiler {
         return { outcome: 'skipped_disconnected' };
       }
       if (state === 'purged' || state === null) {
+        await tx.query('delete from manifest_deliveries where store_id = $1', [storeId]);
         await tx.query('delete from store_manifests where store_id = $1', [storeId]);
         return { outcome: 'removed' };
       }
@@ -65,6 +71,9 @@ export class StoreManifestCompiler {
           where store_id = $1 returning revision::text as revision`,
         [storeId, json, sizeGzipBytes],
       );
+      const identity = await this.integration.getManifestIdentity(storeId);
+      if (!identity) throw new Error('manifest delivery identity unavailable');
+      await enqueueCompiledManifest(this.deliverySender, tx, this.telemetry, identity, storeId, Number(written.rows[0]!.revision), manifest, options.occurredAt ?? new Date());
       return { outcome: state === 'active' ? 'compiled' : 'emptied', revision: Number(written.rows[0]!.revision), items: manifest.items.length, sizeGzipBytes };
     });
     this.telemetry.counter(Metric.ManifestCompiles, { outcome: result.outcome });

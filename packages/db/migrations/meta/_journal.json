@@ -176,6 +176,13 @@
       "when": 1762214400000,
       "tag": "0024_store_manifests",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1762300800000,
+      "tag": "0025_manifest_delivery",
+      "breakpoints": true
     }
   ]
 }

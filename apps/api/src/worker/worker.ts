@@ -1,3 +1,5 @@
+import { unconfiguredCdnPurger } from '../ports/cdn-purger.js';
+import { ManifestDelivery, MANIFEST_DELIVERY_QUEUE, pollManifestDeliveryStats } from '../modules/publishing/manifest-delivery.js';
 import { createServer, type Server } from 'node:http';
 import pg from 'pg';
 import { PgBoss } from 'pg-boss';
@@ -142,17 +144,22 @@ export async function startWorker(
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
   // Store manifests (Story 4.4): MANIFEST_INPUTS events enqueue a compile in their delivery transaction.
   registerPublishingEventHandlers(events, boss, telemetry);
-  const manifestCompiler = new StoreManifestCompiler(pool, new ContentService(pool), new CatalogService(pool, boss, telemetry), mediaService, integration, telemetry);
-  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer, processorRunner), ...publishingJobHandlers(pool, manifestCompiler), ...handlers };
+  const manifestCompiler = new StoreManifestCompiler(pool, new ContentService(pool), new CatalogService(pool, boss, telemetry), mediaService, integration, telemetry, boss);
+  const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer, processorRunner), ...publishingJobHandlers(pool, manifestCompiler, new ManifestDelivery(pool, integration, infra.storage, infra.cdnPurger ?? unconfiguredCdnPurger, boss, telemetry)), ...handlers };
   let stopPoller = () => {};
+  let deliveryStatsTimer: ReturnType<typeof setInterval> | undefined;
   try {
     if (env.NODE_ENV === 'development') await ensureDevBucket(infra.storage, telemetry);
     await boss.start();
     const selected = queuesFor(env.WORKER_QUEUES, queues);
     await registerQueues(boss, telemetry, selected, allHandlers);
-    await grantEventPublishing(pool, telemetry, EVENT_QUEUE);
+    await grantEventPublishing(pool, telemetry, [EVENT_QUEUE, MANIFEST_DELIVERY_QUEUE]);
     if (selected.some((q) => q.name === WEBHOOK_SWEEP_QUEUE)) await boss.schedule(WEBHOOK_SWEEP_QUEUE, SWEEP_CRON, { v: 1, trace_id: 'schedule' });
     if (selected.some((q) => q.name === CATALOG_RECONCILE_SCHEDULE_QUEUE)) await boss.schedule(CATALOG_RECONCILE_SCHEDULE_QUEUE, RECONCILE_CRON, { v: 1, trace_id: 'schedule' });
+    if (selected.some((q) => q.name === MANIFEST_DELIVERY_QUEUE)) {
+      const poll = () => pollManifestDeliveryStats(pool, telemetry).catch((err: unknown) => telemetry.captureError(err, { task: 'manifest-delivery-stats' }));
+      void poll(); deliveryStatsTimer = setInterval(() => void poll(), 30000); deliveryStatsTimer.unref();
+    }
     stopPoller = startQueueStatsPoller(
       boss,
       selected.map((q) => ({ name: q.name, deadLetter: deadLetterName(q.name) })),
@@ -161,6 +168,7 @@ export async function startWorker(
       infra.probe,
     );
   } catch (err) {
+    if (deliveryStatsTimer) clearInterval(deliveryStatsTimer);
     server.close();
     await boss.stop({ graceful: false }).catch(() => undefined);
     await pool.end().catch(() => undefined);
@@ -173,6 +181,7 @@ export async function startWorker(
   const shutdown = async () => {
     try {
       stopPoller();
+      if (deliveryStatsTimer) clearInterval(deliveryStatsTimer);
       server.close();
       await boss.stop({ graceful: true });
       await pool.end();

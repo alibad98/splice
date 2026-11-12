@@ -5,6 +5,7 @@ import type { ObjectHead, ObjectStorage, PresignPutInput, PresignedPut } from '.
 interface StoredObject {
   body: Buffer;
   contentType: string;
+  cacheControl?: string;
 }
 
 /**
@@ -50,9 +51,9 @@ export class MemoryObjectStorage implements ObjectStorage {
     return o ? Readable.from([o.body]) : null;
   }
 
-  async put(key: string, body: Buffer, contentType: string): Promise<void> {
+  async put(key: string, body: Buffer, contentType: string, metadata?: { cacheControl?: string }): Promise<void> {
     this.check();
-    this.objects.set(key, { body, contentType });
+    this.objects.set(key, { body, contentType, ...metadata });
   }
 
   async delete(key: string): Promise<void> {

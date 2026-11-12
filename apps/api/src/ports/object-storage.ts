@@ -29,7 +29,7 @@ export interface ObjectStorage {
   head(key: string): Promise<ObjectHead | null>;
   /** The object's bytes as a stream, or `null` when it does not exist. */
   getStream(key: string): Promise<Readable | null>;
-  put(key: string, body: Buffer, contentType: string): Promise<void>;
+  put(key: string, body: Buffer, contentType: string, metadata?: { cacheControl?: string }): Promise<void>;
   /** Deletes one object; a missing object is not an error. */
   delete(key: string): Promise<void>;
   /** Deletes up to `limit` objects under `prefix`; `done` once nothing is left under it. */

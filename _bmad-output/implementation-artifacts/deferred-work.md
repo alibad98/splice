@@ -220,3 +220,10 @@ Original entries above retain their historical findings. Current disposition and
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-4-compile-store-manifest-pilot-slice.md`
   summary: Emit a manifest trigger when an active store's synced domains change.
   evidence: Review E3 (2026-11-11). Refreshing an active store's details updates `synced_domains` without any `MANIFEST_INPUTS` event, so open-link CTA drop decisions can stay stale until the next trigger. Pre-existing; save-time validation still rejects off-domain URLs.
+- source_spec: `spec-4-5-cdn-manifest-delivery-pilot-slice.md`
+  summary: Verify browser cache and stale-while-revalidate behavior when the production player loader is implemented.
+  evidence: The local caching HTTP fixture verifies invalidation, while the future loader fetch policy and browser cache behavior remain unknown. Check browser requests and deployed CDN timing to settle the unverified medium-risk freshness question; CDN purge cannot invalidate a browser cache.
+
+- source_spec: `spec-4-5-cdn-manifest-delivery-pilot-slice.md`
+  summary: Make worker-start event-publishing privilege replacement atomic.
+  evidence: grantEventPublishing already executed REVOKE and subsequent GRANT statements in separate transactions before 4.5, temporarily removing enqueue permissions during worker startup. Wrap the sequence in one transaction and verify concurrent producers in a follow-up.

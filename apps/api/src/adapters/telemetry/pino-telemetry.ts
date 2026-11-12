@@ -54,6 +54,9 @@ export class PinoTelemetry implements Telemetry {
     this.registry.declare(Metric.QueueOldestAgeSeconds, 'gauge');
     this.registry.declare(Metric.DeadLetterDepth, 'gauge');
     this.registry.declare(Metric.WorkerUp, 'gauge');
+    for (const metric of [Metric.ManifestDeliveryPending, Metric.ManifestDeliveryFailed, Metric.ManifestDeliveryOldestAge]) this.registry.declare(metric, 'gauge');
+    for (const metric of [Metric.ManifestOriginFailures, Metric.ManifestDeliveryFailures, Metric.ManifestPurges]) this.registry.declare(metric, 'counter');
+    this.registry.declare(Metric.ManifestDeliveryLag, 'histogram');
   }
 
   counter(name: string, labels?: Labels, value?: number): void {

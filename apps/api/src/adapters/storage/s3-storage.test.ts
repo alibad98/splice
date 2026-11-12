@@ -113,3 +113,40 @@ describe.skipIf(!minioUp)('S3ObjectStorage against MinIO (live)', () => {
     storage.destroy();
   });
 });
+
+describe('manifest object metadata', () => {
+  it('passes cache metadata on PUT without changing private source uploads', async () => {
+    const storage = new S3ObjectStorage(config);
+    const send = vi.fn().mockResolvedValue({});
+    (storage as unknown as { client: { send: typeof send } }).client.send = send;
+    await storage.put('m/v1/salla/123.json', Buffer.from('{}'), 'application/json', { cacheControl: 'public, max-age=60, stale-while-revalidate=60' });
+    expect(send.mock.calls[0]![0].input).toMatchObject({ Key: 'm/v1/salla/123.json', ContentType: 'application/json', CacheControl: 'public, max-age=60, stale-while-revalidate=60' });
+    expect(send.mock.calls[0]![0].input.ACL).toBeUndefined();
+    await storage.put('stores/private/uploads/source', Buffer.from('source'), 'image/png');
+    expect(send.mock.calls[1]![0].input.CacheControl).toBeUndefined();
+    storage.destroy();
+  });
+});
+
+describe('manifest origin storage failures and write deadline', () => {
+  it('only treats an explicit missing-key GET as absent', async () => {
+    const storage=new S3ObjectStorage(config); const send=vi.fn();
+    (storage as unknown as {client:{send:typeof send}}).client.send=send;
+    send.mockRejectedValueOnce({name:'NoSuchKey',$metadata:{httpStatusCode:404}});
+    await expect(storage.getStream('m/v1/salla/missing.json')).resolves.toBeNull();
+    for (const error of [{name:'NoSuchBucket',$metadata:{httpStatusCode:404}},{name:'ProxyFailure',$metadata:{httpStatusCode:404}},{name:'NotFound',$metadata:{httpStatusCode:404}}]) {
+      send.mockRejectedValueOnce(error); await expect(storage.getStream('m/v1/salla/store.json')).rejects.toBe(error);
+    }
+    send.mockResolvedValueOnce({}); await expect(storage.getStream('m/v1/salla/store.json')).rejects.toThrow('returned no body');
+    storage.destroy();
+  });
+  it('aborts a stalled manifest PUT through the SDK while private-media PUTs keep existing options', async () => {
+    const storage=new S3ObjectStorage({...config,manifestPutTimeoutMs:20});
+    const send=vi.fn().mockImplementation((_command:unknown,options?:{abortSignal?:AbortSignal})=>options?.abortSignal ? new Promise((_resolve,reject)=>options.abortSignal!.addEventListener('abort',()=>reject(new Error('SDK request aborted')),{once:true})) : Promise.resolve({}));
+    (storage as unknown as {client:{send:typeof send}}).client.send=send;
+    await expect(storage.put('m/v1/salla/store.json',Buffer.from('{}'),'application/json')).rejects.toThrow('SDK request aborted');
+    expect(send.mock.calls[0]![1]!.abortSignal!.aborted).toBe(true);
+    await storage.put('stores/private/uploads/source',Buffer.from('source'),'image/png'); expect(send.mock.calls[1]).toHaveLength(1);
+    storage.destroy();
+  });
+});

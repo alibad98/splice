@@ -1,3 +1,4 @@
+import { MANIFEST_DELIVERY_QUEUE } from '../modules/publishing/manifest-delivery.js';
 // Story 4.4 pilot slice composition tests: live Postgres (non-owner RLS role for every compile read and write), real
 // pg-boss outbox and compile queue. Covers the I/O matrix: publish, ineligible items, cap, withdraw, burst, race,
 // lifecycle, off-domain CTA, size and lag metrics, and that preview and store compiles share `compileManifest`.
@@ -57,13 +58,14 @@ beforeAll(async () => {
   await boss.start();
   await boss.createQueue(EVENT_QUEUE);
   await boss.createQueue(MANIFEST_COMPILE_QUEUE);
-  await grantEventPublishing(admin, telemetry, EVENT_QUEUE, SCHEMA, 'slips_app');
+  await boss.createQueue(MANIFEST_DELIVERY_QUEUE);
+  await grantEventPublishing(admin, telemetry, [EVENT_QUEUE, MANIFEST_DELIVERY_QUEUE], SCHEMA, 'slips_app');
   content = new ContentService(app);
   catalog = new CatalogService(app, boss, telemetry);
   media = new MediaService(app, new MemoryObjectStorage(), boss, telemetry, { uploadRateLimit: 60, publicBaseUrl: `${MEDIA_BASE}/` });
   const cipher = new EnvelopeTokenCipher({ k1: randomBytes(32).toString('base64') }, 'k1');
   integration = new IntegrationService(app, {} as CommercePlatform, cipher, telemetry, boss, { dashboardUrl: 'https://dash.example.com', stateSecret: randomBytes(32), secureCookies: false });
-  compiler = new StoreManifestCompiler(app, content, catalog, media, integration, telemetry);
+  compiler = new StoreManifestCompiler(app, content, catalog, media, integration, telemetry, boss);
   lifecycle = new ContentLifecycle(boss, telemetry, media);
   const registry = new EventHandlerRegistry();
   registerPublishingEventHandlers(registry, boss, telemetry);
@@ -387,7 +389,7 @@ describe('store manifest revisions', () => {
         if (calls++ === 0) await gate;
         return candidates;
       },
-    }, catalog, media, integration, telemetry);
+    }, catalog, media, integration, telemetry, boss);
     const older = slow.compile(storeId);
     await vi.waitFor(() => expect(calls).toBe(1));
     // The item is withdrawn while the first compile holds the lock with its (now stale) inputs.

@@ -1,7 +1,8 @@
+import { MANIFEST_DELIVERY_QUEUE, type ManifestDelivery } from '../modules/publishing/manifest-delivery.js';
 // Worker-side wiring of the publishing module (Story 4.4 pilot slice): every event in `MANIFEST_INPUTS` enqueues one
 // debounced, single-flight store manifest compile inside its delivery transaction; the job compiles it.
 import type { Pool } from 'pg';
-import { jobMeta, type JobHandler } from '../adapters/telemetry/jobs.js';
+import { isFinalAttempt, jobMeta, type JobHandler } from '../adapters/telemetry/jobs.js';
 import type { EventHandlerRegistry } from '../events/dispatcher.js';
 import type { TxQueryable } from '../events/outbox.js';
 import { MANIFEST_COMPILE_QUEUE, MANIFEST_COMPILE_SINGLETON_SECONDS, MANIFEST_INPUTS, ManifestCompileJob } from '../modules/publishing/manifest-inputs.js';
@@ -38,8 +39,9 @@ export function registerPublishingEventHandlers(registry: EventHandlerRegistry, 
 }
 
 /** The compile job: runs in the store's context (one transaction), see `StoreManifestCompiler`. */
-export function publishingJobHandlers(pool: Pool, compiler: Pick<StoreManifestCompiler, 'compile'>): Record<string, JobHandler> {
+export function publishingJobHandlers(pool: Pool, compiler: Pick<StoreManifestCompiler, 'compile'>, delivery?: Pick<ManifestDelivery, 'deliver'>): Record<string, JobHandler> {
   return {
+    ...(delivery ? { [MANIFEST_DELIVERY_QUEUE]: async (data: unknown, job: Parameters<JobHandler>[1]) => delivery.deliver(data, isFinalAttempt(job)) } : {}),
     [MANIFEST_COMPILE_QUEUE]: storeScopedJob(pool, async (data) => {
       const job = ManifestCompileJob.parse(data);
       await compiler.compile(job.store_id, { occurredAt: new Date(job.occurred_at) });

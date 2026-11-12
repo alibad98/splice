@@ -1,3 +1,5 @@
+import { HttpCdnPurger } from './adapters/cdn/http-cdn-purger.js';
+import { unconfiguredCdnPurger } from './ports/cdn-purger.js';
 import { createHmac, randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { NestFactory } from '@nestjs/core';
@@ -13,7 +15,7 @@ import { DevSallaCommercePlatform, SallaCommercePlatform, unconfiguredPlatform }
 import { sessionStoreData } from './modules/session/session.lifecycle.js';
 import { catalogStoreData } from './modules/catalog/catalog.lifecycle.js';
 import { contentStoreData } from './modules/content/content.lifecycle.js';
-import { publishingStoreData } from './modules/publishing/publishing.lifecycle.js';
+import { publishingDeliveryStoreData } from './modules/publishing/publishing.lifecycle.js';
 import { mediaStoreData } from './modules/media/media.lifecycle.js';
 import { S3ObjectStorage } from './adapters/storage/s3-storage.js';
 import { EicarMalwareScanner } from './adapters/scanner/eicar-scanner.js';
@@ -64,6 +66,9 @@ export type HttpEnv = Pick<Env, 'CORS_ORIGINS'> &
       | 'MEDIA_UPLOAD_RATE_LIMIT'
       | 'MEDIA_PUBLIC_BASE_URL'
       | 'FFMPEG_PATH'
+      | 'CDN_PURGE_URL'
+      | 'CDN_PURGE_TOKEN'
+      | 'CDN_PURGE_TIMEOUT_MS'
     >
   >;
 
@@ -145,10 +150,11 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
   const dashboardUrl = env.DASHBOARD_URL ?? 'http://localhost:3000';
   const mailer = overrides.mailer ?? new ConsoleMailer(telemetry);
   const storage = overrides.storage ?? buildStorage(env, telemetry);
+  const events = overrides.events ?? new SendOnlyEventSender(databaseUrl, telemetry);
   return {
     telemetry,
     pool,
-    events: overrides.events ?? new SendOnlyEventSender(databaseUrl, telemetry),
+    events,
     cipher,
     platform,
     integration: overrides.integration ?? {
@@ -175,12 +181,13 @@ export function buildInfra(env: HttpEnv, role: 'http' | 'worker', overrides: Par
     adminAccess: overrides.adminAccess ?? denyAllAdminAccess,
     mailer,
     storage,
+    cdnPurger: overrides.cdnPurger ?? (env.CDN_PURGE_URL && env.CDN_PURGE_TOKEN ? new HttpCdnPurger(env.CDN_PURGE_URL, env.CDN_PURGE_TOKEN, env.CDN_PURGE_TIMEOUT_MS) : unconfiguredCdnPurger),
     // Development-only adapter: flags the EICAR test string. A real scanner is a deferred decision (no vendor chosen).
     scanner: overrides.scanner ?? new EicarMalwareScanner(),
     media: overrides.media ?? { uploadRateLimit: env.MEDIA_UPLOAD_RATE_LIMIT ?? 60, publicBaseUrl: mediaPublicBaseUrl(env) },
     // External media links are fetched by the worker only (Story 3.7).
     ...(role === 'worker' ? { fetcher: overrides.fetcher ?? new SsrfSafeFetcher(), processor: overrides.processor ?? new FfmpegMediaProcessor(env.FFMPEG_PATH) } : {}),
-    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage), publishingStoreData],
+    lifecycles: overrides.lifecycles ?? [sessionStoreData, catalogStoreData, contentStoreData, mediaStoreData(storage), publishingDeliveryStoreData(events, telemetry)],
     installListeners: overrides.installListeners ?? [ownerInviteListener({ mailer, telemetry, dashboardUrl })],
     probe: overrides.probe ?? new PgDatabaseProbe(env.DATABASE_URL ?? 'postgres://localhost:5432/postgres'),
     flags: overrides.flags ?? new ConfigFeatureFlags(env.FEATURE_FLAGS),

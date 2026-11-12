@@ -24,6 +24,8 @@ export interface S3StorageConfig {
   /** Browser origins allowed to PUT to the pre-signed URLs (the dashboard, Story 3.6); set as bucket CORS at boot. */
   corsOrigins?: readonly string[];
   /** Where a best-effort step (bucket CORS) reports a failure; it never throws. */
+  /** Deadline for manifest PUTs only; other media operations retain their existing behavior. */
+  manifestPutTimeoutMs?: number;
   warn?: (message: string, fields: Record<string, unknown>) => void;
 }
 
@@ -36,11 +38,14 @@ const isNotFound = (err: unknown): boolean => {
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client: S3Client;
   private readonly bucket: string;
+  private readonly manifestPutTimeoutMs: number;
   private readonly corsOrigins: readonly string[];
   private readonly warn: (message: string, fields: Record<string, unknown>) => void;
 
   constructor(config: S3StorageConfig) {
     this.bucket = config.bucket;
+    this.manifestPutTimeoutMs = config.manifestPutTimeoutMs ?? 10000;
+    if (!Number.isInteger(this.manifestPutTimeoutMs) || this.manifestPutTimeoutMs < 1 || this.manifestPutTimeoutMs > 10000) throw new Error('invalid manifest PUT deadline');
     this.corsOrigins = config.corsOrigins ?? [];
     this.warn = config.warn ?? (() => {});
     this.client = new S3Client({
@@ -88,15 +93,19 @@ export class S3ObjectStorage implements ObjectStorage {
   async getStream(key: string): Promise<Readable | null> {
     try {
       const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
-      return (out.Body as Readable | undefined) ?? null;
+      if (!out.Body) throw new Error('Object storage GET returned no body');
+      return out.Body as Readable;
     } catch (err) {
-      if (isNotFound(err)) return null;
+      // GET's explicit S3 missing-key response is distinct from bucket/configuration/proxy failures.
+      if ((err as { name?: string } | null)?.name === 'NoSuchKey') return null;
       throw err;
     }
   }
 
-  async put(key: string, body: Buffer, contentType: string): Promise<void> {
-    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType, ContentLength: body.length }));
+  async put(key: string, body: Buffer, contentType: string, metadata?: { cacheControl?: string }): Promise<void> {
+    const command = new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, CacheControl: metadata?.cacheControl, ContentType: contentType, ContentLength: body.length });
+    if (key.startsWith('m/v1/salla/')) await this.client.send(command, { abortSignal: AbortSignal.timeout(this.manifestPutTimeoutMs) });
+    else await this.client.send(command);
   }
 
   async delete(key: string): Promise<void> {

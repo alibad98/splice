@@ -1,8 +1,13 @@
+import { MANIFEST_DELIVERY_QUEUE } from '../modules/publishing/manifest-delivery.js';
 import { describe, expect, it } from 'vitest';
 import { MANIFEST_COMPILE_QUEUE } from '../modules/publishing/manifest-inputs.js';
 import { GROUP_POLICY, QUEUES, QUEUE_GROUPS, queueOptions, queuesFor } from './queues.js';
 
 describe('queue policy', () => {
+  it('registers manifest delivery in realtime and selects it for realtime workers', () => {
+    expect(QUEUES.filter((q) => q.name === MANIFEST_DELIVERY_QUEUE)).toEqual([{ name: MANIFEST_DELIVERY_QUEUE, group: 'realtime' }]);
+    expect(queuesFor(['realtime']).map((q) => q.name)).toContain(MANIFEST_DELIVERY_QUEUE);
+  });
   it('defines exactly the realtime, media and batch groups', () => {
     expect([...QUEUE_GROUPS]).toEqual(['realtime', 'media', 'batch']);
     expect(Object.keys(GROUP_POLICY).sort()).toEqual(['batch', 'media', 'realtime']);

@@ -43,7 +43,7 @@ describe('@slips/db', () => {
         'storeLocator',
         'storePurgeSchedule',
         'storeSettings',
-        'storeManifests',
+        'storeManifests', 'manifestDeliveries',
         'stores',
         'tokenAccessLog',
         'webhookInbox',

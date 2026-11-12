@@ -34,6 +34,28 @@
       "severity": "ticket",
       "owner": "catalog-owner",
       "runbook": "docs/runbooks/alert-catalog-reconcile-dead-letter.md"
+    },
+    {
+      "id": "manifest-delivery-stale",
+      "summary": "Manifest compilation or delivery has waited longer than one minute",
+      "expr": "max(slips_manifest_delivery_oldest_age_seconds) > 60 or max(slips_queue_oldest_age_seconds{queue=~\"publishing[.]manifest[.](compile|deliver)\"}) > 60",
+      "threshold": 60,
+      "window": "1m",
+      "for": "0m",
+      "severity": "page",
+      "owner": "publishing-owner",
+      "runbook": "docs/runbooks/manifest-delivery.md"
+    },
+    {
+      "id": "manifest-delivery-exhausted",
+      "summary": "Manifest compilation or delivery exhausted durable retries",
+      "expr": "max(slips_manifest_delivery_failed) > 0 or max(slips_dead_letter_depth{queue=~\"publishing[.]manifest[.](compile|deliver)\"}) > 0",
+      "threshold": 0,
+      "window": "1m",
+      "for": "0m",
+      "severity": "page",
+      "owner": "publishing-owner",
+      "runbook": "docs/runbooks/manifest-delivery.md"
     }
   ]
 }

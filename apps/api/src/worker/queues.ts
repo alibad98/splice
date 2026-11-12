@@ -1,3 +1,4 @@
+import { MANIFEST_DELIVERY_QUEUE } from '../modules/publishing/manifest-delivery.js';
 // The single source of queue groups, concurrency and retry policy (AD-1).
 // Default: 5 attempts with exponential backoff 30 s -> 15 min; media: 3 attempts.
 import { EVENT_QUEUE, MEDIA_IMPORT_QUEUE, MEDIA_INSPECT_QUEUE, MEDIA_PROCESS_QUEUE } from '@slips/contracts';
@@ -56,6 +57,7 @@ export const QUEUES: readonly QueueDefinition[] = [
   { name: MEDIA_IMPORT_QUEUE, group: 'media' },
   { name: MEDIA_PROCESS_QUEUE, group: 'media' },
   { name: MANIFEST_COMPILE_QUEUE, group: 'realtime' },
+  { name: MANIFEST_DELIVERY_QUEUE, group: 'realtime' },
 ];
 
 export function queuesFor(groups: readonly QueueGroup[], queues: readonly QueueDefinition[] = QUEUES): QueueDefinition[] {

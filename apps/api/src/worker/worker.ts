@@ -142,9 +142,11 @@ export async function startWorker(
   const catalogReconcile = new CatalogReconcile(pool, infra.platform, integration, telemetry, boss);
   // The worker's sweep retries product webhooks that were not applied inline.
   registerProductWebhooks(integration.inbox, integration, pool, infra.platform, telemetry, boss);
-  // Store manifests (Story 4.4): MANIFEST_INPUTS events enqueue a compile in their delivery transaction.
-  registerPublishingEventHandlers(events, boss, telemetry);
-  const manifestCompiler = new StoreManifestCompiler(pool, new ContentService(pool), new CatalogService(pool, boss, telemetry), mediaService, integration, telemetry, boss);
+  // Store manifests (Story 4.4): MANIFEST_INPUTS events enqueue a compile in their delivery transaction; product
+  // events only when content links the product (Story 4.6).
+  const contentService = new ContentService(pool);
+  registerPublishingEventHandlers(events, boss, telemetry, contentService);
+  const manifestCompiler = new StoreManifestCompiler(pool, contentService, new CatalogService(pool, boss, telemetry), mediaService, integration, telemetry, boss);
   const allHandlers = { [EVENT_QUEUE]: eventDispatcher(pool, events), ...integrationJobHandlers(integration, telemetry, boss), ...catalogJobHandlers(catalogSync, catalogReconcile, integration, boss, telemetry), ...mediaJobHandlers(pool, inspector, importer, processorRunner), ...publishingJobHandlers(pool, manifestCompiler, new ManifestDelivery(pool, integration, infra.storage, infra.cdnPurger ?? unconfiguredCdnPurger, boss, telemetry)), ...handlers };
   let stopPoller = () => {};
   let deliveryStatsTimer: ReturnType<typeof setInterval> | undefined;

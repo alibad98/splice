@@ -89,7 +89,7 @@ development_status:
   4-3-schedule-start-and-end-in-the-store-time-zone: backlog
   4-4-compile-the-per-store-manifest-of-eligible-content: in-progress # Home/Story pilot slice; full 4.4 acceptance remains open
   4-5-serve-the-manifest-from-the-cdn-and-purge-on-change: in-progress # pilot slice done and reviewed; full key-path/schedule acceptance remains open
-  4-6-refresh-the-storefront-on-product-price-and-stock-changes: backlog
+  4-6-refresh-the-storefront-on-product-price-and-stock-changes: in-progress # product-freshness pilot slice done and reviewed; schedule-boundary and staging CI freshness remain open
   epic-4-retrospective: optional
 
   epic-5: backlog

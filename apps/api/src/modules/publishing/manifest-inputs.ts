@@ -16,7 +16,8 @@ export const MANIFEST_GZIP_WARN_BYTES = 15 * 1024;
  * Events whose commit may change a store's manifest:
  * - content status and edits (AD-19): every transition into or out of `published`, field edits;
  * - media readiness of slides: an asset becoming `processed` or `failed`;
- * - linked product changes and deletion, and completed catalog syncs (snapshot refresh; guarantees are Story 4.6);
+ * - product changes of a manifest-visible field and deletions, gated by the worker handler (Story 4.6): they enqueue only
+ *   when at least one non-deleted content item links the product; completed catalog syncs always enqueue (snapshot refresh);
  * - store lifecycle (AD-20): install, reinstall, reconnect, disconnect, uninstall, purge.
  * Settings, plan, key retirement and schema-bump triggers arrive with their events (later stories).
  */
